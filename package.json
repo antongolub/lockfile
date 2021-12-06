@@ -1,0 +1,30 @@
+{
+  "name": "@antongolub/lockfile",
+  "version": "0.0.0",
+  "description": "Read, write, and convert npm (v1, v2) and yarn (classic and berry) lockfiles in any directions with reasonable losses.",
+  "main": "./target/es6/index.mjs",
+  "scripts": {
+    "test": "uvu -r ts-node/register src/test/ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/antongolub/lockfile.git"
+  },
+  "keywords": [
+    "lock",
+    "lockfile",
+    "lockfile2",
+    "yarn",
+    "yarnlock",
+    "yarn.lock",
+    "package-lock",
+    "npm"
+  ],
+  "author": "Anton Golub <antongolub@antongolub.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/antongolub/lockfile/issues"
+  },
+  "homepage": "https://github.com/antongolub/lockfile#readme",
+  "packageManager": "yarn@3.1.1"
+}
