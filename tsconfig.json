@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "rootDir": "./src/main/ts/",
+    "baseUrl": "./src/main/ts/",
+    "moduleResolution": "node",
+    "module": "esnext",
+    "target": "esnext",
+    "lib": [
+      "esnext"
+    ],
+    "strict": true,
+    "declaration": true
+  },
+  "include": [
+    "src/main/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/test"
+  ]
+}
