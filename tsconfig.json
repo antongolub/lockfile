@@ -2,14 +2,14 @@
   "compilerOptions": {
     "rootDir": "./src/main/ts/",
     "baseUrl": "./src/main/ts/",
+    "esModuleInterop": true,
     "moduleResolution": "node",
     "module": "esnext",
     "target": "esnext",
-    "lib": [
-      "esnext"
-    ],
     "strict": true,
-    "declaration": true
+    "noImplicitAny": true,
+    "declaration": true,
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "src/main/**/*"
