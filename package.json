@@ -9,7 +9,7 @@
     "build:es6": "node ./build.js",
     "build:libdef": "tsc --emitDeclarationOnly --outDir target/es6",
     "build:esmfix": "tsc-esm-fix --target=target/es6 --ext=.mjs",
-    "test": "loadr -- uvu 'src/test/ts/'"
+    "test": "uvu -r tsm 'src/test/ts/'"
   },
   "repository": {
     "type": "git",
@@ -34,15 +34,14 @@
   "packageManager": "yarn@3.1.1",
   "dependencies": {
     "js-yaml": "^4.1.0",
-    "tslib": "^2.3.1"
+    "tslib": "^2.4.0"
   },
   "devDependencies": {
-    "esbuild": "^0.14.2",
-    "esbuild-node-externals": "^1.4.0",
-    "loadr": "^0.1.1",
-    "tsc-esm-fix": "^2.7.4",
-    "tsm": "^2.2.1",
-    "typescript": "^4.5.2",
-    "uvu": "^0.5.2"
+    "esbuild": "^0.14.51",
+    "esbuild-node-externals": "^1.4.1",
+    "tsc-esm-fix": "^2.20.0",
+    "tsm": "^2.2.2",
+    "typescript": "^4.7.4",
+    "uvu": "^0.5.6"
   }
 }

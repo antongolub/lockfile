@@ -58,7 +58,7 @@ const parsed = parse({
 
 const data = format({
   ...parsed,
-  lockfileType: 'yarn2'
+  lockfileType: 'yarn-2'
 })
 // output
 `
@@ -75,6 +75,15 @@ __metadata:
 ...
 `
 ```
+
+### Lockfile (meta) versions
+| Package manager  | meta format |
+|------------------|-------------|
+| npm <6           | 1           |
+| npm >=6          | 2           |
+| yarn 1 (classic) | 1           |
+| yarn 3           | 5           |
+| yarn 4           | 6           |
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
