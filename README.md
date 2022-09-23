@@ -23,11 +23,12 @@ const parsed = parse({
 
 // output
 {
-  map: {
+  entries: {
     '@babel/code-frame@7.10.4': {
+      name: '@babel/code-frame',
       version: '7.10.4',
       scope: 'prod/dev/peer/opt',
-      integrity: {
+      integrities: {
         sha512: 'hashsum',
         sha256: '...',
         sha1: '...',
@@ -35,7 +36,7 @@ const parsed = parse({
       },
       reference: {
         sourceType: 'npm/git/file/workspace'
-        sourceUri: 'uri://remote/address',
+        sourceRef: 'uri://remote/address',
         linkType: 'hard/soft',
         link: '<root>path/to/package'
       },
@@ -46,7 +47,11 @@ const parsed = parse({
     ...
   },
   meta: {
-    format: '0.0.0',
+    lockfile: {
+      type: 'yarn',
+      version: '5', // metadata format version
+    },
+    packageJson: {...},
     workspaces: {
       patterns: ['./packages/*'],
       packages: {
