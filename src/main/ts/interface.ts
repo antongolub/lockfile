@@ -59,7 +59,7 @@ export type IParse = {
     (opts?: TParseOptions): Promise<TDepsSnapshot>
 }
 
-export interface IFormatOptions {
+export type IFormatOptions = {
     format: TLockfileFormat
 }
 

@@ -87,8 +87,8 @@ __metadata:
 | npm <6           | 1           |
 | npm >=6          | 2           |
 | yarn 1 (classic) | 1           |
-| yarn 3           | 5           |
-| yarn 4           | 6           |
+| yarn 3           | 5, 6        |
+| yarn 4           | 6, 7        |
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
