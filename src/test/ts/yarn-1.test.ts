@@ -1,8 +1,7 @@
 import { suite } from 'uvu'
-import * as assert from 'uvu/assert'
 import path from 'node:path'
-import fs from 'node:fs/promises'
-import {parse, format} from '../../main/ts/yarn-1'
+import { parse, format } from '../../main/ts/yarn-1'
+import { testParseFormatInterop } from './helpers'
 
 const test = suite('yarn-1')
 const fixtures = path.resolve(__dirname, '../fixtures/yarn-1')
@@ -21,24 +20,7 @@ const fixtures = path.resolve(__dirname, '../fixtures/yarn-1')
 // `
 
 test('parse/format interop', async () => {
-  const lockfile = await fs.readFile(path.resolve(fixtures, 'yarn.lock'), 'utf-8')
-  const pkgjson = await fs.readFile(path.resolve(fixtures, 'package.json'), 'utf-8')
-
-  const obj = await parse(lockfile)
-  const output = await format(obj)
-
-  // assert.ok(output === lockfile)
-  const c1 = output.split('\n')
-  const c2 = lockfile.split('\n')
-  for (let i in c1) {
-    if (c1[i] !== c2[i]) {
-      assert.ok(false, `${c1[i]} !== ${c2[i]}, index: ${i}`)
-    }
-  }
-  //
-  // console.log(output.length, lockfile.length)
-  // console.log(output.slice(0, 3000))
-  // console.log(lockfile.slice(0, 3000))
+  await testParseFormatInterop({input: path.resolve(fixtures, 'yarn.lock'), parse, format})
 })
 
 test.run()

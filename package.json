@@ -9,7 +9,7 @@
     "build:es6": "node ./build.js",
     "build:libdef": "tsc --emitDeclarationOnly --outDir target/es6",
     "build:esmfix": "tsc-esm-fix --target=target/es6 --ext=.mjs",
-    "test": "uvu -r tsm 'src/test/ts/'"
+    "test": "uvu -r tsm -i helpers 'src/test/ts/'"
   },
   "repository": {
     "type": "git",

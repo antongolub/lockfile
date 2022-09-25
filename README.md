@@ -3,7 +3,7 @@ Read, write, and convert npm (v1, v2) and yarn (classic and berry) lockfiles in 
 
 ### Motivation
 Every package manager brings its own philosophy of how to describe, store and control projects dependencies.
-It's awesome for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
+This is awesome for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
 This lib is a naive attempt to build a pm-independent, generic, extensible and reliable deps representation.
 
 ### Getting started
