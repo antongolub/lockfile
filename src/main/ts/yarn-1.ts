@@ -40,7 +40,11 @@ export const format = (value: any) => {
         }
 
         if (line.startsWith('  integrity')) {
-            return line.replace(':', '').replaceAll('"', '')
+            const _line = line.replace(':', '')
+
+            return line.includes('= ') // multiple hashes
+                ? _line.replaceAll('"integrity"', 'integrity')
+                : _line.replaceAll('"', '')
         }
 
         if (line.endsWith('ependencies:')) {

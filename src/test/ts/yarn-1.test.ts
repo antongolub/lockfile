@@ -19,8 +19,12 @@ const fixtures = path.resolve(__dirname, '../fixtures/yarn-1')
 //     readable-stream "1 || 2"
 // `
 
-test('parse/format interop', async () => {
-  await testParseFormatInterop({input: path.resolve(fixtures, 'yarn.lock'), parse, format})
+test('parse/format interop for regular repo', async () => {
+  await testParseFormatInterop({input: path.resolve(__dirname, '../fixtures/yarn-1/yarn.lock'), parse, format})
+})
+
+test('parse/format interop for monorepo', async () => {
+  await testParseFormatInterop({input: path.resolve(__dirname, '../fixtures/yarn-1-mr/yarn.lock'), parse, format})
 })
 
 test.run()
