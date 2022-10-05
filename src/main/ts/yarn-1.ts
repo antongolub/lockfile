@@ -1,8 +1,17 @@
 import {load, dump} from 'js-yaml'
+import {TDependencies, TDepsSnapshot, THashes} from './interface'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
-export const parse = (value: string) => {
+export type TYarn1Lockfile = Record<string, {
+    version: string
+    resolved: string
+    integrity: string
+    dependencies?: TDependencies
+    optionalDependencies?: TDependencies
+}>
+
+export const preparse = (value: string): TYarn1Lockfile  => {
     const lines = value.split('\n')
     const _value = lines.map((line) => {
         if (line.startsWith('#')) {
@@ -22,11 +31,72 @@ export const parse = (value: string) => {
         return line
     }, '').join('\n')
 
-    return load(_value)
+    return load(_value) as TYarn1Lockfile
 }
 
-export const format = (value: any) => {
-    const lines: string[] = dump(value, {
+const parseIntegrity = (integrity: string): THashes =>
+    integrity.split(' ').reduce<THashes>((m, item) => {
+        const [k, v] = item.split('-')
+        if (k === 'sha512' || k === 'sha256' || k === 'sha1' || k === 'checksum') {
+            m[k] = v
+        }
+
+        return m
+    }, {})
+
+export const parse = async (value: string): Promise<TDepsSnapshot> => {
+    const raw = await preparse(value)
+    const snapshot: TDepsSnapshot = {
+        entries: {},
+        format: 'yarn-1',
+    }
+
+    Object.entries(raw).forEach((value) => {
+        const [_key, _entry] = value
+        const chunks = _key.split(', ')
+        const ranges = chunks.map(r => r.slice(r.lastIndexOf('@') + 1))
+        const { version, integrity, dependencies, optionalDependencies, resolved: source } = _entry
+        const name = chunks[0].slice(0, chunks[0].lastIndexOf('@'))
+        const key = `${name}@${version}`
+        const hashes = parseIntegrity(integrity)
+
+        snapshot.entries[key] = {
+            name,
+            version,
+            ranges,
+            hashes,
+            dependencies,
+            optionalDependencies,
+            source,
+        }
+    })
+
+    return snapshot
+}
+
+export const preformat = (value: TDepsSnapshot): TYarn1Lockfile => {
+    const lf: TYarn1Lockfile = {}
+
+    Object.values(value.entries).forEach((entry) => {
+        const { name, version, ranges, hashes, dependencies, optionalDependencies, source } = entry
+        const key = ranges.map(r => `${name}@${r}`).join(', ')
+        const integrity = Object.entries(hashes).map(([k, v]) => `${k}-${v}`).join(' ')
+
+        lf[key] = {
+            version,
+            resolved: source as string,
+            integrity,
+            dependencies,
+            optionalDependencies,
+        }
+    })
+
+    return lf
+}
+
+export const format = (value: TDepsSnapshot): string => {
+    const lf = preformat(value)
+    const lines: string[] = dump(lf, {
         quotingType: '"',
         flowLevel: -1,
         lineWidth: -1,

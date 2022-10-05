@@ -1,10 +1,8 @@
-export type TLockfileFormat = 'npm-1' | 'npm-2' | 'yarn-1' | 'yarn-5' | 'yarn-6'
+export type TLockfileFormat = 'npm-1' | 'npm-2' | 'yarn-1' | 'yarn-5' | 'yarn-6' | 'yarn-7'
 
 export type TScope = 'prod' | 'dev' | 'peer' | 'opt'
 
 export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace'
-
-export type TLinkType = 'hard' | 'soft'
 
 export type TDependencies = Record<string, string>
 
@@ -18,11 +16,11 @@ export interface THashes {
 export interface TLockfileEntry {
     name: string
     version: string
-    scope: TScope
-    deps: TDependencies
+    ranges: string[]
     hashes: THashes
-    linkType: TLinkType
-    link: string
+    scope?: TScope
+    dependencies?: TDependencies
+    optionalDependencies?: TDependencies
     sourceType?: TSourceType
     source?: string
 }
@@ -45,7 +43,6 @@ export interface TWorkspace {
 export interface TDepsSnapshot {
     format: TLockfileFormat
     entries: Record<string, TLockfileEntry>
-    workspaces: Record<string, TWorkspace>
 }
 
 export interface TParseOptions {
