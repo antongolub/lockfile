@@ -40,7 +40,6 @@ const parseIntegrity = (integrity: string): THashes =>
         if (k === 'sha512' || k === 'sha256' || k === 'sha1' || k === 'checksum') {
             m[k] = v
         }
-
         return m
     }, {})
 
@@ -54,7 +53,7 @@ export const parse = async (value: string): Promise<TDepsSnapshot> => {
     Object.entries(raw).forEach((value) => {
         const [_key, _entry] = value
         const chunks = _key.split(', ')
-        const ranges = chunks.map(r => r.slice(r.lastIndexOf('@') + 1))
+        const ranges = chunks.map(r => r.slice(r.lastIndexOf('@') + 1)).sort()
         const { version, integrity, dependencies, optionalDependencies, resolved: source } = _entry
         const name = chunks[0].slice(0, chunks[0].lastIndexOf('@'))
         const key = `${name}@${version}`
