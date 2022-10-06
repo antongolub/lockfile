@@ -40,7 +40,7 @@ export interface TWorkspace {
     manifest: TManifest
 }
 
-export interface TDepsSnapshot {
+export interface TSnapshot {
     format: TLockfileFormat
     entries: Record<string, TLockfileEntry>
 }
@@ -52,8 +52,8 @@ export interface TParseOptions {
 }
 
 export type IParse = {
-    (data: string, opts?: TParseOptions): Promise<TDepsSnapshot>
-    (opts?: TParseOptions): Promise<TDepsSnapshot>
+    (data: string, opts?: TParseOptions): Promise<TSnapshot>
+    (opts?: TParseOptions): Promise<TSnapshot>
 }
 
 export type IFormatOptions = {
@@ -61,5 +61,5 @@ export type IFormatOptions = {
 }
 
 export type IFormat = {
-    (data: TDepsSnapshot, opts?: IFormatOptions): Promise<string>
+    (data: TSnapshot, opts?: IFormatOptions): Promise<string>
 }

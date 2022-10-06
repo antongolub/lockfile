@@ -1,5 +1,5 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TDepsSnapshot, THashes} from './interface'
+import {TDependencies, TSnapshot, THashes} from './interface'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -43,9 +43,9 @@ const parseIntegrity = (integrity: string): THashes =>
         return m
     }, {})
 
-export const parse = async (value: string): Promise<TDepsSnapshot> => {
+export const parse = async (value: string): Promise<TSnapshot> => {
     const raw = await preparse(value)
-    const snapshot: TDepsSnapshot = {
+    const snapshot: TSnapshot = {
         entries: {},
         format: 'yarn-1',
     }
@@ -73,7 +73,7 @@ export const parse = async (value: string): Promise<TDepsSnapshot> => {
     return snapshot
 }
 
-export const preformat = (value: TDepsSnapshot): TYarn1Lockfile => {
+export const preformat = (value: TSnapshot): TYarn1Lockfile => {
     const lf: TYarn1Lockfile = {}
 
     Object.values(value.entries).forEach((entry) => {
@@ -93,7 +93,7 @@ export const preformat = (value: TDepsSnapshot): TYarn1Lockfile => {
     return lf
 }
 
-export const format = (value: TDepsSnapshot): string => {
+export const format = (value: TSnapshot): string => {
     const lf = preformat(value)
     const lines: string[] = dump(lf, {
         quotingType: '"',

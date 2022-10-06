@@ -4,7 +4,9 @@ import path from 'node:path'
 import * as assert from 'uvu/assert'
 
 export const testParseFormatInterop =  async ({input, parse, format, opts}: {input: string, parse: any, format: any, opts?: any}) => {
-    const lockfile: string = input.endsWith('/yarn.lock') ? await fs.readFile(path.resolve(input), 'utf-8') : input
+    const lockfile: string = input.endsWith('/yarn.lock') || input.endsWith('/package-lock.json')
+        ? await fs.readFile(path.resolve(input), 'utf-8')
+        : input
     const obj = await parse(lockfile, opts)
     const output: string = await format(obj)
 
