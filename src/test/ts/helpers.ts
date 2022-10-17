@@ -7,7 +7,10 @@ export const testParseFormatInterop =  async ({input, parse, format, opts}: {inp
     const lockfile: string = input.endsWith('/yarn.lock') || input.endsWith('/package-lock.json')
         ? await fs.readFile(path.resolve(input), 'utf-8')
         : input
-    const obj = await parse(lockfile, opts)
+    const _opts = typeof opts === 'string' && opts.endsWith('/package.json')
+        ? await fs.readFile(path.resolve(opts), 'utf-8')
+        : opts
+    const obj = await parse(lockfile, _opts)
     const output: string = await format(obj)
 
     // assert.ok(output === lockfile)

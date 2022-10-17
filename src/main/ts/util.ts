@@ -8,3 +8,12 @@ export const parseIntegrity = (integrity: string): THashes =>
         }
         return m
     }, {})
+
+export const sortObject = <T extends Record<string, any>>(unordered: T): T =>
+    Object.keys(unordered).sort().reduce(
+        (obj, key: keyof T) => {
+            obj[key] = unordered[key]
+            return obj
+        },
+        {} as T,
+    )

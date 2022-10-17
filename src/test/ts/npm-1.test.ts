@@ -6,7 +6,12 @@ import { testParseFormatInterop } from './helpers'
 const test = suite('npm-1')
 
 test.only('parse/format interop for regular repo', async () => {
-  await testParseFormatInterop({input: path.resolve(__dirname, '../fixtures/npm-1/package-lock.json'), parse, format})
+  await testParseFormatInterop({
+    input: path.resolve(__dirname, '../fixtures/npm-1/package-lock.json'),
+    opts: path.resolve(__dirname, '../fixtures/npm-1/package.json'),
+    parse,
+    format
+  })
 })
 
 test.run()

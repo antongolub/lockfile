@@ -11,6 +11,7 @@ export interface THashes {
     sha256?: string
     sha1?: string
     checksum?: string
+    md5?: string
 }
 
 export interface TLockfileEntry {

@@ -32,7 +32,7 @@ const parsed = parse({
         sha512: 'hashsum',
         sha256: '...',
         sha1: '...',
-        checksum: '...'
+        md5: '...'
       },
       reference: {
         sourceType: 'npm/git/file/workspace'
@@ -82,10 +82,10 @@ __metadata:
 ```
 
 ### Lockfile (meta) versions
-| Package manager  | meta format |
+| Package manager  | Meta format |
 |------------------|-------------|
-| npm <6           | 1           |
-| npm >=6          | 2           |
+| npm <7           | 1           |
+| npm >=7          | 2           |
 | yarn 1 (classic) | 1           |
 | yarn 3           | 5, 6        |
 | yarn 4           | 6, 7        |
