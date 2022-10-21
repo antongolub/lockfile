@@ -44,6 +44,7 @@ export interface TWorkspace {
 export interface TSnapshot {
     format: TLockfileFormat
     entries: Record<string, TLockfileEntry>
+    workspaces: Record<string, TWorkspace>
 }
 
 export interface TParseOptions {
