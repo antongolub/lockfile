@@ -146,12 +146,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     // console.log(tree.map(a => a.map(b => b.name).join('>') ))
 
     // const firstLevel: Map<string, TLockfileEntry> = new Map()
-    const entriesIndex: Map<TLockfileEntry, TNpm1LockfileEntry> = new Map()
     const formatNpm1LockfileEntry = (entry: TLockfileEntry, dev: boolean = false): TNpm1LockfileEntry => {
-        if (entriesIndex.has(entry)) {
-            return entriesIndex.get(entry)!
-        }
-
         const {name, version, hashes} = entry
         const _name = name.slice(name.indexOf('/') + 1)
         const _entry: TNpm1LockfileDeps[string] = {
@@ -168,8 +163,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
             _entry.requires = entry.dependencies
         }
 
-        entriesIndex.set(entry, _entry)
-
         return _entry
     }
 
@@ -178,118 +171,319 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     //         ? Object.entries(deps).map(([name, range]) =>
     //             entries.find((e) => e.name === name && e.ranges.includes(range)) as TLockfileEntry)
     //         : []
-    // const prodDeps = getRootDeps(root.dependencies)
-    // const devDeps = getRootDeps(root.devDependencies)
 
 
-    const processEntry = (entry: TLockfileEntry, path: string[] = [], dev: boolean = false) => {
+    type TD = {dependencies?: TNpm1LockfileDeps}
+
+    const processEntry = (entry: TLockfileEntry, path: TLockfileEntry[] = [], dev: boolean = false) => {
         const {name, version} = entry
         const _entry = formatNpm1LockfileEntry(entry, dev)
 
 
-        path.shift()
+        if (name === 'semver') {
+            console.log(name, version, path.map((e) => `${e.name}@${e.version}`).join('>'))
+        }
 
-        // console.log(name, path.join('>'))
+        //const hasNoSamePkgInParentDeps = path.every(p => !p.dependencies?.[name])
+
+        // console.log(name, path.map(e => e.name).join('>'))
+
+        let node: TD = lf
+
+        if (!lf.dependencies) {
+            lf.dependencies = {}
+        }
 
 
-        let node: {dependencies?: TNpm1LockfileDeps} = lf
-        do {
-            if (!node.dependencies) {
-                node.dependencies = {}
+        if (!lf.dependencies[name]) {
+            lf.dependencies[name] = _entry
+            return
+        }
+
+        if (lf.dependencies[name]?.version === version) {
+            return
+        }
+
+        // find the closest parent for injection
+
+        const parentRefs = path.reduce((m, {name, version}, i) => {
+            if (lf.dependencies?.[name]?.version === version) {
+                m.push(lf.dependencies?.[name])
+            } else {
+                m.push(m[i - 1]?.dependencies?.[name] as TD)
             }
 
-            if (!node.dependencies[name]) {
-                node.dependencies[name] = _entry
+            return m
+        }, [] as TD[])
+
+        for (const p of parentRefs) {
+            if (!p.dependencies) {
+                p.dependencies = {}
                 return
             }
 
-            if (node.dependencies[name].version === version) {
+            if (!p.dependencies[name]) {
+                // @ts-ignore
+                const _v = p.requires?.[name]
+
+                if (_v && !entry.ranges.includes(_v)) {
+                    continue
+                }
+
+                p.dependencies[name] = _entry
                 return
             }
 
-            node = node.dependencies[path.shift()!]
-        } while (node)
+            if (p.dependencies[name]?.version === version) {
+                return
+            }
+        }
+
+        if (name === 'semver') {
+            console.log('wtf?!')
+        }
+
+
+
+        // console.log(parentRefs.length)
+
+
+
+        // // finds the first parent that requires the entry
+        // const from = path.findIndex((p) =>
+        //     entry.ranges.includes(p.dependencies?.[name] as string))
+        //
+        //
+        // // searches the first parent that exists in the lockfile
+        // const to = path.slice(0, from).reverse().findIndex((p) =>
+        //     lf.dependencies?.[p.name]?.version === p.version)
+        //
+        // const _path = path.slice(from - to, from)
+        //
+        // const node = _path.reduce((m, {name}) => {
+        //
+        //
+        //    return m.dependencies?.[name] as TD
+        //
+        // }, lf as TD)
+        //
+        // if (!node) {
+        //     console.log(name, version, path.map((e) => e.name).join('>'))
+        //     console.log(_path)
+        //     console.log(from, to)
+        //     console.log(lf.dependencies[_path[0].name])
+        //     console.log(lf.dependencies[_path[1]?.name])
+        //
+        //     throw new Error('node not found')
+        // }
+        //
+        // if (!node.dependencies) {
+        //     node.dependencies = {}
+        // }
+        //
+        // if (node.dependencies[name]?.version === version) {
+        //     node.dependencies[name] = _entry
+        // }
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // const hasNoPkgInParentDeps = path.every(p => !p?.dependencies?.[name])
+        //
+        // let node: {dependencies?: TNpm1LockfileDeps} = lf
+        //
+        // if (!node.dependencies) {
+        //     node.dependencies = {}
+        // }
+        //
+        // if (!node.dependencies[name] && hasNoPkgInParentDeps) {
+        //
+        //     node.dependencies[name] = _entry
+        //     return
+        // }
+        //
+        // if (node.dependencies[name]?.version === version) {
+        //     if (node.dependencies[name].dev && !dev) {
+        //         delete node.dependencies[name].dev
+        //     }
+        //     return
+        // }
+        //
+        // const from = path.findIndex((p) => {
+        //         return entry.ranges.includes(p.dependencies?.[name] as string)
+        //
+        //         })
+        //
+        //
+        // const to = path.slice(0, from).reverse().findIndex((p) =>
+        //     lf.dependencies?.[p.name]?.version === p.version
+        // )
+
+
+
+        // const parent = path.find(({name: _name, version: _version}) => {
+        //     const dep = node.dependencies[_name]
+        //
+        //     return dep?.version === _version && entry.ranges.includes(dep?.requires?.[name] as string)
+        // })?.name
+
+
+        // do {
+        //     if (!node.dependencies) {
+        //         node.dependencies = {}
+        //     }
+        //
+        //     if (!node.dependencies[name]) {
+        //         if (path.every(p => !p?.dependencies?.[name])) {
+        //             node.dependencies[name] = _entry
+        //             return
+        //         }
+        //     }
+        //
+        //     if (node.dependencies?.[name]?.version === version) {
+        //         if (node.dependencies[name].dev && !dev) {
+        //             delete node.dependencies[name].dev
+        //         }
+        //         return
+        //     }
+        //
+        //     const parent = path.find(({name: _name, version: _version}) => {
+        //         const dep = node?.dependencies?.[_name]
+        //
+        //         return dep?.version === _version && entry.ranges.includes(dep?.requires?.[name] as string)
+        //     })?.name
+        //
+        //     node = parent ? node.dependencies[parent] : undefined
+
+        //} while (node)
     }
 
 
 
     const isDev = (manifest: TManifest, name: string): boolean => !manifest.dependencies?.[name] && !!manifest.devDependencies?.[name]
 
-    tree
-        .sort((a, b) => a.length - b.length)
+
+    // getRootDeps(root.dependencies).forEach((entry) => processEntry(entry, [], false))
+    // getRootDeps(root.devDependencies).forEach((entry) => processEntry(entry, [], true))
+
+    // console.log(JSON.stringify(lf, null, 2))
+
+    // tree
+    //    .sort((a, b) => a.map(({name}) => name).join().localeCompare(b.map(({name}) => name).join()))
+    //    .forEach((chain) => {
+    //         const _chain = [...chain].reverse().slice(1)
+    //
+    //         _chain.forEach((entry, i) =>
+    //             processEntry(entry, [..._chain.slice(0, i)].reverse(), isDev(root, _chain[0].name))
+    //         )
+    //     })
+
+
+
+    tree.sort((a, b) =>
+        a.length > b.length
+            ? 1
+            : a.length < b.length
+                ? -1
+                : (a.map(_ => _.name).join('') > b.map(_ => _.name).join('') ? 1 : -1))
+
+        .map((chain) => chain.slice(0, -1).reverse())
+
+
+        // .sort((a, b) =>
+        //    (a.map(_ => _.name).join('') > b.map(_ => _.name).join('') ? 1 : -1))
+        // .reduce((m, chain) => {
+        //     const [rootDeps, subDeps] = m
+        //
+        //     if (chain.length > 1) { subDeps.push(chain) }
+        //     if (chain.length === 1) { rootDeps.push(chain) }
+        //
+        //     return m
+        // }, [[], []] as [TLockfileEntry[][], TLockfileEntry[][]])
+        // .flat(1)
+
+
+
+        //.sort((a, b) => a.map(_ => _.name).join('') > b.map(_ => _.name).join('') ? 1 : -1)
+        // .reduce((m, chain) => {
+        //         const l = chain.length
+        //
+        //         if (l) {
+        //             m[l] = m[l] || []
+        //             m[l].push(chain)
+        //         }
+        //
+        //         return m
+        //     }, [] as TLockfileEntry[][][])
+        //     .flat(1)
+
+        // .reduce((m, chain) => {
+        //     const [rootDeps, subDeps] = m
+        //
+        //     if (chain.length > 1) { subDeps.push(chain) }
+        //     if (chain.length === 1) {
+        //         rootDeps.push(chain)
+        //     }
+        //
+        //     return m
+        // }, [[], []] as [TLockfileEntry[][], TLockfileEntry[][]])
+        // .flat(1)
+
         .forEach((chain) => {
-            const _chain = [...chain].reverse().slice(1)
-            const path = _chain.map((e) => e.name)
-            _chain.forEach((entry, i) =>
-                processEntry(entry, path.slice(i), isDev(root, path[0]))
+            // console.log(chain.map(({name}) => name).join('>'))
+            // // const _chain = chain.slice(1) // trim manifest.root
+
+            chain.forEach((entry, i) =>
+                processEntry(entry, chain.slice(0, i), isDev(root, chain[0].name))
             )
         })
-    tree.forEach((branch) => {
-        branch.reverse().slice(1).forEach((entry, i) => {
 
-            // const {name} = entry
-            // const parent = branch[i]
-            // const _entry = formatNpm1LockfileEntry(entry, parent, isDev(root, branch[1]?.name))
-            //
-            // if (!firstLevel.has(name)) {
-            //     (lf.dependencies as TNpm1LockfileDeps)[name] = _entry
-            //
-            //     // console.log('name', name, (lf.dependencies as TNpm1LockfileDeps)[name])
-            //
-            //     firstLevel.set(name, entry)
-            //     return
-            // }
-            //
-            // parent.dependencies = parent.dependencies || {}
-            // parent.dependencies[name] = _entry
-
-            //
-            // const {name, version, hashes} = entry
-            // const _name = name.slice(name.indexOf('/') + 1)
-            // const _entry: TNpm1LockfileDeps[string] = {
-            //     version,
-            //     resolved: `https://registry.npmjs.org/${name}/-/${_name}-${version}.tgz`,
-            //     integrity: formatIntegrity(hashes)
-            // }
-            // const parent = branch[i]
-            // const parentName = branch[1]?.name
-            //
-            // if (!root.dependencies?.[parentName] && root.devDependencies?.[parentName]) {
-            //     //console.log('!!parentName', parentName, name)
-            //     _entry.dev = true
-            // }
-            // // console.log(branch.map(b => b.name).join('>'))
-            //
-            // _entry.requires = entry.dependencies
-            //
-            // if (!firstLevel.has(name)) {
-            //     (lf.dependencies as TNpm1LockfileDeps)[name] = _entry
-            //
-            //     firstLevel.set(name, entry)
-            //     return
-            // }
-            //
-            // // if (i > 0 && parent.name?.requires?.[name]) {
-            //
-            // if (_entry.requires) {
-            //     const _dependencies = Object.entries(_entry.requires).reduce((acc, [name, value]) => {
-            //
-            //         return acc
-            //     }, {})
-            // }
+    // tree
+    //     .map((chain) => chain.reverse())
+    //     .sort((a, b) => a.map(_ => _.name).join('>') > b.map(_ => _.name).join('>') ? 1 : -1)
+    //
+    // console.log(tree.map(a => a.map(b => b.name).join('>') ))
+    //
+    // const [prod, dev] = tree
+    //     .map((chain) => chain.reverse())
+    //     .sort((a, b) => a.map(_ => _.name).join('>') > b.map(_ => _.name).join('>') ? 1 : -1)
+    //     .reduce((m, chain) => {
+    //         const [prod, dev] = m
+    //         const _chain = chain.slice(1)
+    //
+    //         if (_chain.length > 0) {
+    //             if (isDev(root, _chain[0].name)) {
+    //                 dev.push(_chain)
+    //             } else {
+    //                 prod.push(_chain)
+    //             }
+    //         }
+    //
+    //         return m
+    //     }, [[], []] as [TLockfileEntry[][], TLockfileEntry[][]])
+    //
+    // prod.forEach((chain) => chain.forEach((entry, i) => processEntry(entry, [...chain.slice(0, i)].reverse(), false)))
+    // dev.forEach((chain) => chain.forEach((entry, i) => processEntry(entry, [...chain.slice(0, i)].reverse(), true)))
+    //
+    // console.log(prod.map((chain) => chain.map((e) => e.name).join('>')))
+    // console.log(dev.map((chain) => chain.map((e) => e.name).join('>')))
 
 
-
-            // const parent
-        })
-    })
-
-    // @ts-ignore
+        // @ts-ignore
     lf.dependencies = sortObject(lf.dependencies)
 
 
