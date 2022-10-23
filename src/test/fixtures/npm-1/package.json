@@ -1,6 +1,6 @@
 {
   "name": "zx",
-  "version": "7.1.0",
+  "version": "7.1.1",
   "description": "A tool for writing better scripts.",
   "type": "module",
   "main": "./build/index.js",
@@ -52,7 +52,7 @@
   "dependencies": {
     "@types/fs-extra": "^9.0.13",
     "@types/minimist": "^1.2.2",
-    "@types/node": "^18.7.18",
+    "@types/node": "^18.7.20",
     "@types/ps-tree": "^1.1.2",
     "@types/which": "^2.0.1",
     "chalk": "^5.0.1",
@@ -82,7 +82,8 @@
   ],
   "prettier": {
     "semi": false,
-    "singleQuote": true
+    "singleQuote": true,
+    "endOfLine": "lf"
   },
   "repository": "google/zx",
   "author": "Anton Medvedev <anton@medv.io>",
