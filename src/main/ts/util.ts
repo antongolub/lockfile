@@ -10,10 +10,19 @@ export const parseIntegrity = (integrity: string): THashes =>
     }, {})
 
 export const sortObject = <T extends Record<string, any>>(unordered: T): T =>
-    Object.keys(unordered).sort().reduce(
-        (obj, key: keyof T) => {
-            obj[key] = unordered[key]
+    Object.entries({...unordered})
+        .sort(([a], [b]) => a > b ? 1 : -1)
+        .reduce((obj, [key, value]: [keyof T, T[keyof T]]) => {
+            obj[key] = value
             return obj
         },
-        {} as T,
+        flushObject(unordered) as T,
     )
+
+export const flushObject = (obj: Record<string, any>) => {
+    for (const key in obj) {
+        delete obj[key]
+    }
+
+    return obj
+}
