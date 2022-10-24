@@ -143,11 +143,22 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     const isProd = (manifest: TManifest, name: string): boolean => !!manifest.dependencies?.[name]
 
     const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
-        const prod = isProd(root, chain[0]?.name)
-        chain.forEach(c => prod && proddeps.add(c))
+        // const prod = isProd(root, chain[0]?.name)
+        // chain.forEach(c => prod && proddeps.add(c))
+
+        ;(entry._dependencies || []).forEach(c => isProd(root, chain[0]?.name || c.name) && proddeps.add(c))
+
+        // console.log('!!!', chain[0]?.name, prod)
 
         const deps = (entry._dependencies || [])
-            .sort((a, b) => a.name.localeCompare(b.name))
+            // .sort((a, b) => a.name.localeCompare(b.name))
+            .sort((a, b) =>
+                proddeps.has(a) && !proddeps.has(b)
+                    ? -1
+                    : proddeps.has(b) && !proddeps.has(a)
+                        ? 1
+                        : a.name.localeCompare(b.name)
+            )
 
         deps.forEach((dep) => tree.push([...chain, dep]))
         deps.forEach((dep) => fillTree(dep, [...chain, dep]))
@@ -192,18 +203,22 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     })
 
 
+    nmtree.dependencies = sortObject(nmtree.dependencies)
+    lf.dependencies = nmtree.dependencies
+
+
     const processEntry = (name: string, version: string, parents: any) => {
 
         const entry = getEntry(name, version)!
         if (entry._dependencies) {
             const queue = []
             entry._dependencies.forEach((e) => {
-                const _entry = formatNpm1LockfileEntry(e)
 
                 if (parents.find((p) => p.dependencies?.[e.name]?.version === e.version)) {
                     return
                 }
 
+                const _entry = formatNpm1LockfileEntry(e)
                 const parent = [...parents, _entry].find((p) => !p.dependencies?.[e.name])
 
                 if (!parent.dependencies) {
@@ -228,8 +243,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
 
 
 
-        // @ts-ignore
-    lf.dependencies = sortObject(nmtree.dependencies)
 
 
     fs.writeFileSync('temp/test.json', JSON.stringify(lf, null, 2))
