@@ -86,23 +86,6 @@ export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> =
     }
 }
 
-const s = new Set()
-let i = 0
-
-const resolveDepChain = (entry: any, chains: TLockfileEntry[][] = [], chain: TLockfileEntry[] = [], ) => {
-    const _chain = [...chain, entry]
-
-    if (!entry.dependants) {
-        chains.push(_chain)
-        i++
-        // console.log(_chain.map((e) => e.name).join('>'))
-        s.add(_chain.map((e) => e.name).join('>'))
-
-        return
-    }
-
-    entry.dependants.forEach((e: any) => resolveDepChain(e, chains, _chain))
-}
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
@@ -137,21 +120,14 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     })
 
     const tree: TLockfileEntry[][] = []
-    // entries.forEach((entry) => resolveDepChain(entry, tree))
-
     const proddeps = new Set()
     const isProd = (manifest: TManifest, name: string): boolean => !!manifest.dependencies?.[name]
 
     const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
-        // const prod = isProd(root, chain[0]?.name)
-        // chain.forEach(c => prod && proddeps.add(c))
+        const deps = entry._dependencies || []
+        deps.forEach(c => isProd(root, chain[0]?.name || c.name) && proddeps.add(c))
 
-        ;(entry._dependencies || []).forEach(c => isProd(root, chain[0]?.name || c.name) && proddeps.add(c))
-
-        // console.log('!!!', chain[0]?.name, prod)
-
-        const deps = (entry._dependencies || [])
-            // .sort((a, b) => a.name.localeCompare(b.name))
+        deps
             .sort((a, b) =>
                 proddeps.has(a) && !proddeps.has(b)
                     ? -1
@@ -165,9 +141,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     }
 
     const getEntry = (name: string, version: string) => entries.find((e) => e.name === name && e.version === version)
-
     fillTree(getEntry(root.name, root.version)!)
-
 
     const formatNpm1LockfileEntry = (entry: TLockfileEntry): TNpm1LockfileEntry => {
         const {name, version, hashes} = entry
@@ -207,52 +181,43 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     lf.dependencies = nmtree.dependencies
 
 
+    const placeholder = new Map()
     const processEntry = (name: string, version: string, parents: any) => {
-
         const entry = getEntry(name, version)!
         if (entry._dependencies) {
             const queue = []
             entry._dependencies.forEach((e) => {
-
-                if (parents.find((p) => p.dependencies?.[e.name]?.version === e.version)) {
+                const closest = parents.find((p) => p.dependencies?.[e.name])
+                if (closest?.dependencies[e.name].version === e.version) {
                     return
                 }
 
                 const _entry = formatNpm1LockfileEntry(e)
-                const parent = [...parents, _entry].find((p) => !p.dependencies?.[e.name])
+                const _parents = [_entry, ...parents]
+                const parent = _parents.slice().reverse().find((p) => !p?.dependencies?.[e.name])
 
                 if (!parent.dependencies) {
                     parent.dependencies = {}
                 }
 
                 parent.dependencies[e.name] = _entry
-
                 parent.dependencies = sortObject(parent.dependencies)
 
-                queue.push([e.name, e.version, [...parents, _entry]])
+                queue.push([e.name, e.version, _parents])
             })
 
             queue.forEach(([name, version, parents]) => processEntry(name, version, parents))
         }
     }
 
-    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [nmtree, entry]))
-
-
-
-
-
-
-
+    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [entry, nmtree]))
 
     fs.writeFileSync('temp/test.json', JSON.stringify(lf, null, 2))
-
     fs.writeFileSync('temp/tree.json', JSON.stringify(
         deptree.map(c => c.map(e => `${e.name}@${e.version}`).join(' > ')),
         null,
         2
     ))
-
 
     return JSON.stringify(lf, null, 2)
 }
