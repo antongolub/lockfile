@@ -126,7 +126,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         })
     })
 
-    const tree: TLockfileEntry[][] = []
+    const deptree: TLockfileEntry[][] = []
     const proddeps = new Set()
     const isProd = (manifest: TManifest, name: string): boolean => !!manifest.dependencies?.[name]
 
@@ -143,7 +143,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
                         : a.name.localeCompare(b.name)
             )
 
-        deps.forEach((dep) => tree.push([...chain, dep]))
+        deps.forEach((dep) => deptree.push([...chain, dep]))
         deps.forEach((dep) => fillTree(dep, [...chain, dep]))
     }
 
@@ -170,19 +170,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         return _entry
     }
 
-    const deptree = tree
-
     const nmtree: any = lf
-
-    deptree.forEach((chain) => {
-        const entry = chain[chain.length - 1]
-        const {name} = entry
-
-        if (!nmtree.dependencies[name]) {
-            nmtree.dependencies[name] = formatNpm1LockfileEntry(entry)
-        }
-    })
-
     const nodes = [nmtree]
     const processEntry = (name: string, version: string, parents: any) => {
         const entry = getEntry(name, version)!
@@ -217,8 +205,15 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         }
     }
 
-    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [entry, nmtree]))
+    deptree.forEach((chain) => {
+        const entry = chain[chain.length - 1]
+        const {name} = entry
 
+        if (!nmtree.dependencies[name]) {
+            nmtree.dependencies[name] = formatNpm1LockfileEntry(entry)
+        }
+    })
+    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [entry, nmtree]))
 
     nodes.forEach((node) => {
         sortObject(node.dependencies)
