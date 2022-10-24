@@ -153,7 +153,9 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         deps.forEach((dep) => fillTree(dep, [...chain, dep]))
     }
 
-    fillTree(entries.find((e) => e.name === root.name)!)
+    const getEntry = (name: string, version: string) => entries.find((e) => e.name === name && e.version === version)
+
+    fillTree(getEntry(root.name, root.version)!)
 
 
     const formatNpm1LockfileEntry = (entry: TLockfileEntry): TNpm1LockfileEntry => {
@@ -177,12 +179,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     }
 
     const deptree = tree
-        .map((chain) => {
-            const _chain = chain
-            // _chain.dev = !isProd(root, _chain[0].name)
-
-            return _chain
-        })
 
     const nmtree: any = {dependencies: {}}
 
@@ -190,31 +186,43 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         const entry = chain[chain.length - 1]
         const {name} = entry
 
-        if (!nmtree.dependencies[name]) { // || priority[name] > chain.length
-            nmtree.dependencies[name] = entry
+        if (!nmtree.dependencies[name]) {
+            nmtree.dependencies[name] = formatNpm1LockfileEntry(entry)
         }
     })
 
-    Object.values<TLockfileEntry>(nmtree.dependencies).forEach((entry) => {
-        const _entry = formatNpm1LockfileEntry(entry)
 
-        nmtree.dependencies[entry.name] = _entry
+    const processEntry = (name: string, version: string, parents: any) => {
 
+        const entry = getEntry(name, version)!
         if (entry._dependencies) {
-            const dependencies = entry._dependencies.reduce((m, e) => {
-                if (nmtree.dependencies[e.name]?.version !== e.version) {
-                    m[e.name] = formatNpm1LockfileEntry(e)
+            const queue = []
+            entry._dependencies.forEach((e) => {
+                const _entry = formatNpm1LockfileEntry(e)
+
+                if (parents.find((p) => p.dependencies?.[e.name]?.version === e.version)) {
+                    return
                 }
 
-                // m[e.name] = e
-                return m
-            }, {})
+                const parent = [...parents, _entry].find((p) => !p.dependencies?.[e.name])
 
-            if (Object.keys(dependencies).length) {
-                _entry.dependencies = dependencies
-            }
+                if (!parent.dependencies) {
+                    parent.dependencies = {}
+                }
+
+                parent.dependencies[e.name] = _entry
+
+                parent.dependencies = sortObject(parent.dependencies)
+
+                queue.push([e.name, e.version, [...parents, _entry]])
+            })
+
+            queue.forEach(([name, version, parents]) => processEntry(name, version, parents))
         }
-    })
+    }
+
+    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [nmtree, entry]))
+
 
 
 
