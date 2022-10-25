@@ -47,6 +47,7 @@ export const parse = async (value: string): Promise<TSnapshot> => {
     const raw = await preparse(value)
     const snapshot: TSnapshot = {
         entries: {},
+        workspaces: {},
         format: 'yarn-1',
     }
 

@@ -17,8 +17,14 @@ export type TNpm1Lockfile = {
     lockfileVersion: 1
     name: string
     version: string
-    requires: true
-    dependencies?: TNpm1LockfileDeps
+    requires?: true
+    dependencies: TNpm1LockfileDeps
+}
+
+interface TDepTree {
+    dependencies?: Record<string, TDepTree>
+    version: string
+    requires?: any
 }
 
 export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> => {
@@ -95,50 +101,47 @@ export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> =
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
+const createIndex = () => {
+    const prod =  new Set()
+    const deps = new Map()
+
+    return {
+        prod,
+        deps,
+        getDeps (entry: TLockfileEntry): TLockfileEntry[] {
+            if (!deps.has(entry)) { deps.set(entry, [])}
+            return deps.get(entry)
+        }
+    }
+}
+
+const isProd = (manifest: TManifest, name: string): boolean => !!manifest.dependencies?.[name]
+
 export const format = async (snap: TSnapshot): Promise<string> => {
     const root = snap.workspaces[''].manifest
-    const lf: TNpm1Lockfile = {
-        name: root.name,
-        version: root.version,
-        lockfileVersion: 1,
-        requires: true,
-        dependencies: {}
-    }
-
-    const entries = Object.values(snap.entries)
+    const entries: TLockfileEntry[]= Object.values(snap.entries)
+    const idx = createIndex()
 
     entries.forEach((entry) => {
         entry.dependencies && Object.entries(entry.dependencies).forEach(([_name, range]) => {
             const target = entries.find(({name, ranges}) => name === _name && ranges.includes(range))
             if (target) {
-                // @ts-ignore
-                target.dependants = target.dependants || []
-
-                // @ts-ignore
-                target.dependants.push(entry)
-
-                // @ts-ignore
-                entry._dependencies = entry._dependencies || []
-
-                // @ts-ignore
-                entry._dependencies.push(target)
+                idx.getDeps(entry).push(target)
             }
         })
     })
 
     const deptree: TLockfileEntry[][] = []
-    const proddeps = new Set()
-    const isProd = (manifest: TManifest, name: string): boolean => !!manifest.dependencies?.[name]
 
     const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
-        const deps = entry._dependencies || []
-        deps.forEach(c => isProd(root, chain[0]?.name || c.name) && proddeps.add(c))
+        const deps = idx.getDeps(entry)
+        deps.forEach(c => isProd(root, chain[0]?.name || c.name) && idx.prod.add(c))
 
         deps
             .sort((a, b) =>
-                proddeps.has(a) && !proddeps.has(b)
+                idx.prod.has(a) && !idx.prod.has(b)
                     ? -1
-                    : proddeps.has(b) && !proddeps.has(a)
+                    : idx.prod.has(b) && !idx.prod.has(a)
                         ? 1
                         : a.name.localeCompare(b.name)
             )
@@ -159,7 +162,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
             integrity: formatIntegrity(hashes)
         }
 
-        if (!proddeps.has(entry)) {
+        if (!idx.prod.has(entry)) {
             _entry.dev = true
         }
 
@@ -170,39 +173,43 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         return _entry
     }
 
-    const nmtree: any = lf
-    const nodes = [nmtree]
-    const processEntry = (name: string, version: string, parents: any) => {
+    const lf: TNpm1Lockfile = {
+        name: root.name,
+        version: root.version,
+        lockfileVersion: 1,
+        requires: true,
+        dependencies: {}
+    }
+    const nmtree = lf
+    const nodes: TDepTree[] = [nmtree]
+    const processEntry = (name: string, version: string, parents: TNpm1LockfileEntry[]) => {
         const entry = getEntry(name, version)!
+        const deps = idx.getDeps(entry)
+        const queue: [string, string, TNpm1LockfileEntry[]][] = []
 
-        if (entry._dependencies) {
-            const queue = []
-            entry._dependencies.forEach((e) => {
-                const closestIndex = parents.findIndex((p) => p.dependencies?.[e.name])
-                const closest = parents[closestIndex]
-                if (closest?.dependencies[e.name].version === e.version) {
-                    return
-                }
+        deps.forEach((e) => {
+            const closestIndex = parents.findIndex((p) => p.dependencies?.[e.name])
+            const closest = parents[closestIndex]
+            if (closest?.dependencies?.[e.name].version === e.version) {
+                return
+            }
 
-                const _entry = formatNpm1LockfileEntry(e)
-                const _parents = [_entry, ...parents]
-                const parent = closest
-                    ? _parents[closestIndex]
-                    : _parents[_parents.length - 1]
+            const _entry = formatNpm1LockfileEntry(e)
+            const _parents = [_entry, ...parents]
+            const parent = closest
+                ? _parents[closestIndex]
+                : _parents[_parents.length - 1]
 
+            if (!parent.dependencies) {
+                parent.dependencies = {}
+            }
+            parent.dependencies[e.name] = _entry
 
-                if (!parent.dependencies) {
-                    parent.dependencies = {}
-                }
+            nodes.push(parent)
+            queue.push([e.name, e.version, _parents])
+        })
 
-                parent.dependencies[e.name] = _entry
-                nodes.push(parent)
-
-                queue.push([e.name, e.version, _parents])
-            })
-
-            queue.forEach(([name, version, parents]) => processEntry(name, version, parents))
-        }
+        queue.forEach(([name, version, parents]) => processEntry(name, version, parents))
     }
 
     deptree.forEach((chain) => {
@@ -213,14 +220,14 @@ export const format = async (snap: TSnapshot): Promise<string> => {
             nmtree.dependencies[name] = formatNpm1LockfileEntry(entry)
         }
     })
-    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [entry, nmtree]))
+    Object.entries(nmtree.dependencies).forEach(([name, entry]) => processEntry(name, entry.version, [entry, nmtree] as TNpm1LockfileEntry[]))
 
     nodes.forEach((node) => {
-        sortObject(node.dependencies)
+        sortObject(node.dependencies || {})
 
         if (node.requires) {
             const snap1 = Object.entries(node.requires).map(([name, range]) => `${name}@${range}`).join('')
-            const snap2 = Object.entries(node.dependencies).map(([name, {version}]) => `${name}@${version}`).join('')
+            const snap2 = Object.entries(node.dependencies || {}).map(([name, {version}]) => `${name}@${version}`).join('')
 
             if (snap1 === snap2) {
                 delete node.requires
@@ -237,4 +244,3 @@ export const format = async (snap: TSnapshot): Promise<string> => {
 
     return JSON.stringify(lf, null, 2)
 }
-
