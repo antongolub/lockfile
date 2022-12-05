@@ -6,6 +6,10 @@ Every package manager brings its own philosophy of how to describe, store and co
 This is awesome for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
 This lib is a naive attempt to build a pm-independent, generic, extensible and reliable deps representation.
 
+The package manifest contains its own deps requirements, the lockfile defines the deps resolution snapshot<sup>*</sup>,
+so both of them are required to build a dependency graph. We can convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
+And then, if necessary, convert back to the original format.
+
 ### Getting started
 #### Install
 ```shell
@@ -18,7 +22,7 @@ import { parse, format } from '@antongolub/lockfile'
 
 const parsed = parse({
   lockfile: './yarn.lock',
-  pkg: './package.json'
+  workspaces: {'': './package.json', 'foo': './packages/foo/package.json'},
 })
 
 // output
@@ -89,6 +93,10 @@ __metadata:
 | yarn 1 (classic) | 1           |
 | yarn 3           | 5, 6        |
 | yarn 4           | 6, 7        |
+
+### Caveats
+* Only `npm` links are supported for now
+* npm1: `optional: true` label is not supported by lockfile formatter
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)

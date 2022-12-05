@@ -5,7 +5,7 @@ import { testParseFormatInterop } from './helpers'
 
 const test = suite('npm-1')
 
-test.only('parse/format interop for regular repo', async () => {
+test('parse/format interop for regular repo', async () => {
   await testParseFormatInterop({
     input: path.resolve(__dirname, '../fixtures/npm-1/package-lock.json'),
     opts: path.resolve(__dirname, '../fixtures/npm-1/package.json'),
@@ -14,7 +14,7 @@ test.only('parse/format interop for regular repo', async () => {
   })
 })
 
-test.only('parse/format interop for regular repo with recursive deps', async () => {
+test('parse/format interop for regular repo with recursive deps', async () => {
   await testParseFormatInterop({
     input: path.resolve(__dirname, '../fixtures/npm-1-recursive/package-lock.json'),
     opts: path.resolve(__dirname, '../fixtures/npm-1-recursive/package.json'),

@@ -84,7 +84,6 @@ export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> =
         })
 
         extractEntries(entry.dependencies, deps, ...parents)
-
         extractRanges(requires, entry.dependencies || {}, deps, ...parents)
     })
 
@@ -132,7 +131,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     })
 
     const deptree: TLockfileEntry[][] = []
-
     const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
         const deps = idx.getDeps(entry)
         deps.forEach(c => isProd(root, chain[0]?.name || c.name) && idx.prod.add(c))

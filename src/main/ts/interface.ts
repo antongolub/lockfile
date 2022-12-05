@@ -37,7 +37,7 @@ export interface TManifest {
 
 export interface TWorkspace {
     name: string
-    path: string
+    path: string // relative to the root of the workspace
     manifest: TManifest
 }
 
@@ -49,7 +49,7 @@ export interface TSnapshot {
 
 export interface TParseOptions {
     cwd?: string
-    filename?: string
+    lockfile?: string
     workspaces?: Record<string, TWorkspace>
 }
 
