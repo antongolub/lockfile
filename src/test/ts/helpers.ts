@@ -18,6 +18,7 @@ export const testParseFormatInterop =  async ({input, parse, format, opts}: {inp
     const c2 = lockfile.split('\n')
     for (let i in c1) {
         if (c1[i] !== c2[i]) {
+            await fs.writeFile(path.resolve(process.cwd(), 'actual.txt'), output)
             assert.ok(false, `${c1[i]} !== ${c2[i]}, index: ${i}`)
         }
     }

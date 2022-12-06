@@ -6,6 +6,8 @@ export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace'
 
 export type TDependencies = Record<string, string>
 
+export type TDependenciesMeta = Record<string, { optional: boolean }>
+
 export interface THashes {
     sha512?: string
     sha256?: string
@@ -20,18 +22,23 @@ export interface TLockfileEntry {
     ranges: string[]
     hashes: THashes
     scope?: TScope
+    conditions?: string
     dependencies?: TDependencies
+    dependenciesMeta?: TDependenciesMeta
     optionalDependencies?: TDependencies
+    peerDependencies?: TDependencies
+    peerDependenciesMeta?: TDependenciesMeta
     sourceType?: TSourceType
     source?: string
+    bin?: Record<string, string>
 }
 
 export interface TManifest {
     name: string
     dependencies?: TDependencies
     devDependencies?: TDependencies
-    peerDependencies?: TDependencies
     optionalDependencies?: TDependencies
+    peerDependencies?: TDependencies
     [key: string]: any
 }
 
