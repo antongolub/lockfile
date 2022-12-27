@@ -19,6 +19,11 @@ export type TYarn5Lockfile = Record<string, {
     bin?: Record<string, string>
 }>
 
+export const check = (value: string): boolean => value.includes(`
+__metadata:
+  version: 5
+`)
+
 export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> => {
     const snapshot: TSnapshot = {
         entries: {},
@@ -77,7 +82,7 @@ export const preformat = (value: TSnapshot): TYarn5Lockfile => {
             peerDependencies,
             peerDependenciesMeta,
             bin,
-            checksum,
+            checksum: checksum as string,
             conditions,
             languageName,
             linkType,

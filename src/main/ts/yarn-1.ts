@@ -11,6 +11,8 @@ export type TYarn1Lockfile = Record<string, {
     optionalDependencies?: TDependencies
 }>
 
+export const check = (value: string): boolean => value.includes('# yarn lockfile v1')
+
 export const preparse = (value: string): TYarn1Lockfile  => {
     const lines = value.split('\n')
     const _value = lines.map((line) => {

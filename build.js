@@ -5,10 +5,11 @@ esbuild.build({
   entryPoints: ['./src/main/ts/index.ts'],
   outfile: './target/es6/index.js',
   bundle: true,
-  minify: true,
-  platform: 'node',
+  minify: false,
   sourcemap: true,
-  target: 'node14',
+  format: 'esm',
+  platform: 'node',
+  target: 'node18',
   plugins: [nodeExternalsPlugin()]
 })
   .catch(() => process.exit(1))

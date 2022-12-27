@@ -1,16 +1,37 @@
 {
   "name": "@antongolub/lockfile",
-  "version": "0.0.0",
+  "version": "0.0.0-snapshot.3",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Read, write, and convert npm (v1, v2) and yarn (classic and berry) lockfiles in any directions with reasonable losses.",
-  "main": "./target/es6/index.mjs",
+  "main": "./target/es6/index.js",
   "type": "module",
+  "exports": "./target/es6/index.js",
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.5",
+    "esbuild": "^0.15.12",
+    "esbuild-node-externals": "^1.5.0",
+    "tsc-esm-fix": "^2.20.5",
+    "tsm": "^2.2.2",
+    "typescript": "^4.8.4",
+    "uvu": "^0.5.6"
+  },
   "scripts": {
-    "build": "yarn build:es6 && yarn build:libdef && yarn build:esmfix",
+    "build": "yarn build:es6 && yarn build:libdef",
     "build:es6": "node ./build.js",
     "build:libdef": "tsc --emitDeclarationOnly --outDir target/es6",
     "build:esmfix": "tsc-esm-fix --target=target/es6 --ext=.mjs",
-    "test": "uvu -r tsm -i helpers 'src/test/ts/'"
+    "test": "uvu -r tsm -i helpers 'src/test/ts/'",
+    "publish:snapshot": "npm publish --no-git-tag-version --tag snapshot"
   },
+  "files": [
+    "target",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/antongolub/lockfile.git"
@@ -18,7 +39,6 @@
   "keywords": [
     "lock",
     "lockfile",
-    "lockfile2",
     "yarn",
     "yarnlock",
     "yarn.lock",
@@ -31,17 +51,5 @@
     "url": "https://github.com/antongolub/lockfile/issues"
   },
   "homepage": "https://github.com/antongolub/lockfile#readme",
-  "packageManager": "yarn@3.1.1",
-  "dependencies": {
-    "js-yaml": "^4.1.0"
-  },
-  "devDependencies": {
-    "@types/js-yaml": "^4.0.5",
-    "esbuild": "^0.15.12",
-    "esbuild-node-externals": "^1.5.0",
-    "tsc-esm-fix": "^2.20.5",
-    "tsm": "^2.2.2",
-    "typescript": "^4.8.4",
-    "uvu": "^0.5.6"
-  }
+  "packageManager": "yarn@3.1.1"
 }

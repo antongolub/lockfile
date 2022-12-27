@@ -10,6 +10,9 @@ The package manifest contains its own deps requirements, the lockfile defines th
 so both of them are required to build a dependency graph. We can convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
 And then, if necessary, convert back to the original format.
 
+### Status
+⚠️ Initial draft. Alpha-version
+
 ### Getting started
 #### Install
 ```shell
@@ -86,13 +89,13 @@ __metadata:
 ```
 
 ### Lockfile (meta) versions
-| Package manager  | Meta format |
-|------------------|-------------|
-| npm <7           | 1           |
-| npm >=7          | 2           |
-| yarn 1 (classic) | 1           |
-| yarn 3           | 5, 6        |
-| yarn 4           | 6, 7        |
+| Package manager  | Meta format | Supported | 
+|------------------|-------------|-----------|
+| npm <7           | 1           | x         |
+| npm >=7          | 2           |           |
+| yarn 1 (classic) | 1           | x         |
+| yarn 3           | 5, 6        | x         |
+| yarn 4           | 6, 7        |           |
 
 ### Caveats
 * Only `npm` links are supported for now
