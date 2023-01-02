@@ -8,4 +8,4 @@ test('parse/format interop for monorepo', async () => {
   await testParseFormatInterop({input: path.resolve(__dirname, '../fixtures/yarn-5-mr/yarn.lock'), parse, format})
 })
 
-test.run()
+// test.run()

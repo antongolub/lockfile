@@ -1,4 +1,5 @@
-import {THashes} from "./interface";
+import fs from 'node:fs/promises'
+import {THashes} from './interface'
 
 export const parseIntegrity = (integrity: string): THashes =>
     integrity
@@ -40,3 +41,8 @@ export const flushObject = (obj: Record<string, any>) => {
 
     return obj
 }
+
+export const loadContents = async (value: string): Promise<string> =>
+  value.includes('\n')
+    ? value
+    : fs.readFile(value, 'utf-8')
