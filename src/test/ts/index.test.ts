@@ -15,4 +15,4 @@ test('properly exports its inners', async () => {
   fns.forEach((fn) => assert.ok(fn instanceof Function))
 })
 
-// test.run()
+test.run()

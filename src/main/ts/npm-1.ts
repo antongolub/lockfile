@@ -1,5 +1,6 @@
 import {TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from './interface'
-import {parseIntegrity, sortObject} from './util'
+import {sortObject} from './util'
+import {parseIntegrity} from './common'
 import fs from 'fs'
 
 export type TNpm1LockfileEntry = {

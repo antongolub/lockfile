@@ -2,7 +2,7 @@
 
 import {load, dump} from 'js-yaml'
 import {TDependencies, TDependenciesMeta, TSnapshot} from './interface'
-import {parseIntegrity} from './util'
+import {parseIntegrity} from './common'
 
 export type TYarn5Lockfile = Record<string, {
     version: string
