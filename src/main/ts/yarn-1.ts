@@ -1,5 +1,6 @@
 import {load, dump} from 'js-yaml'
 import {TDependencies, TSnapshot, THashes} from './interface'
+import {parseIntegrity} from './util.js'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -35,15 +36,6 @@ export const preparse = (value: string): TYarn1Lockfile  => {
 
     return load(_value) as TYarn1Lockfile
 }
-
-const parseIntegrity = (integrity: string): THashes =>
-    integrity.split(' ').reduce<THashes>((m, item) => {
-        const [k, v] = item.split('-')
-        if (k === 'sha512' || k === 'sha256' || k === 'sha1' || k === 'checksum') {
-            m[k] = v
-        }
-        return m
-    }, {})
 
 export const parse = async (value: string): Promise<TSnapshot> => {
     const raw = await preparse(value)
