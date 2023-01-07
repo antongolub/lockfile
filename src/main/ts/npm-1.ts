@@ -1,6 +1,6 @@
 import {TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from './interface'
 import {sortObject} from './util'
-import {parseIntegrity} from './common'
+import {parseIntegrity, isProd} from './common'
 import fs from 'fs'
 
 export type TNpm1LockfileEntry = {
@@ -114,8 +114,6 @@ const createIndex = () => {
         }
     }
 }
-
-const isProd = (manifest: TManifest, name: string): boolean => !!manifest.dependencies?.[name]
 
 export const format = async (snap: TSnapshot): Promise<string> => {
     const root = snap.workspaces[''].manifest

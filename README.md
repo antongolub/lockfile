@@ -91,15 +91,28 @@ __metadata:
 ### Lockfile (meta) versions
 | Package manager  | Meta format | Supported | 
 |------------------|-------------|-----------|
-| npm <7           | 1           | x         |
+| npm <7           | 1           | ✓         |
 | npm >=7          | 2           |           |
-| yarn 1 (classic) | 1           | x         |
-| yarn 3           | 5, 6        | x         |
-| yarn 4           | 6, 7        |           |
+| yarn 1 (classic) | 1           | ✓         |
+| yarn 2 (berry)   | 5, 6        |           |
+| yarn 3           | 5, 6        | ✓         |
+| yarn 4           | 6, 7        | ✓         |
+
+### Reference protocols
+| Type      | Supported |
+|-----------|-----------|
+| semver    | ✓         |
+| npm       | ✓         |
+| workspace |           |
+| patch     |           |
+| file      |           |
+| git       |           |
+
+https://yarnpkg.com/features/protocols
 
 ### Caveats
-* Only `npm` links are supported for now
-* npm1: `optional: true` label is not supported by lockfile formatter
+* npm1: `optional: true` label is not supported by `format`
+* yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
