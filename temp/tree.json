@@ -1,0 +1,6 @@
+[
+  "@antongolub/npm-test@4.0.1",
+  "@antongolub/npm-test@4.0.1 > @antongolub/npm-test@3.0.1",
+  "@antongolub/npm-test@4.0.1 > @antongolub/npm-test@3.0.1 > @antongolub/npm-test@2.0.1",
+  "@antongolub/npm-test@4.0.1 > @antongolub/npm-test@3.0.1 > @antongolub/npm-test@2.0.1 > @antongolub/npm-test@1.0.0"
+]
