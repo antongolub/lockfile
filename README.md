@@ -1,25 +1,25 @@
 # lockfile
-Read, write, and convert npm (v1, v2) and yarn (classic and berry) lockfiles in any directions with reasonable losses.
+> Read, write, and convert npm (v1, v2) and yarn (classic and berry) lockfiles in any directions with reasonable losses
 
-### Motivation
-Every package manager brings its own philosophy of how to describe, store and control projects dependencies.
-This is awesome for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
+## Motivation
+Every package manager brings its own philosophy of how to describe, store and control project dependencies.
+This is acceptable for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
 This lib is a naive attempt to build a pm-independent, generic, extensible and reliable deps representation.
 
-The package manifest contains its own deps requirements, the lockfile defines the deps resolution snapshot<sup>*</sup>,
-so both of them are required to build a dependency graph. We can convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
+The ´package.json´ manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
+so both of them are required to build a dependency graph. We can try to convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
 And then, if necessary, convert back to the original format.
 
-### Status
+## Status
 ⚠️ Initial draft. Alpha-version
 
-### Getting started
-#### Install
+## Getting started
+### Install
 ```shell
 yarn add @antongolub/lockfile
 ```
 
-#### Usage
+### Usage
 ```js
 import { parse, format } from '@antongolub/lockfile'
 
