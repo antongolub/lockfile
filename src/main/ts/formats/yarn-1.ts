@@ -1,6 +1,6 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, THashes} from './interface'
-import {parseIntegrity} from './common.js'
+import {TDependencies, TSnapshot, THashes} from '../interface'
+import {parseIntegrity} from '../common'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 

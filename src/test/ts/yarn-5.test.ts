@@ -1,6 +1,6 @@
 import { suite } from 'uvu'
 import path from 'node:path'
-import {parse, format} from '../../main/ts/yarn-5'
+import {parse, format} from '../../main/ts/formats/yarn-5'
 import { testParseFormatInterop } from './helpers'
 
 const test = suite('yarn-5')

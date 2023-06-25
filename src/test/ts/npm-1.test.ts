@@ -1,6 +1,6 @@
 import { suite } from 'uvu'
 import path from 'node:path'
-import {parse, format} from '../../main/ts/npm-1'
+import {parse, format} from '../../main/ts/formats/npm-1'
 import { testParseFormatInterop } from './helpers'
 
 const test = suite('npm-1')

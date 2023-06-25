@@ -1,6 +1,6 @@
 import { suite } from 'uvu'
 import assert from 'node:assert'
-import {parse, parseYarn1, parseYarn5, getSources} from '../../main/ts/index'
+import { parse, parseYarn1, parseYarn5, getSources } from '../../main/ts/index'
 
 const test = suite('index')
 

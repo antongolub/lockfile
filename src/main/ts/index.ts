@@ -1,6 +1,6 @@
-import {parse as parseNpm1, format as formatNpm1} from './npm-1'
-import {parse as parseYarn1, format as formatYarn1, check as checkYarn1} from './yarn-1'
-import {parse as parseYarn5, format as formatYarn5, check as checkYarn5} from './yarn-5'
+import {parse as parseNpm1, format as formatNpm1} from './formats/npm-1'
+import {parse as parseYarn1, format as formatYarn1, check as checkYarn1} from './formats/yarn-1'
+import {parse as parseYarn5, format as formatYarn5, check as checkYarn5} from './formats/yarn-5'
 import {TSnapshot} from './interface'
 
 export const foo = 'bar'

@@ -1,7 +1,7 @@
-import {TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from './interface'
-import {sortObject} from './util'
-import {parseIntegrity, isProd} from './common'
-import fs from 'fs'
+import {TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {sortObject} from '../util'
+import {parseIntegrity, isProd} from '../common'
+import fs from 'node:fs'
 
 export type TNpm1LockfileEntry = {
     version: string
