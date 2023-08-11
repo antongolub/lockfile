@@ -1,5 +1,5 @@
 # lockfile
-> Read, write, and convert npm (v1, v2) and yarn (classic and berry) lockfiles in any directions with reasonable losses
+> Read and write lockfiles with reasonable losses
 
 ## Motivation
 Each package manager brings its own philosophy of how to describe, store and control project dependencies.
@@ -88,15 +88,16 @@ __metadata:
 `
 ```
 
-### Lockfile (meta) versions
-| Package manager  | Meta format | Supported | 
-|------------------|-------------|-----------|
-| npm <7           | 1           | ✓         |
-| npm >=7          | 2           |           |
-| yarn 1 (classic) | 1           | ✓         |
-| yarn 2 (berry)   | 5, 6        |           |
-| yarn 3           | 5, 6        | ✓         |
-| yarn 4           | 6, 7        | ✓         |
+### Lockfiles formats
+| Package manager  | Meta format | Read | Write |
+|------------------|-------------|------|-------|
+| npm <7           | 1           | ✓    | ✓     |
+| npm >=7          | 2           |      |       |
+| npm >=9          | 3           |      |       | 
+| yarn 1 (classic) | 1           | ✓    | ✓     |
+| yarn 2 (berry)   | 5, 6        |      |       |
+| yarn 3           | 5, 6        | ✓    | ✓     |
+| yarn 4           | 6, 7        | ✓    |       |
 
 ### Reference protocols
 | Type      | Supported |
