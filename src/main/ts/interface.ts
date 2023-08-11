@@ -2,7 +2,7 @@ export type TLockfileFormat = 'npm-1' | 'npm-2' | 'yarn-1' | 'yarn-5' | 'yarn-6'
 
 export type TScope = 'prod' | 'dev' | 'peer' | 'opt'
 
-export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace'
+export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace' | 'semver'
 
 export type TDependencies = Record<string, string>
 

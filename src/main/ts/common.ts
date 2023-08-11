@@ -1,4 +1,5 @@
 import {THashes, TManifest, TSnapshot} from './interface'
+import semver from 'semver'
 
 export const normalizeOptions = () => {
 
@@ -37,4 +38,52 @@ export const formatIntegrity = (hashes: THashes): string => {
   }
 
   return Object.entries(hashes).map(([k, v]) => `${k}-${v}`).join(' ')
+}
+
+export type IReferenceDeclaration = {
+  protocol: string
+  raw: string
+  version: string | null
+  [extra: string]: any
+}
+
+const buildReference = (protocol: string, raw: string, value: string) => ({
+  protocol,
+  value,
+  raw,
+  caret: (value.startsWith('^') || value.startsWith('~')) ? value.charAt(0) : '',
+  version: semver.valid(raw) || semver.coerce(raw)?.version || null
+})
+
+export const parseReference = (raw?: any): IReferenceDeclaration => {
+  if (raw.startsWith('workspace:')) {
+    return buildReference('workspace', raw, raw.slice(10))
+  }
+
+  if (raw.startsWith('npm:')) {
+    return buildReference('npm', raw, raw.slice(4))
+  }
+
+  return buildReference('semver', raw, raw)
+}
+
+export const mapReference = (current: string, targetProtocol: string, strategy = 'inherit'): string => {
+  const {caret, version, protocol} = parseReference(current)
+  const prefix = targetProtocol === 'semver' ? '' : `${targetProtocol}:`
+
+  if (protocol === targetProtocol) {
+    return current
+  }
+
+  if (version === null) {
+    return prefix + '*'
+  }
+
+  const _version = strategy === 'pin'
+    ? version
+    : strategy === 'inherit'
+      ? (caret + version)
+      : strategy
+
+  return prefix + _version
 }
