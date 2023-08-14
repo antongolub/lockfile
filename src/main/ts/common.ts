@@ -1,5 +1,7 @@
-import {THashes, TManifest, TSnapshot} from './interface'
 import semver from 'semver'
+import fs from 'node:fs/promises'
+import {topo, traverseDeps} from '@semrel-extra/topo'
+import {THashes, TManifest, TSnapshot} from './interface'
 
 export const normalizeOptions = () => {
 
@@ -86,4 +88,30 @@ export const mapReference = (current: string, targetProtocol: string, strategy =
       : strategy
 
   return prefix + _version
+}
+
+/**
+ * Replaces local monorepo cross-refs with the target protocol: workspace or semver
+ */
+export const switchMonorefs = async ({cwd, strategy, protocol = 'semver', dryrun = false}: {
+  cwd?: string
+  strategy?: string // 'inherit' | 'pin' | 'coerce'
+  protocol?: string
+  dryrun?: boolean
+}) => {
+  const {packages} = await topo({cwd})
+
+  await Promise.all(Object.values(packages).map(async pkg => {
+    await traverseDeps({pkg, packages, cb({name, version, deps}) {
+      deps[name] = mapReference(version, protocol, strategy)
+    }})
+
+    if (dryrun) {
+      return
+    }
+
+    await fs.writeFile(pkg.manifestAbsPath, JSON.stringify(pkg.manifest), 'utf8')
+  }))
+
+  return packages
 }

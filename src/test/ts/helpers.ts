@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 
 import * as assert from 'uvu/assert'
 
@@ -23,3 +24,6 @@ export const testParseFormatInterop =  async ({input, parse, format, opts}: {inp
         }
     }
 }
+
+export const tempy = async () =>
+    fs.mkdtemp(path.join(os.tmpdir(), 'tempy-'))

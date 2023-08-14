@@ -1,5 +1,7 @@
 import assert from 'node:assert'
-import semver from 'semver'
+import path from 'node:path'
+// import {cp} from 'fs/promises'
+// import {tempy} from './helpers'
 import { suite } from 'uvu'
 import {
   isProd,
@@ -9,8 +11,9 @@ import {
   formatIntegrity,
   parseIntegrity,
   parseReference,
+  mapReference,
+  switchMonorefs,
 } from '../../main/ts/common'
-import {mapReference} from "../../main/ts/workspace";
 
 const test = suite('common')
 
@@ -110,6 +113,26 @@ test('`mapReference` maps v declaration as expected', () => {
   cases.forEach(([input, protocol, strategy, result]) => {
     assert.equal(mapReference(input, protocol, strategy), result)
   })
+})
+
+test('switchMonorefs() replaces `workspace:` protocol with regular semrel links', async () => {
+  const fixtures = path.resolve(__dirname, '../fixtures/npm-2-mr')
+  const packages = await switchMonorefs({
+    cwd: path.resolve(__dirname, '../fixtures/npm-2-mr'),
+    dryrun: true,
+    protocol: 'workspace'
+  })
+
+  assert.deepStrictEqual(
+    packages['@abstractest/fixture-basic-test'].manifest.devDependencies,
+    {
+      "@abstractest/infra": "workspace:*",
+      "@abstractest/jest": "workspace:*",
+      "@abstractest/native": "workspace:*",
+      "@abstractest/types": "workspace:*",
+      "abstractest": "workspace:*"
+    }
+  )
 })
 
 test.run()
