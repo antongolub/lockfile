@@ -95,9 +95,9 @@ export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> =
         format: 'npm-1',
         entries: sortObject(entries),
         workspaces,
+        manifest,
     }
 }
-
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
@@ -115,8 +115,8 @@ const createIndex = () => {
     }
 }
 
-export const format = async (snap: TSnapshot): Promise<string> => {
-    const root = snap.workspaces[''].manifest
+export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
+    const root = snap.manifest
     const entries: TLockfileEntry[]= Object.values(snap.entries)
     const idx = createIndex()
 
@@ -232,12 +232,16 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         }
     })
 
-    fs.writeFileSync('temp/test.json', JSON.stringify(lf, null, 2))
-    fs.writeFileSync('temp/tree.json', JSON.stringify(
-        deptree.map(c => c.map(e => `${e.name}@${e.version}`).join(' > ')),
-        null,
-        2
-    ))
+    // fs.writeFileSync('temp/test.json', JSON.stringify(lf, null, 2))
+    // fs.writeFileSync('temp/tree.json', JSON.stringify(
+    //     deptree.map(c => c.map(e => `${e.name}@${e.version}`).join(' > ')),
+    //     null,
+    //     2
+    // ))
 
-    return JSON.stringify(lf, null, 2)
+    return lf
 }
+
+export const format = async (snap: TSnapshot): Promise<string> =>
+    JSON.stringify(await preformat(snap), null, 2)
+

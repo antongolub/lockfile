@@ -1,4 +1,4 @@
-export type TLockfileFormat = 'npm-1' | 'npm-2' | 'yarn-1' | 'yarn-5' | 'yarn-6' | 'yarn-7'
+export type TLockfileFormat = 'npm-1' | 'npm-2' | 'npm-3' | 'yarn-1' | 'yarn-5' | 'yarn-6' | 'yarn-7'
 
 export type TScope = 'prod' | 'dev' | 'peer' | 'opt'
 
@@ -31,6 +31,7 @@ export interface TLockfileEntry {
     sourceType?: TSourceType
     source?: string
     bin?: Record<string, string>
+    engines?: Record<string, string>
 }
 
 export interface TManifest {
@@ -45,11 +46,12 @@ export interface TManifest {
 export interface TWorkspace {
     name: string
     path: string // relative to the root of the workspace
-    manifest: TManifest
+    // manifest: TManifest
 }
 
 export interface TSnapshot {
     format: TLockfileFormat
+    manifest: TManifest // root level package.json
     entries: Record<string, TLockfileEntry>
     workspaces: Record<string, TWorkspace>
 }
