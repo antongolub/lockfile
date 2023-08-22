@@ -114,6 +114,7 @@ https://yarnpkg.com/features/protocols
 ### Caveats
 * npm1: `optional: true` label is not supported by `format`
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
+* npm2 and npm3 requires `engines` data, while yarn* or npm1 does not contain it
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)

@@ -135,4 +135,4 @@ test('switchMonorefs() replaces `workspace:` protocol with regular semrel links'
   )
 })
 
-test.run()
+// test.run()

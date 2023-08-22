@@ -32,6 +32,7 @@ export interface TLockfileEntry {
     source?: string
     bin?: Record<string, string>
     engines?: Record<string, string>
+    funding?: Record<string, string>
 }
 
 export interface TManifest {

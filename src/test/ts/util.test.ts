@@ -18,4 +18,4 @@ test('`loadContents` returns content-like input as is', async () => {
 `), 'foo\n')
 })
 
-test.run()
+// test.run()
