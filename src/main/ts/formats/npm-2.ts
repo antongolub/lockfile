@@ -126,67 +126,90 @@ export const format = async (snap: TSnapshot): Promise<string> => {
   const packages = {}
   const values = Object.values(snap.entries)
 
-  type TNmChain = [string, Record<string, TLockfileEntry>][]
-  const buildNmTree = (entry: TLockfileEntry, chain: TNmChain, result: Record<string, TLockfileEntry> = {}, queue: [TLockfileEntry, TNmChain][] = []) => {
+  type TNmChain = [TLockfileEntry, Record<string, TLockfileEntry>][]
+  const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_modules/')
+  const buildNmTree = (entry: TLockfileEntry, chain: TNmChain = [[entry, {}]], result: Record<string, TLockfileEntry> = {}, queue: [TLockfileEntry, TNmChain][] = []) => {
     const {name, dependencies} = entry
 
-    // console.log(chain.map(([p])=> p).reverse().join('>'))
 
-    // if (name === 'semver') {
-    //   console.log(entry.ranges, name)
-    //   console.log(chain.map(([p])=> p).reverse().join('>'))
-    // }
-
-    const foundIdx = chain.findIndex(([, tree]) => tree[name])
-    let tree: Record<string, TLockfileEntry>
-
-    if (foundIdx === -1) {
-      [,tree] = chain[chain.length - 1]
-    } else {
-      [,tree] = chain[foundIdx]
-
-      if (tree[name] === entry) {
-        return result
-      }
-
-      [,tree] = chain[foundIdx - 1]
+    if (name === 'semver') {
+      console.log(entry.version)
+      console.log(chain.map(([p])=> p.name).reverse().join('>'))
     }
 
-    tree[name] = entry
+    chain[0][1][name] = entry
 
-
+    const cl = chain.length
     chain.forEach(([parent, tree], i) => {
-      const prefix = chain.slice(i).map(([p]) => p).reverse().filter(Boolean)
-
+      // const parents = chain.slice(i).map(([p]) => p)
       // console.log(tree)
       // console.log(chain.map(([p])=> p).reverse().join('>'))
+
       Object.values<TLockfileEntry>(tree).forEach(entry => {
-        const key = 'node_modules/' + [...prefix, entry.name].join('/node_modules/')
 
-        // if (entry.name === 'semver') {
-        //   console.log(chain.map(([p])=> p).reverse().join('>'))
-        //   console.log(entry)
-        // }
+        let l = 0
+        while(l < cl - 1) {
+          let m = i
+          while(m < cl) {
+            const j = m + l
+            const prefix = chain.slice(m, j === cl ? cl - 1 : j)
+              .reverse()
+              .map(([{name}]) => name)
+              .filter(Boolean)
 
-        // console.log(entry)
+            const variant = formatNmKey([...prefix, entry.name])
+            const found = result[variant]
 
-        result[key] = entry
+            if (found === entry) {
+              return
+            }
+
+            if (!found) {
+              if (prefix.length && (result[formatNmKey(prefix)] !== chain[m][0])) {
+                m++
+                continue
+              }
+
+              // console.log('result[formatNmKey(prefix)]', result[formatNmKey(prefix)])
+              if (entry.name === 'semver') {
+                if (prefix.length) {
+                  // console.log(chain.map(([p])=> p.name).join('>'))
+                  // console.log('prefix.l=!!!!')
+                }
+
+                // console.log('parent=', parent)
+                // console.log(chain.map(([p])=> p).join('>'), tree)
+                // console.log(m, l, i, i > j ? i : j, prefix)
+                // console.log(variant)
+                // console.log(parent, i, chain.map(([p])=> p).join('>'))
+                // console.log(entry.version)
+              }
+              result[variant] = entry
+              return
+            }
+            m++
+          }
+          l++
+        }
       })
     })
 
     let _tree = {}
-    dependencies &&  Object.entries(dependencies).forEach(([_name, range]) => {
-        const _entry = values.find(({
-          name: __name,
-          ranges
-        }) => _name === __name && ranges.includes(range)) as TLockfileEntry
-        if (!_entry) {
-          throw new Error(`inconsistent snapshot: ${_name} ${range}`)
-        }
+    dependencies && Object.entries(dependencies).forEach(([_name, range]) => {
+      const _entry = values.find(({
+        name: __name,
+        ranges
+      }) => _name === __name && ranges.includes(range)) as TLockfileEntry
+      if (!_entry) {
+        throw new Error(`inconsistent snapshot: ${_name} ${range}`)
+      }
 
-        queue.push([_entry, [[name, _tree], ...chain]])
+      // if (_name === 'semver') {
+      //   console.log('parent=', name, range, _entry)
+      // }
 
-      })
+      queue.push([_entry, name ? [[entry, _tree], ...chain] : chain])
+    })
 
 
     while(queue.length) {
@@ -207,7 +230,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     return result
   }
 
-  const tree = buildNmTree(values[0], [['', {}]])
+  const tree = buildNmTree({...values[0], name: ''})
 
   fs.writeFileSync('temp/tree.json', JSON.stringify(tree, null, 2))
 
