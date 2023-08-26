@@ -1,7 +1,7 @@
-import {TLockfileEntry, TManifest, TSnapshot} from '../interface'
-import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
-import {parseIntegrity} from "../common";
-import {sortObject} from "../util";
+import {THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile, createIndex} from './npm-1'
+import {formatTarballUrl, parseIntegrity} from '../common'
+import {sortObject} from '../util'
 import fs from 'node:fs'
 
 export type TNpm2LockfileEntry = {
@@ -26,6 +26,8 @@ export type TNpm2Lockfile = {
   dependencies: TNpm2LockfileDeps
 }
 
+type TNmChain = [TLockfileEntry, Record<string, TLockfileEntry>][]
+
 export const parse = async (lockfile: string): Promise<TSnapshot> => {
   const lfraw = await JSON.parse(lockfile)
   const entries = await parsePackages(lockfile)
@@ -39,6 +41,8 @@ export const parse = async (lockfile: string): Promise<TSnapshot> => {
     format: 'npm-2'
   }
 }
+
+const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_modules/')
 
 const parsePackages = async (lockfile: string): Promise<any> => {
   const lf: TNpm2Lockfile = await JSON.parse(lockfile)
@@ -62,7 +66,8 @@ const parsePackages = async (lockfile: string): Promise<any> => {
     let l = chain.length + 1
 
     while (l--) {
-      const variant = 'node_modules/' + [...chain.slice(0, l), name].filter(Boolean).join('/node_modules/')
+      // const variant = 'node_modules/' + [...chain.slice(0, l), name].filter(Boolean).join('/node_modules/')
+      const variant = formatNmKey([...chain.slice(0, l), name].filter(Boolean))
       const entry = entries[variant]
 
       if (entry) {
@@ -73,20 +78,10 @@ const parsePackages = async (lockfile: string): Promise<any> => {
     return entries[""]
   }
   Object.entries(lf.packages).forEach(([path, entry]) => {
-    // const name = path.slice(('/' + path).lastIndexOf('/node_modules/') + 13)
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
     const name = entry.name || chain[chain.length - 1]
     const version = entry.version
     const dependencies = {...entry.dependencies, ...entry.devDependencies, ...entry.optionalDependencies}
-
-    // const [name]: string[] = ('/' + path).split('/node_modules').map(name => name.slice(1)).reverse()
-    // const [name, parent]: string[] = ('/' + path).split('/node_modules').map(name => name.slice(1)).reverse()
-    //
-    // if (parent) {
-    //
-    // }
-
-    // console.log('name=', name)
 
     upsertEntry(name, version, {
       version,
@@ -107,46 +102,14 @@ const parsePackages = async (lockfile: string): Promise<any> => {
 
 export const format = async (snap: TSnapshot): Promise<string> => {
   const lfnpm1: TNpm1Lockfile = (await preformatNpm1(snap))
-
-  // const packages = Object.entries(lfnpm1.dependencies).reduce((m: TNpm2LockfileDeps, [name, entry]) => {
-  //     const {engines, funding} = snap.entries[`${name}@${entry.version}`] || {}
-  //     m[`node_modules/${name}`] = {
-  //         ...entry,
-  //         requires: undefined,
-  //         dependencies: entry.requires,
-  //         engines,
-  //         funding
-  //     }
-  //     return m
-  // }, {
-  //     "": snap.manifest
-  // })
-
-
-  const packages = {}
-  const values = Object.values(snap.entries)
-
-  type TNmChain = [TLockfileEntry, Record<string, TLockfileEntry>][]
-  const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_modules/')
+  const {entries} = createIndex(snap)
   const buildNmTree = (entry: TLockfileEntry, chain: TNmChain = [[entry, {}]], result: Record<string, TLockfileEntry> = {}, queue: [TLockfileEntry, TNmChain][] = []) => {
     const {name, dependencies} = entry
-
-
-    if (name === 'semver') {
-      console.log(entry.version)
-      console.log(chain.map(([p])=> p.name).reverse().join('>'))
-    }
+    const cl = chain.length
 
     chain[0][1][name] = entry
-
-    const cl = chain.length
     chain.forEach(([parent, tree], i) => {
-      // const parents = chain.slice(i).map(([p]) => p)
-      // console.log(tree)
-      // console.log(chain.map(([p])=> p).reverse().join('>'))
-
       Object.values<TLockfileEntry>(tree).forEach(entry => {
-
         let l = 0
         while(l < cl - 1) {
           let m = i
@@ -169,21 +132,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
                 m++
                 continue
               }
-
-              // console.log('result[formatNmKey(prefix)]', result[formatNmKey(prefix)])
-              if (entry.name === 'semver') {
-                if (prefix.length) {
-                  // console.log(chain.map(([p])=> p.name).join('>'))
-                  // console.log('prefix.l=!!!!')
-                }
-
-                // console.log('parent=', parent)
-                // console.log(chain.map(([p])=> p).join('>'), tree)
-                // console.log(m, l, i, i > j ? i : j, prefix)
-                // console.log(variant)
-                // console.log(parent, i, chain.map(([p])=> p).join('>'))
-                // console.log(entry.version)
-              }
               result[variant] = entry
               return
             }
@@ -194,9 +142,9 @@ export const format = async (snap: TSnapshot): Promise<string> => {
       })
     })
 
-    let _tree = {}
+    const _tree = {}
     dependencies && Object.entries(dependencies).forEach(([_name, range]) => {
-      const _entry = values.find(({
+      const _entry = entries.find(({
         name: __name,
         ranges
       }) => _name === __name && ranges.includes(range)) as TLockfileEntry
@@ -204,36 +152,34 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         throw new Error(`inconsistent snapshot: ${_name} ${range}`)
       }
 
-      // if (_name === 'semver') {
-      //   console.log('parent=', name, range, _entry)
-      // }
-
       queue.push([_entry, name ? [[entry, _tree], ...chain] : chain])
     })
-
 
     while(queue.length) {
       const [entry, chain] = queue.shift() as [TLockfileEntry, TNmChain]
       buildNmTree(entry, chain, result, queue)
     }
 
-
-    // if (!_deps[name]) {
-    //     _deps[name] = values.find(({name: _name, ranges}) => _name === name && ranges.includes(range))
-    //     return
-    // }
-    //
-    // if (_deps[name].ranges.includes(range)) {
-    //     return
-    // }
-
     return result
   }
 
-  const tree = buildNmTree({...values[0], name: ''})
+  const tree = buildNmTree({...entries[0], name: ''})
 
   fs.writeFileSync('temp/tree.json', JSON.stringify(tree, null, 2))
 
+  delete tree['node_modules/'] // FIXME
+  const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
+  const packages = sortObject({
+    "": snap.manifest,
+    ...Object.entries(tree).reduce((m, [k, v]) => {
+      m[k] = {
+        version: v.version,
+        resolved: formatTarballUrl(v.name, v.version),
+        integrity: formatIntegrity(v.hashes)
+      }
+      return m
+    }, {} as TNpm2LockfileDeps)
+  })
 
   const lf = {
     name: lfnpm1.name,

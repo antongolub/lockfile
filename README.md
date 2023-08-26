@@ -8,7 +8,7 @@ This lib is a naive attempt to build a pm-independent, generic, extensible and r
 
 The ´package.json´ manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
 so both of them are required to build a dependency graph. We can try to convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
-And then, if necessary, convert back to the original format.
+And then, if necessary, convert it back to the original format.
 
 ## Status
 ⚠️ Initial draft. Alpha-version
@@ -92,7 +92,7 @@ __metadata:
 | Package manager  | Meta format | Read | Write |
 |------------------|-------------|------|-------|
 | npm <7           | 1           | ✓    | ✓     |
-| npm >=7          | 2           |      |       |
+| npm >=7          | 2           | ✓    |       |
 | npm >=9          | 3           |      |       | 
 | yarn 1 (classic) | 1           | ✓    | ✓     |
 | yarn 2 (berry)   | 5, 6        |      |       |
@@ -114,7 +114,7 @@ https://yarnpkg.com/features/protocols
 ### Caveats
 * npm1: `optional: true` label is not supported by `format`
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
-* npm2 and npm3 requires `engines` data, while yarn* or npm1 does not contain it
+* npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)

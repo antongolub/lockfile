@@ -7,17 +7,20 @@ export const normalizeOptions = () => {
 
 }
 
+export const formatTarballUrl = (name: string, version: string, registry = 'https://registry.npmjs.org') =>
+  `${registry}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`
+
 export const getSources = (snapshot: TSnapshot): string[] =>
   Object.values(snapshot.entries)
     .map(entry => entry.source as string)
     .filter(Boolean)
 
-const isDepType = (type: keyof TManifest, manifest: TManifest, name: string): boolean => Boolean(manifest[type]?.[name])
+const checkDepType = (type: keyof TManifest, manifest: TManifest, name: string): boolean => Boolean(manifest[type]?.[name])
 
-export const isProd = isDepType.bind(null, 'dependencies')
-export const isDev = isDepType.bind(null, 'devDependencies')
-export const isPeer = isDepType.bind(null, 'peerDependencies')
-export const isOptional = isDepType.bind(null, 'optionalDependencies')
+export const isProd = checkDepType.bind(null, 'dependencies')
+export const isDev = checkDepType.bind(null, 'devDependencies')
+export const isPeer = checkDepType.bind(null, 'peerDependencies')
+export const isOptional = checkDepType.bind(null, 'optionalDependencies')
 
 export const parseIntegrity = (integrity: string): THashes =>
   integrity
