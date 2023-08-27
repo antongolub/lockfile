@@ -132,26 +132,37 @@ export const createIndex = (snap: TSnapshot) => {
         }
     }
 
-    const q: [TLockfileEntry, string][] = [[{...rootEntry, name: ''}, '']]
+    const q: [TLockfileEntry, string, number, any[]?][] = [[{...rootEntry, name: ''}, '', 0]]
+
     while (q.length) {
-        const [entry, prefix] = q.shift() as [TLockfileEntry, string]
+        const [entry, prefix, i] = q.shift() as [TLockfileEntry, string, number]
         const {dependencies} = entry
         const id = idx.getId(entry)
-        const key = prefix + entry.name
+        const key = (prefix ? prefix + ',' : '') + entry.name
 
         tree[key] = id
 
-        dependencies && Object.entries(dependencies).forEach(([name, range]) => {
+        const stack: any[] = []
+        dependencies && Object.entries(sortObject(dependencies)).forEach(([name, range]) => {
             const _entry = idx.findEntry(name, range)
             if (!_entry) {
                 throw new Error(`inconsistent snapshot: ${name} ${range}`)
             }
             edges.push([id, idx.getId(_entry)])
-            q.push([_entry, key ? key + ',' + name + ',' : name])
+            stack.push([_entry, key, i + 1])
         })
+
+        const p = q.findLastIndex(([,_prefix]) => prefix === _prefix)
+
+        // console.log('p=', p, i, q)
+        // @ts-ignore
+        q.splice(p, 0, ...stack)
+        // q = stack
+        // q.sort((a, b) => a[2] - b[2] || a[1].localeCompare(b[1]))
+        // q.sort((a, b) => a[2] - b[2])
     }
 
-    fs.writeFileSync('temp/deptree.json', JSON.stringify(sortObject(tree), null, 2))
+    fs.writeFileSync('temp/deptree.json', JSON.stringify(tree, null, 2))
 
     entries.forEach((entry) => {
         entry.dependencies && Object.entries(entry.dependencies).forEach(([_name, range]) => {
