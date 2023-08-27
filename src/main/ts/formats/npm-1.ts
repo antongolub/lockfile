@@ -124,8 +124,8 @@ export const createIndex = (snap: TSnapshot) => {
         getId ({name, version}: TLockfileEntry): string {
             return `${name}@${version}`
         },
-        getEntry (name: string, version: string) {
-            return snap.entries[`${name}@${version}`]
+        getEntry (name: string, version?: string) {
+            return snap.entries[`${name || ''}${name && version ? '@' + version : ''}`]
         },
         findEntry (name: string, range: string) {
             return entries.find(({name: _name, ranges}) => name === _name && ranges.includes(range))
@@ -136,14 +136,17 @@ export const createIndex = (snap: TSnapshot) => {
 
     while (q.length) {
         const [entry, prefix, i] = q.shift() as [TLockfileEntry, string, number]
-        const {dependencies} = entry
+        const {name} = entry
         const id = idx.getId(entry)
-        const key = (prefix ? prefix + ',' : '') + entry.name
+        const key = (prefix ? prefix + ',' : '') + name
+        const dependencies: Record<string, string> = name === ''
+            ? {...sortObject(snap.manifest.dependencies || {}), ...sortObject({...snap.manifest.devDependencies, ...snap.manifest.optionalDependencies})}
+            : entry.dependencies ? sortObject(entry.dependencies): {}
 
         tree[key] = id
-
         const stack: any[] = []
-        dependencies && Object.entries(sortObject(dependencies)).forEach(([name, range]) => {
+
+        Object.entries(dependencies).forEach(([name, range]) => {
             const _entry = idx.findEntry(name, range)
             if (!_entry) {
                 throw new Error(`inconsistent snapshot: ${name} ${range}`)
@@ -152,14 +155,8 @@ export const createIndex = (snap: TSnapshot) => {
             stack.push([_entry, key, i + 1])
         })
 
-        const p = q.findLastIndex(([,_prefix]) => prefix === _prefix)
-
-        // console.log('p=', p, i, q)
-        // @ts-ignore
-        q.splice(p, 0, ...stack)
-        // q = stack
-        // q.sort((a, b) => a[2] - b[2] || a[1].localeCompare(b[1]))
-        // q.sort((a, b) => a[2] - b[2])
+        q.splice(q.findLastIndex(([,_prefix]) => prefix === _prefix), 0, ...stack)
+        // q.push(...stack)
     }
 
     fs.writeFileSync('temp/deptree.json', JSON.stringify(tree, null, 2))
@@ -198,7 +195,7 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
         deps.forEach((dep) => fillTree(dep, [...chain, dep]))
     }
 
-    fillTree(idx.getEntry(root.name, root.version)!)
+    fillTree(idx.getEntry(''))
 
     const formatNpm1LockfileEntry = (entry: TLockfileEntry): TNpm1LockfileEntry => {
         const {name, version, hashes, dependencies} = entry
@@ -281,8 +278,8 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
         }
     })
 
-    // fs.writeFileSync('temp/test.json', JSON.stringify(lf, null, 2))
-    // fs.writeFileSync('temp/tree.json', JSON.stringify(
+    fs.writeFileSync('temp/deptreenpm1.json', JSON.stringify(deptree, null, 2))
+    // fs.writeFileSync('temp/treenpm1.json', JSON.stringify(
     //     deptree.map(c => c.map(e => `${e.name}@${e.version}`).join(' > ')),
     //     null,
     //     2

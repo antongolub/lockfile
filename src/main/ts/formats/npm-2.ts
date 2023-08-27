@@ -138,29 +138,60 @@ export const format = async (snap: TSnapshot): Promise<string> => {
       if (!entry) {
         return result
       }
-      const parent = chunks[0]
+      const grandparent = chunks[0]
       const cl = chunks.length
 
-      let i = cl - 1
-      while (i > -1) {
-        const _key = chunks.slice(i)//.reverse()
+      const f = '1111111'
 
-        const variant = formatNmKey(_key)
-        const found = result[variant]
-
+      if (entry.name === f) {
+        console.log('>', chunks.join(','))
+      }
 
 
-        if (found) {
-          if (found.entry === entry) {
+      let l = 0
+      while (l <= cl) {
+        const [name, ...parents] = [...chunks].reverse()
+
+        let i = 0
+        while (i < parents.length) {
+          const __key = parents.slice(i, i + l).reverse()
+          const _key = [...__key, name]//
+
+          const variant = formatNmKey(_key)
+          const found = result[variant]
+
+
+          if (found) {
+            if (found.entry === entry) {
+              if (entry.name === f) {
+                console.log('result (cache)=', variant, entry.version)
+              }
+              return result
+            }
+
+          } else {
+            const pEntry = result[formatNmKey(__key)]?.entry
+            const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')])
+            if (__key.length && pEntry !== ppEntry) {
+              console.log('!!!!!!', chunks.join(','))
+              console.log('variant:', _key)
+              console.log('variant_p:', __key)
+              console.log('alt_p:', chunks.slice(0, cl - i - l).join(','))
+              console.log('!!!!!!', pEntry?.name, pEntry?.version, ppEntry?.name, ppEntry?.version)
+              i++
+              continue
+            }
+            result[variant] = {entry, parent: grandparent}
+            if (entry.name === f) {
+              console.log('result=', variant, entry.version)
+            }
             return result
           }
-
-        } else {
-          result[variant] = {entry, parent}
-          return result
+          i++
         }
-        i--
+        l++
       }
+
 
       //
       //
@@ -310,6 +341,42 @@ export const format = async (snap: TSnapshot): Promise<string> => {
 
   // delete tree['node_modules/'] // FIXME
   const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
+  // const packages: any = {}
+  // const reformat = (node: any, ...parents: string[]): any => {
+  //
+  //   if (node.dependencies) {
+  //     Object.entries(node.dependencies).forEach(([k, v]) => {
+  //       reformat(v, k, ...parents)
+  //     })
+  //   }
+  //   const name = parents[0]
+  //   const key = formatNmKey(parents.reverse())
+  //   const entry = idx.getEntry(name, node.version)
+  //   const _entry: any = {
+  //     version: entry.version,
+  //     resolved: formatTarballUrl(entry.name, entry.version),
+  //     integrity: formatIntegrity(entry.hashes)
+  //   }
+  //
+  //   _entry.dev = node.dev
+  //   // if (!snap.manifest.dependencies?.[parent]) {
+  //   //   _entry.dev = true
+  //   // }
+  //   if (entry.dependencies) {
+  //     _entry.dependencies = entry.dependencies
+  //   }
+  //   _entry.bin = entry.bin
+  //   _entry.engines = entry.engines
+  //   _entry.funding = entry.funding
+  //   _entry.peerDependencies = entry.peerDependencies
+  //
+  //   packages[key] = _entry
+  // }
+  //
+  // reformat(lfnpm1)
+
+  // delete packages['node_modules/']
+
   const packages = sortObject({
     "": snap.manifest,
     ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
@@ -339,6 +406,10 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     lockfileVersion: 2,
     requires: true,
     packages,
+    // packages: {
+    //   "": snap.manifest,
+    //   ...sortObject(packages)
+    // },
     dependencies: lfnpm1.dependencies,
   }
 

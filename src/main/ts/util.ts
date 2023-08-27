@@ -1,8 +1,11 @@
 import fs from 'node:fs/promises'
 
-export const sortObject = <T extends Record<string, any>>(unordered: T): T =>
+export const sortObject = <T extends Record<string, any>>(
+  unordered: T,
+  predicate: (a: [string, any], b: [string, any]) => number = ([a], [b]) => a > b ? 1 : -1 // This actually what npm does
+): T =>
     Object.entries({...unordered})
-        .sort(([a], [b]) => a > b ? 1 : -1)
+        .sort(predicate)
         .reduce((obj, [key, value]: [keyof T, T[keyof T]]) => {
             obj[key] = value
             return obj
