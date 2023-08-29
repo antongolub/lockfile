@@ -134,16 +134,29 @@ export const createIndex = (snap: TSnapshot) => {
 
     const q: [TLockfileEntry, string, number, any[]?][] = [[{...rootEntry, name: ''}, '', 0]]
 
-    while (q.length) {
-        const [entry, prefix, i] = q.shift() as [TLockfileEntry, string, number]
-        const {name} = entry
-        const id = idx.getId(entry)
-        const key = (prefix ? prefix + ',' : '') + name
-        const dependencies: Record<string, string> = name === ''
-            ? {...sortObject(snap.manifest.dependencies || {}), ...sortObject({...snap.manifest.devDependencies, ...snap.manifest.optionalDependencies})}
-            : entry.dependencies ? sortObject(entry.dependencies): {}
+    const done: any[] = []
+    let c = 0
+    const getDeps = (entry: TLockfileEntry, snap: TSnapshot): Record<string, string> => entry.name === ''
+      ? {...sortObject(snap.manifest.dependencies || {}), ...sortObject({...snap.manifest.devDependencies, ...snap.manifest.optionalDependencies})}
+      : entry.dependencies ? sortObject(entry.dependencies): {}
 
-        tree[key] = id
+
+
+
+    const walk = (ctx: {entry: TLockfileEntry, prefix?: string, depth?: number, parentId?: string}) => {
+        const {entry, prefix, depth = 0, parentId} = ctx
+        const id = idx.getId(entry)
+        const key = (prefix ? prefix + ',' : '') + entry.name
+
+        if (!tree[key]) {
+            tree[key] = id
+            if (parentId) {
+                edges.push([parentId, id])
+                return
+            }
+        }
+
+        const dependencies = getDeps(entry, snap)
         const stack: any[] = []
 
         Object.entries(dependencies).forEach(([name, range]) => {
@@ -151,15 +164,56 @@ export const createIndex = (snap: TSnapshot) => {
             if (!_entry) {
                 throw new Error(`inconsistent snapshot: ${name} ${range}`)
             }
-            edges.push([id, idx.getId(_entry)])
-            stack.push([_entry, key, i + 1])
+            const _ctx = {entry: _entry, prefix: key, depth: depth + 1, parentId: id}
+            walk(_ctx)
+            stack.push(_ctx)
         })
 
-        q.splice(q.findLastIndex(([,_prefix]) => prefix === _prefix), 0, ...stack)
-        // q.push(...stack)
+        stack.forEach(walk)
     }
+    walk({entry: {...rootEntry, name: ''}})
+
+    // while (q.length) {
+    //
+    //     const [entry, prefix, depth] = q.shift() as [TLockfileEntry, string, number]
+    //     const {name} = entry
+    //     const id = idx.getId(entry)
+    //     const key = (prefix ? prefix + ',' : '') + name
+    //     const dependencies: Record<string, string> = name === ''
+    //         ? {...sortObject(snap.manifest.dependencies || {}), ...sortObject({...snap.manifest.devDependencies, ...snap.manifest.optionalDependencies})}
+    //         : entry.dependencies ? sortObject(entry.dependencies): {}
+    //
+    //     tree[key] = id
+    //     done.push(key)
+    //     const stack: any[] = []
+    //
+    //     Object.entries(dependencies).forEach(([name, range]) => {
+    //         const _entry = idx.findEntry(name, range)
+    //         if (!_entry) {
+    //             throw new Error(`inconsistent snapshot: ${name} ${range}`)
+    //         }
+    //         edges.push([id, idx.getId(_entry)])
+    //         stack.push([_entry, key, depth + 1])
+    //     })
+    //
+    //     // let f = q.findLastIndex(([,_prefix]) => prefix === _prefix)
+    //     // if (f === -1) {
+    //     //     const cc = done.indexOf(prefix)
+    //     //     if (cc !== -1) {
+    //     //         console.log('prefix=', prefix, cc, c)
+    //     //     }
+    //     //     // console.log(q.map(([entry, prefix, i]) => `${prefix},${entry.name}}`))
+    //     // }
+    //
+    //     // q.splice(prefix ? q.findLastIndex(([,_prefix]) => prefix === _prefix) : 0, 0, ...stack)
+    //     // q.splice(q.findLastIndex(([,_prefix]) => prefix === _prefix), 0, ...stack)
+    //     q.splice(q.findLastIndex(([,,d]) => depth - 1 === d), 0, ...stack)
+    //     // q.push(...stack)
+    //     c++
+    // }
 
     fs.writeFileSync('temp/deptree.json', JSON.stringify(tree, null, 2))
+    fs.writeFileSync('temp/queue.json', JSON.stringify(done, null, 2))
 
     entries.forEach((entry) => {
         entry.dependencies && Object.entries(entry.dependencies).forEach(([_name, range]) => {

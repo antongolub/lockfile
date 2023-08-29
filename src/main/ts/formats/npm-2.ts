@@ -107,7 +107,7 @@ const parsePackages = async (lockfile: string): Promise<any> => {
 export const format = async (snap: TSnapshot): Promise<string> => {
   const lfnpm1: TNpm1Lockfile = (await preformatNpm1(snap))
   const idx = createIndex(snap)
-  const nmtree = Object.entries(idx.tree)
+  const mapped = Object.entries(idx.tree)
     .map(([key, id]) => {
       const chunks = key.split(',')
 
@@ -117,23 +117,42 @@ export const format = async (snap: TSnapshot): Promise<string> => {
         id
       }
     })
-    // .sort((a, b) => {
-    //   // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
-    //   // (a.chunks.length - b.chunks.length) || a.key.localeCompare(b.key)
-    //   // a.chunks.length < 2 ? -1 : a.key.localeCompare(b.key)
-    //   const d = Math.min(a.chunks.length, b.chunks.length)
-    //
-    //   let i = 0
-    //   while (i < d - 1) {
-    //     if (a.chunks[i].localeCompare(b.chunks[i]) === -1) {
-    //       return -1
-    //     }
-    //     i++
-    //   }
-    //
-    //   return a.chunks.length - b.chunks.length
-    // })
-    .reduce<Record<string, {entry: TLockfileEntry, parent: string}>>((result, {key, id, chunks}) => {
+    .sort((a, b) => {
+      return 0
+      // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
+      // (a.chunks.length - b.chunks.length) || a.key.localeCompare(b.key)
+      // a.chunks.length < 2 ? -1 : a.key.localeCompare(b.key)
+
+
+
+      const prod = snap.manifest.dependencies || {}
+
+      // return (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]]) || a.key.localeCompare(b.key) || (a.chunks.length - b.chunks.length)
+      // return (a.chunks.length - b.chunks.length) || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]]) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
+      // return (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]])
+
+
+
+      // const d = Math.min(a.chunks.length, b.chunks.length)
+      //
+      // let i = 0
+      // while (i < d - 1) {
+      //   if (a.chunks[i].localeCompare(b.chunks[i]) === -1) {
+      //     return -1
+      //   }
+      //   i++
+      // }
+      //
+      // return a.chunks.length - b.chunks.length
+    })
+
+  fs.writeFileSync('temp/mapped.json', JSON.stringify(
+    mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length), null, 2)
+  )
+
+
+
+  const nmtree = mapped.reduce<Record<string, {entry: TLockfileEntry, parent: string}>>((result, {key, id, chunks}) => {
       const entry = snap.entries[id]
       if (!entry) {
         return result
@@ -141,11 +160,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
       const grandparent = chunks[0]
       const cl = chunks.length
 
-      const f = '1111111'
-
-      if (entry.name === f) {
-        console.log('>', chunks.join(','))
-      }
 
 
       let l = 0
@@ -163,9 +177,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
 
           if (found) {
             if (found.entry === entry) {
-              if (entry.name === f) {
-                console.log('result (cache)=', variant, entry.version)
-              }
+
               return result
             }
 
@@ -173,18 +185,15 @@ export const format = async (snap: TSnapshot): Promise<string> => {
             const pEntry = result[formatNmKey(__key)]?.entry
             const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')])
             if (__key.length && pEntry !== ppEntry) {
-              console.log('!!!!!!', chunks.join(','))
-              console.log('variant:', _key)
-              console.log('variant_p:', __key)
-              console.log('alt_p:', chunks.slice(0, cl - i - l).join(','))
-              console.log('!!!!!!', pEntry?.name, pEntry?.version, ppEntry?.name, ppEntry?.version)
+              // console.log('!!!!!!', chunks.join(','))
+              // console.log('variant:', _key)
+              // console.log('variant_p:', __key)
+              // console.log('alt_p:', chunks.slice(0, cl - i - l).join(','))
+              // console.log('!!!!!!', pEntry?.name, pEntry?.version, ppEntry?.name, ppEntry?.version)
               i++
               continue
             }
             result[variant] = {entry, parent: grandparent}
-            if (entry.name === f) {
-              console.log('result=', variant, entry.version)
-            }
             return result
           }
           i++
@@ -241,6 +250,9 @@ export const format = async (snap: TSnapshot): Promise<string> => {
 
       return result
     }, {})
+
+  fs.writeFileSync('temp/tree.json', JSON.stringify(nmtree, null, 2))
+
 
   // const buildNmTree = (entry: TLockfileEntry, chain: TNmChain = [[entry, {}]], result: Record<string, TLockfileEntry> = {}, queue: [TLockfileEntry, TNmChain][] = []) => {
   //   const {name, dependencies} = entry
@@ -304,39 +316,51 @@ export const format = async (snap: TSnapshot): Promise<string> => {
   //
   // const tree = buildNmTree({...entries[0], name: ''})
 
-  fs.writeFileSync('temp/tree.json', JSON.stringify(nmtree, null, 2))
-  fs.writeFileSync('temp/nmtree2.json', JSON.stringify(Object.entries(idx.tree)
-    .map(([key, id]) => {
-      const chunks = key.split(',')
 
-      return {
-        chunks,
-        key,
-        id
-      }
-    })
-    // .sort((a, b) => {
-      // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
-      // (a.chunks.length - b.chunks.length) || a.key.localeCompare(b.key)
-      // a.chunks.length < 2 ? -1 : a.key.localeCompare(b.key)
-
-      // if (a.chunks.length === b.chunks.length) {
-      //   return a.key.localeCompare(b.key)
-      // }
-      //
-      // const d = Math.min(a.chunks.length, b.chunks.length)
-      // let i = 0
-      // while (i < d) {
-      //   const p = a.chunks[i].localeCompare(b.chunks[i])
-      //   if (p) {
-      //     return p
-      //   }
-      //   i++
-      // }
-      //
-      // return (a.chunks.length - b.chunks.length)// || a.key.localeCompare(b.key)
-    //})
-    .map(a => a.key), null, 2))
+  // fs.writeFileSync('temp/flattree.json', JSON.stringify(Object.entries(idx.tree)
+  //   .map(([key, id]) => {
+  //     const chunks = key.split(',')
+  //
+  //     return {
+  //       chunks,
+  //       key,
+  //       id
+  //     }
+  //   })
+  //   // .sort((a, b) => {
+  //   //   const a0 = a.chunks[0]
+  //   //   const b0 = b.chunks[0]
+  //   //   const prod = snap.manifest.dependencies || {}
+  //   //   const p = prod[a0] && !prod[b0]
+  //   //     ? -1
+  //   //     : prod[b0] && !prod[a0]
+  //   //       ? 1
+  //   //       : 0
+  //   //
+  //   //   return (a.chunks.length - b.chunks.length) || p || a.key.localeCompare(b.key)
+  //   //
+  //   //
+  //   //   // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
+  //   //   // (a.chunks.length - b.chunks.length) || a.key.localeCompare(b.key)
+  //   //   // a.chunks.length < 2 ? -1 : a.key.localeCompare(b.key)
+  //   //
+  //   //   // if (a.chunks.length === b.chunks.length) {
+  //   //   //   return a.key.localeCompare(b.key)
+  //   //   // }
+  //   //   //
+  //   //   // const d = Math.min(a.chunks.length, b.chunks.length)
+  //   //   // let i = 0
+  //   //   // while (i < d) {
+  //   //   //   const p = a.chunks[i].localeCompare(b.chunks[i])
+  //   //   //   if (p) {
+  //   //   //     return p
+  //   //   //   }
+  //   //   //   i++
+  //   //   // }
+  //   //   //
+  //   //   // return (a.chunks.length - b.chunks.length)// || a.key.localeCompare(b.key)
+  //   // })
+  //   .map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length), null, 2))
 
 
   // delete tree['node_modules/'] // FIXME

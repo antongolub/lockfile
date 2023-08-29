@@ -116,3 +116,5 @@ dist
 target
 docs
 
+# Manual testing
+temp/*
