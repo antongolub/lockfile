@@ -3,6 +3,7 @@ import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile, createInd
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject} from '../util'
 import fs from 'node:fs'
+import semver from 'semver'
 
 export type TNpm2LockfileEntry = {
   version: string
@@ -110,11 +111,13 @@ export const format = async (snap: TSnapshot): Promise<string> => {
   const mapped = Object.entries(idx.tree)
     .map(([key, id]) => {
       const chunks = key.split(',')
+      const version = id.slice(id.lastIndexOf('@') + 1)
 
       return {
         chunks,
         key,
-        id
+        id,
+        version
       }
     })
     .sort((a, b) => {
@@ -130,6 +133,9 @@ export const format = async (snap: TSnapshot): Promise<string> => {
       // return (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]]) || a.key.localeCompare(b.key) || (a.chunks.length - b.chunks.length)
       // return (a.chunks.length - b.chunks.length) || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]]) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
       // return (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]])
+
+      // return  (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]])
+      // return a.chunks.slice(-1)[0] === b.chunks.slice(-1)[0] ? semver.compare(b.version, a.version) : (a.chunks.length - b.chunks.length)
 
 
 

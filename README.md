@@ -115,6 +115,7 @@ https://yarnpkg.com/features/protocols
 * npm1: `optional: true` label is not supported by `format`
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
+* many `nmtree` projections may correspond the specified `depgraph`
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
