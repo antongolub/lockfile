@@ -19,6 +19,24 @@ And then, if necessary, convert it back to the original format.
 yarn add @antongolub/lockfile
 ```
 
+## API
+```ts
+import { parse, format, analyze } from '@antongolub/lockfile'
+
+const snapshot = parse('yarn.lock <raw contents>', 'package.json <raw contents>', './packages/foo/package.json <raw contents>')
+const lf = format(snapshot)
+const lf2 = format(snapshot, 'npm-1')       // Throws err: npm v1 meta does not support workspaces
+
+const meta = await readMeta()               // reads local package.jsons data to gather required data like `engines`, `license`, `bins`, etc
+const meta2 = await fetchMeta(snapshot)     // does the same, but from the remote registry
+const lf3 = format(snapshot, 'npm-3', meta) // meta is a "recommended" option
+
+
+const idx = analyze(snapshot, {})
+
+
+```
+
 ### Usage
 ```js
 import { parse, format } from '@antongolub/lockfile'

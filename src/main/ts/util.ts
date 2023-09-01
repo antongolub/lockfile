@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises'
+import path from 'node:path'
+import * as process from "process";
 
 export const sortObject = <T extends Record<string, any>>(
   unordered: T,
@@ -25,3 +27,6 @@ export const loadContents = async (value: string): Promise<string> =>
   value.includes('\n')
     ? value
     : fs.readFile(value, 'utf-8')
+
+export const debugAsJson = (name: string, data: any, temp = path.resolve(process.cwd(), 'temp')) =>
+  process.env.DEBUG && fs.writeFile(path.resolve(temp, name), JSON.stringify(data, null, 2))

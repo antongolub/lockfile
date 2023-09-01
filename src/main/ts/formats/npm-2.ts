@@ -1,7 +1,8 @@
 import {THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
 import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile, createIndex} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
-import {sortObject} from '../util'
+import {sortObject, debugAsJson} from '../util'
+import {analyze} from '../analyze'
 import fs from 'node:fs'
 import semver from 'semver'
 
@@ -29,15 +30,15 @@ export type TNpm2Lockfile = {
   dependencies: TNpm2LockfileDeps
 }
 
-type TNmChain = [TLockfileEntry, Record<string, TLockfileEntry>][]
 
 export const parse = async (lockfile: string): Promise<TSnapshot> => {
   const lfraw = await JSON.parse(lockfile)
   const entries = await parsePackages(lockfile)
   const npm1snap = await parseNpm1(lockfile, JSON.stringify(lfraw.packages['']))
 
-  fs.writeFileSync('temp/npm1.json', JSON.stringify(npm1snap.entries, null, 2))
-  fs.writeFileSync('temp/npm2.json', JSON.stringify(entries, null, 2))
+  debugAsJson('npm1.json', npm1snap.entries)
+  debugAsJson('npm2.json', entries)
+
   return {
     ...npm1snap,
     entries,
@@ -152,11 +153,10 @@ export const format = async (snap: TSnapshot): Promise<string> => {
       // return a.chunks.length - b.chunks.length
     })
 
-  fs.writeFileSync('temp/mapped.json', JSON.stringify(
-    mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length), null, 2)
+  debugAsJson(
+    'mapped.json',
+    mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
   )
-
-
 
   const nmtree = mapped.reduce<Record<string, {entry: TLockfileEntry, parent: string}>>((result, {key, id, chunks}) => {
       const entry = snap.entries[id]
@@ -257,7 +257,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
       return result
     }, {})
 
-  fs.writeFileSync('temp/tree.json', JSON.stringify(nmtree, null, 2))
+  debugAsJson('tree.json', nmtree)
 
 
   // const buildNmTree = (entry: TLockfileEntry, chain: TNmChain = [[entry, {}]], result: Record<string, TLockfileEntry> = {}, queue: [TLockfileEntry, TNmChain][] = []) => {
@@ -436,10 +436,6 @@ export const format = async (snap: TSnapshot): Promise<string> => {
     lockfileVersion: 2,
     requires: true,
     packages,
-    // packages: {
-    //   "": snap.manifest,
-    //   ...sortObject(packages)
-    // },
     dependencies: lfnpm1.dependencies,
   }
 

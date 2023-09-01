@@ -21,6 +21,9 @@ export interface TLockfileEntry {
     version: string
     ranges: string[]
     hashes: THashes
+
+
+
     scope?: TScope
     conditions?: string
     dependencies?: TDependencies

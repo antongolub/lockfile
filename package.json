@@ -29,7 +29,7 @@
     "build:libdef": "tsc --emitDeclarationOnly --outDir target/es6",
     "build:esmfix": "tsc-esm-fix --target=target/es6 --ext=.mjs",
     "test": "yarn test:unit",
-    "test:unit": "uvu -r tsm -i helpers 'src/test/ts/'",
+    "test:unit": "DEBUG=true uvu -r tsm -i helpers 'src/test/ts/'",
     "publish:snapshot": "npm publish --no-git-tag-version --tag snapshot"
   },
   "files": [
