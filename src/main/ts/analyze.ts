@@ -90,6 +90,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
       }
       const _ctx = {entry: _entry, prefix: key, depth: depth + 1, parentId: id}
       walk(_ctx)
+      idx.getDeps(entry).push(_entry)
       stack.push(_ctx)
     })
 
@@ -99,16 +100,6 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
 
   debugAsJson('deptree.json', tree)
   debugAsJson('queue.json', done)
-
-  entries.forEach((entry) => {
-    entry.dependencies && Object.entries(entry.dependencies).forEach(([_name, range]) => {
-      const target = entries.find(({name, ranges}) => name === _name && ranges.includes(range))
-      if (!target) {
-        throw new Error(`inconsistent snapshot: ${_name} ${range}`)
-      }
-      idx.getDeps(entry).push(target)
-    })
-  })
 
   return idx
 }

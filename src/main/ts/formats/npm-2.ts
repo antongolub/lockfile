@@ -108,19 +108,8 @@ const parsePackages = async (lockfile: string): Promise<any> => {
 
 export const format = async (snap: TSnapshot): Promise<string> => {
   const lfnpm1: TNpm1Lockfile = (await preformatNpm1(snap))
-  const idx = createIndex(snap)
-  const mapped = Object.entries(idx.tree)
-    .map(([key, id]) => {
-      const chunks = key.split(',')
-      const version = id.slice(id.lastIndexOf('@') + 1)
-
-      return {
-        chunks,
-        key,
-        id,
-        version
-      }
-    })
+  const idx = analyze(snap)
+  const mapped = Object.values(idx.tree)
     .sort((a, b) => {
       return 0
       // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
@@ -189,7 +178,7 @@ export const format = async (snap: TSnapshot): Promise<string> => {
 
           } else {
             const pEntry = result[formatNmKey(__key)]?.entry
-            const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')])
+            const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')]?.id)
             if (__key.length && pEntry !== ppEntry) {
               // console.log('!!!!!!', chunks.join(','))
               // console.log('variant:', _key)
