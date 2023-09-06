@@ -50,7 +50,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     }
   }
 
-  const done: any[] = []
+  const queue: any[] = []
   const getDeps = (entry: TLockfileEntry, snap: TSnapshot): Record<string, string> => entry.name === ''
     ? {...sortObject(snap.manifest.dependencies || {}), ...sortObject({...snap.manifest.devDependencies, ...snap.manifest.optionalDependencies})}
     : entry.dependencies ? sortObject(entry.dependencies): {}
@@ -99,7 +99,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   walk({entry: {...rootEntry, name: ''}})
 
   debugAsJson('deptree.json', tree)
-  debugAsJson('queue.json', done)
+  debugAsJson('queue.json', queue)
 
   return idx
 }
