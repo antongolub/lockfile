@@ -12,6 +12,8 @@ export type TYarn1Lockfile = Record<string, {
     optionalDependencies?: TDependencies
 }>
 
+export const version = 'yarn-1'
+
 export const check = (value: string): boolean => value.includes('# yarn lockfile v1')
 
 export const preparse = (value: string): TYarn1Lockfile  => {
@@ -37,12 +39,14 @@ export const preparse = (value: string): TYarn1Lockfile  => {
     return load(_value) as TYarn1Lockfile
 }
 
-export const parse = async (value: string): Promise<TSnapshot> => {
-    const raw = await preparse(value)
+export const parse = (value: string, pkg: string): TSnapshot => {
+    const manifest = JSON.parse(pkg)
+    const raw = preparse(value)
     const snapshot: TSnapshot = {
         entries: {},
         workspaces: {},
         format: 'yarn-1',
+        manifest,
     }
 
     Object.entries(raw).forEach((value) => {

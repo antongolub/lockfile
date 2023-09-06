@@ -66,10 +66,9 @@ export interface TParseOptions {
     workspaces?: Record<string, TWorkspace>
 }
 
-export type IParse = {
-    (data: string, opts?: TParseOptions): Promise<TSnapshot>
-    (opts?: TParseOptions): Promise<TSnapshot>
-}
+export type IParse = (lockfile: string, ...pkgJsons: string[]) => TSnapshot
+
+export type ICheck = (input: string) => boolean
 
 export type IFormatOptions = {
     format: TLockfileFormat

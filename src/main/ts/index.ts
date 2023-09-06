@@ -1,4 +1,5 @@
-import {parse as parseNpm1, format as formatNpm1} from './formats/npm-1'
+import {parse as parseNpm1, format as formatNpm1, check as checkNpm1} from './formats/npm-1'
+import {parse as parseNpm2, format as formatNpm2, check as checkNpm2} from './formats/npm-1'
 import {parse as parseYarn1, format as formatYarn1, check as checkYarn1} from './formats/yarn-1'
 import {parse as parseYarn5, format as formatYarn5, check as checkYarn5} from './formats/yarn-5'
 import {TSnapshot} from './interface'

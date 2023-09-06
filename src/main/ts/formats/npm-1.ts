@@ -3,6 +3,8 @@ import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, isProd, formatTarballUrl} from '../common'
 import {analyze} from '../analyze'
 
+export const version = 'npm-1'
+
 export type TNpm1LockfileEntry = {
     version: string
     resolved: string
@@ -28,9 +30,11 @@ interface TDepTree {
     requires?: any
 }
 
-export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> => {
-    const lf: TNpm1Lockfile = await JSON.parse(lockfile)
-    const manifest: TManifest = await JSON.parse(pkg)
+export const check = (lockfile: string) => lockfile.includes('  "lockfileVersion": 1')
+
+export const parse = (lockfile: string, pkg: string): TSnapshot => {
+    const lf: TNpm1Lockfile = JSON.parse(lockfile)
+    const manifest: TManifest = JSON.parse(pkg)
     const workspaces = {
         "": {
             name: manifest.name,

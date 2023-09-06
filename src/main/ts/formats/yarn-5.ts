@@ -19,16 +19,20 @@ export type TYarn5Lockfile = Record<string, {
     bin?: Record<string, string>
 }>
 
+export const version = 'yarn-5'
+
 export const check = (value: string): boolean => value.includes(`
 __metadata:
   version: 5
 `)
 
-export const parse = async (lockfile: string, pkg: string): Promise<TSnapshot> => {
+export const parse = (lockfile: string, pkg: string): TSnapshot => {
+    const manifest = JSON.parse(pkg)
     const snapshot: TSnapshot = {
         entries: {},
         workspaces: {},
         format: 'yarn-5',
+        manifest,
     }
 
     const raw = load(lockfile) as TYarn5Lockfile

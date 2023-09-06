@@ -1,5 +1,5 @@
 import {THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
-import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile, createIndex} from './npm-1'
+import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
 import {analyze} from '../analyze'
@@ -30,11 +30,14 @@ export type TNpm2Lockfile = {
   dependencies: TNpm2LockfileDeps
 }
 
+export const version = 'npm-2'
 
-export const parse = async (lockfile: string): Promise<TSnapshot> => {
-  const lfraw = await JSON.parse(lockfile)
-  const entries = await parsePackages(lockfile)
-  const npm1snap = await parseNpm1(lockfile, JSON.stringify(lfraw.packages['']))
+export const check = (lockfile: string) => lockfile.includes('  "lockfileVersion": 2')
+
+export const parse = (lockfile: string): TSnapshot => {
+  const lfraw = JSON.parse(lockfile)
+  const entries = parsePackages(lockfile)
+  const npm1snap = parseNpm1(lockfile, JSON.stringify(lfraw.packages['']))
 
   debugAsJson('npm1.json', npm1snap.entries)
   debugAsJson('npm2.json', entries)
@@ -48,8 +51,8 @@ export const parse = async (lockfile: string): Promise<TSnapshot> => {
 
 const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_modules/')
 
-const parsePackages = async (lockfile: string): Promise<any> => {
-  const lf: TNpm2Lockfile = await JSON.parse(lockfile)
+const parsePackages = (lockfile: string): any => {
+  const lf: TNpm2Lockfile = JSON.parse(lockfile)
   const entries: Record<string, TLockfileEntry> = {}
   const upsertEntry = (name: string, version: string, extra?: Partial<TLockfileEntry>, key: string = `${name}@${version}`) => {
     if (!entries[key]) {
