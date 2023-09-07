@@ -109,25 +109,6 @@ const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(
 export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
     const idx = analyze(snap)
     const root = snap.manifest
-    // const deptree: TLockfileEntry[][] = []
-    // const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
-    //     const deps = idx.getDeps(entry)
-    //
-    //     deps
-    //       .sort((a, b) =>
-    //         idx.prod.has(a) && !idx.prod.has(b)
-    //           ? -1
-    //           : idx.prod.has(b) && !idx.prod.has(a)
-    //             ? 1
-    //             : a.name.localeCompare(b.name)
-    //       )
-    //
-    //     deps.forEach((dep) => deptree.push([...chain, dep]))
-    //     deps.forEach((dep) => fillTree(dep, [...chain, dep]))
-    // }
-    //
-    // fillTree(idx.getEntry('', root.version)!)
-
     const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
 
     debugAsJson('deptree-legacy.json', deptree.map((entries: TLockfileEntry[]) => entries.map(e => e.name).join(',')))
@@ -137,7 +118,7 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
         const _name = name.slice(name.indexOf('/') + 1)
         const _entry: TNpm1LockfileDeps[string] = {
             version,
-            resolved: `https://registry.npmjs.org/${name}/-/${_name}-${version}.tgz`,
+            resolved: formatTarballUrl(name, version),
             integrity: formatIntegrity(hashes)
         }
 
@@ -219,6 +200,6 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
     return lf
 }
 
-export const format = async (snap: TSnapshot): Promise<string> =>
-    JSON.stringify(await preformat(snap), null, 2)
+export const format = (snap: TSnapshot): string =>
+    JSON.stringify(preformat(snap), null, 2)
 

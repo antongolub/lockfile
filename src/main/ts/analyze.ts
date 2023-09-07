@@ -116,13 +116,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
       return `${name}@${version}`
     },
     getEntry (name: string, version?: string) {
-
-      const r = snapshot.entries[`${name || ''}${name && version ? '@' + version : ''}`]
-
-      if (!r) {
-        throw new Error(name)
-      }
-      return r
+      return snapshot.entries[`${name || ''}${name && version ? '@' + version : ''}`]
     },
     findEntry (name: string, range: string) {
       return entries.find(({name: _name, ranges}) => name === _name && ranges.includes(range))
@@ -133,7 +127,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
 
   walk({entry: rootEntry, idx})
 
-  debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
+  // debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
   // debugAsJson('queue.json', queue)
 
   return idx
