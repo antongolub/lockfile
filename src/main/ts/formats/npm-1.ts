@@ -1,4 +1,4 @@
-import {TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {ICheck, IFormat, IParse, TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, isProd, formatTarballUrl} from '../common'
 import {analyze} from '../analyze'
@@ -31,9 +31,9 @@ interface TDepTree {
     requires?: any
 }
 
-export const check = (lockfile: string) => lockfile.includes('  "lockfileVersion": 1')
+export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfileVersion": 1')
 
-export const parse = (lockfile: string, pkg: string): TSnapshot => {
+export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const lf: TNpm1Lockfile = JSON.parse(lockfile)
     const manifest: TManifest = JSON.parse(pkg)
     const workspaces = {
@@ -106,7 +106,7 @@ export const parse = (lockfile: string, pkg: string): TSnapshot => {
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
-export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
+export const preformat = (snap: TSnapshot): TNpm1Lockfile => {
     const idx = analyze(snap)
     const root = snap.manifest
     const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
@@ -200,6 +200,6 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
     return lf
 }
 
-export const format = (snap: TSnapshot): string =>
+export const format: IFormat = (snap: TSnapshot): string =>
     JSON.stringify(preformat(snap), null, 2)
 

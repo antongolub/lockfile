@@ -1,4 +1,4 @@
-import {THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {ICheck, IFormat, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
 import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
@@ -32,7 +32,7 @@ export type TNpm2Lockfile = {
 
 export const version = 'npm-2'
 
-export const check = (lockfile: string) => lockfile.includes('  "lockfileVersion": 2')
+export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfileVersion": 2')
 
 export const parse = (lockfile: string): TSnapshot => {
   const lfraw = JSON.parse(lockfile)
@@ -109,8 +109,8 @@ const parsePackages = (lockfile: string): any => {
   return sortObject(entries)
 }
 
-export const format = async (snap: TSnapshot): Promise<string> => {
-  const lfnpm1: TNpm1Lockfile = (await preformatNpm1(snap))
+export const format: IFormat = (snap: TSnapshot): string => {
+  const lfnpm1: TNpm1Lockfile = preformatNpm1(snap)
   const idx = analyze(snap)
   const mapped = Object.values(idx.tree)
     .sort((a, b) => {

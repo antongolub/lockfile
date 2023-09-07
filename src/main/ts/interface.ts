@@ -68,12 +68,10 @@ export interface TParseOptions {
 
 export type IParse = (lockfile: string, ...pkgJsons: string[]) => TSnapshot
 
+export type IFormat = (snapshot: TSnapshot) => string
+
 export type ICheck = (input: string) => boolean
 
 export type IFormatOptions = {
     format: TLockfileFormat
-}
-
-export type IFormat = {
-    (data: TSnapshot, opts?: IFormatOptions): Promise<string>
 }

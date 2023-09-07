@@ -1,5 +1,5 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, THashes} from '../interface'
+import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse} from '../interface'
 import {parseIntegrity} from '../common'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -14,7 +14,7 @@ export type TYarn1Lockfile = Record<string, {
 
 export const version = 'yarn-1'
 
-export const check = (value: string): boolean => value.includes('# yarn lockfile v1')
+export const check: ICheck = (value: string): boolean => value.includes('# yarn lockfile v1')
 
 export const preparse = (value: string): TYarn1Lockfile  => {
     const lines = value.split('\n')
@@ -39,7 +39,7 @@ export const preparse = (value: string): TYarn1Lockfile  => {
     return load(_value) as TYarn1Lockfile
 }
 
-export const parse = (value: string, pkg: string): TSnapshot => {
+export const parse: IParse = (value: string, pkg: string): TSnapshot => {
     const manifest = JSON.parse(pkg)
     const raw = preparse(value)
     const snapshot: TSnapshot = {
@@ -92,7 +92,7 @@ export const preformat = (value: TSnapshot): TYarn1Lockfile => {
     return lf
 }
 
-export const format = (value: TSnapshot): string => {
+export const format: IFormat = (value: TSnapshot): string => {
     const lf = preformat(value)
     const lines: string[] = dump(lf, {
         quotingType: '"',

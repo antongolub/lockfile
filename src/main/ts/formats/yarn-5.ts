@@ -1,7 +1,7 @@
 // https://github.com/yarnpkg/berry/commit/2f9e8073d15745f9d53e6b8b42fa9c81eb143d54
 
 import {load, dump} from 'js-yaml'
-import {TDependencies, TDependenciesMeta, TSnapshot} from '../interface'
+import {ICheck, IFormat, IParse, TDependencies, TDependenciesMeta, TSnapshot} from '../interface'
 import {parseIntegrity} from '../common'
 
 export type TYarn5Lockfile = Record<string, {
@@ -21,12 +21,12 @@ export type TYarn5Lockfile = Record<string, {
 
 export const version = 'yarn-5'
 
-export const check = (value: string): boolean => value.includes(`
+export const check: ICheck = (value: string): boolean => value.includes(`
 __metadata:
   version: 5
 `)
 
-export const parse = (lockfile: string, pkg: string): TSnapshot => {
+export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const manifest = JSON.parse(pkg)
     const snapshot: TSnapshot = {
         entries: {},
@@ -96,7 +96,7 @@ export const preformat = (value: TSnapshot): TYarn5Lockfile => {
     return lf
 }
 
-export const format = (value: TSnapshot): string => {
+export const format: IFormat = (value: TSnapshot): string => {
     const lines = dump({
         __metadata: {
             version: 5,
