@@ -3,6 +3,7 @@ import {debugAsJson, sortObject} from './util'
 
 export interface TSnapshotIndex {
   snapshot: TSnapshot
+  entries: TLockfileEntry[]
   edges: [string, string][]
   tree: Record<string, {
     key: string
@@ -16,6 +17,7 @@ export interface TSnapshotIndex {
   prod: Set<TLockfileEntry>
   prodRoots: string[]
   getDeps(entry: TLockfileEntry): TLockfileEntry[]
+  bound(from: TLockfileEntry, to: TLockfileEntry): void
   getId ({name, version}: TLockfileEntry): string
   getEntry (name: string, version?: string): TLockfileEntry | undefined,
   findEntry (name: string, range: string): TLockfileEntry | undefined
@@ -70,7 +72,7 @@ const walk = (ctx: TWalkCtx) => {
     }
     const _ctx = {entry: _entry, prefix: key, depth: depth + 1, parentId: id, idx, parents: [...parents, entry]}
     walk(_ctx)
-    idx.getDeps(entry).push(_entry)
+    idx.bound(entry, _entry)
     stack.push(_ctx)
   })
 
@@ -96,6 +98,14 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     prodRoots,
     deps,
     entries,
+    bound(from: TLockfileEntry, to: TLockfileEntry) {
+      const deps = this.getDeps(from)
+      if (deps.includes(to)) {
+        return
+      }
+
+      deps.push(to)
+    },
     getDeps (entry: TLockfileEntry): TLockfileEntry[] {
       if (!deps.has(entry)) {
         deps.set(entry, [])
@@ -119,12 +129,12 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     }
   }
 
-  const queue: any[] = []
+  // const queue: any[] = []
 
   walk({entry: rootEntry, idx})
 
-  debugAsJson('deptree.json', tree)
-  debugAsJson('queue.json', queue)
+  debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
+  // debugAsJson('queue.json', queue)
 
   return idx
 }

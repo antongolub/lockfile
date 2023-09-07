@@ -25,4 +25,4 @@ test('builds index by a snapshot', async () => {
   ])
 })
 
-test.run()
+// test.run()

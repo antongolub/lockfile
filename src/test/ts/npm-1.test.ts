@@ -14,13 +14,13 @@ test('parse/format interop for regular repo', async () => {
   })
 })
 
-// test('parse/format interop for regular repo with recursive deps', async () => {
-//   await testParseFormatInterop({
-//     input: path.resolve(__dirname, '../fixtures/npm-1-recursive/package-lock.json'),
-//     opts: path.resolve(__dirname, '../fixtures/npm-1-recursive/package.json'),
-//     parse,
-//     format
-//   })
-// })
+test('parse/format interop for regular repo with recursive deps', async () => {
+  await testParseFormatInterop({
+    input: path.resolve(__dirname, '../fixtures/npm-1-recursive/package-lock.json'),
+    opts: path.resolve(__dirname, '../fixtures/npm-1-recursive/package.json'),
+    parse,
+    format
+  })
+})
 
 test.run()

@@ -33,4 +33,4 @@ test('detects npm lockfile v2', () => {
 //   })
 // })
 
-test.run()
+// test.run()

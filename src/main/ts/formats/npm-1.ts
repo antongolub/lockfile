@@ -2,6 +2,7 @@ import {TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from '../i
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, isProd, formatTarballUrl} from '../common'
 import {analyze} from '../analyze'
+import fs from "fs";
 
 export const version = 'npm-1'
 
@@ -105,36 +106,38 @@ export const parse = (lockfile: string, pkg: string): TSnapshot => {
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
-
-
 export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
-    const root = snap.manifest
     const idx = analyze(snap)
-    const deptree: TLockfileEntry[][] = Object.values(idx.tree).map(({parents}) => parents)
-//     const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
-//         const deps = idx.getDeps(entry)
-//         // deps.forEach(c => isProd(root, chain[0]?.name || c.name) && idx.prod.add(c))
-// console.log('!!!fill', entry.name)
-//         deps
-//             .sort((a, b) =>
-//                 idx.prod.has(a) && !idx.prod.has(b)
-//                     ? -1
-//                     : idx.prod.has(b) && !idx.prod.has(a)
-//                         ? 1
-//                         : a.name.localeCompare(b.name)
-//             )
-//
-//         deps.forEach((dep) => deptree.push([...chain, dep]))
-//         deps.forEach((dep) => fillTree(dep, [...chain, dep]))
-//     }
-//     fillTree(idx.getEntry('') as TLockfileEntry)
+    const root = snap.manifest
+    // const deptree: TLockfileEntry[][] = []
+    // const fillTree = (entry: TLockfileEntry, chain: TLockfileEntry[] = []) => {
+    //     const deps = idx.getDeps(entry)
+    //
+    //     deps
+    //       .sort((a, b) =>
+    //         idx.prod.has(a) && !idx.prod.has(b)
+    //           ? -1
+    //           : idx.prod.has(b) && !idx.prod.has(a)
+    //             ? 1
+    //             : a.name.localeCompare(b.name)
+    //       )
+    //
+    //     deps.forEach((dep) => deptree.push([...chain, dep]))
+    //     deps.forEach((dep) => fillTree(dep, [...chain, dep]))
+    // }
+    //
+    // fillTree(idx.getEntry('', root.version)!)
+
+    const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
+
+    debugAsJson('deptree-legacy.json', deptree.map((entries: TLockfileEntry[]) => entries.map(e => e.name).join(',')))
 
     const formatNpm1LockfileEntry = (entry: TLockfileEntry): TNpm1LockfileEntry => {
-
-        const {name, version, hashes, dependencies} = entry
+        const {name, version, hashes} = entry
+        const _name = name.slice(name.indexOf('/') + 1)
         const _entry: TNpm1LockfileDeps[string] = {
             version,
-            resolved: formatTarballUrl(name, version),
+            resolved: `https://registry.npmjs.org/${name}/-/${_name}-${version}.tgz`,
             integrity: formatIntegrity(hashes)
         }
 
@@ -142,8 +145,8 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
             _entry.dev = true
         }
 
-        if (dependencies) {
-            _entry.requires = dependencies
+        if (entry.dependencies) {
+            _entry.requires = entry.dependencies
         }
 
         return _entry
@@ -173,8 +176,8 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
             const _entry = formatNpm1LockfileEntry(e)
             const _parents = [_entry, ...parents]
             const parent = closest
-                ? _parents[closestIndex]
-                : _parents[_parents.length - 1]
+              ? _parents[closestIndex]
+              : _parents[_parents.length - 1]
 
             if (!parent.dependencies) {
                 parent.dependencies = {}
@@ -190,12 +193,6 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
 
     deptree.forEach((chain) => {
         const entry = chain[chain.length - 1]
-
-        if (!entry) {
-            console.log('chain!', chain)
-            return
-        }
-
         const {name} = entry
 
         if (!nmtree.dependencies[name]) {
@@ -218,8 +215,6 @@ export const preformat = async (snap: TSnapshot): Promise<TNpm1Lockfile> => {
     })
 
     delete lf.dependencies[""]
-
-    debugAsJson('deptreenpm1.json', deptree)
 
     return lf
 }
