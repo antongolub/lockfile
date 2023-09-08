@@ -3,9 +3,6 @@ import fs from 'node:fs/promises'
 import {topo, traverseDeps} from '@semrel-extra/topo'
 import {THashes, TManifest, TSnapshot} from './interface'
 
-export const normalizeOptions = () => {
-
-}
 
 export const formatTarballUrl = (name: string, version: string, registry = 'https://registry.npmjs.org') =>
   `${registry}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`
@@ -56,7 +53,7 @@ const buildReference = (protocol: string, raw: string, value: string) => ({
   protocol,
   value,
   raw,
-  caret: (value.startsWith('^') || value.startsWith('~')) ? value.charAt(0) : '',
+  caret: (value.startsWith('^') || value.startsWith('~')) ? value[0] : '',
   version: semver.valid(raw) || semver.coerce(raw)?.version || null
 })
 

@@ -1,4 +1,4 @@
-import {ICheck, IFormat, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {ICheck, IFormat, THashes, TLockfileEntry, TManifest, TMeta, TSnapshot} from '../interface'
 import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
@@ -7,15 +7,19 @@ import fs from 'node:fs'
 import semver from 'semver'
 
 export type TNpm2LockfileEntry = {
+  name?: string
   version: string
   resolved: string
   integrity: string
   dev?: boolean
+  link?: boolean
   requires?: Record<string, string>
   dependencies?: TNpm2LockfileDeps,
   engines?: Record<string, string>
   funding?: Record<string, string>
   peerDependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
   bin?: any
 }
 
@@ -44,8 +48,7 @@ export const parse = (lockfile: string): TSnapshot => {
 
   return {
     ...npm1snap,
-    entries,
-    format: 'npm-2'
+    entries
   }
 }
 
@@ -54,57 +57,59 @@ const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_m
 const parsePackages = (lockfile: string): any => {
   const lf: TNpm2Lockfile = JSON.parse(lockfile)
   const entries: Record<string, TLockfileEntry> = {}
-  const upsertEntry = (name: string, version: string, extra?: Partial<TLockfileEntry>, key: string = `${name}@${version}`) => {
-    if (!entries[key]) {
-      entries[key] = {name, version, ranges: [], hashes: {}}
-    }
-    return Object.assign(entries[key], extra)
-  }
-  const pushRange = (name: string, version: string, range: string): void => {
-    const entry = upsertEntry(name, version)
-
-    if (!entry.ranges.includes(range)) {
-      entry.ranges.push(range)
-      entry.ranges.sort()
-    }
-  }
-
-  const getClosestEntry = (name: string, chain: string[], entries: Record<string, any>) => {
+  const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm2LockfileEntry>): [string, TNpm2LockfileEntry] => {
     let l = chain.length + 1
 
     while (l--) {
-      // const variant = 'node_modules/' + [...chain.slice(0, l), name].filter(Boolean).join('/node_modules/')
       const variant = formatNmKey([...chain.slice(0, l), name].filter(Boolean))
       const entry = entries[variant]
 
       if (entry) {
-        return entry
+        return [variant, entry]
       }
     }
 
-    return entries[""]
+    return ["", entries[""]]
   }
-  Object.entries(lf.packages).forEach(([path, entry]) => {
-    const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
-    const name = entry.name || chain[chain.length - 1]
-    const version = entry.version
-    const dependencies = {...entry.dependencies, ...entry.devDependencies, ...entry.optionalDependencies}
 
-    upsertEntry(name, version, {
+  const processPackage = (path: string, pkg: TNpm2LockfileEntry): TLockfileEntry => {
+    const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
+    const name = pkg.name || chain[chain.length - 1]
+    const version = pkg.version
+    const id = path === "" ? path : `${name}@${version}`
+    if (entries[id]) {
+      return entries[id]
+    }
+
+    const dependencies = {...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies}
+    entries[id] = {
+      name,
       version,
-      hashes: parseIntegrity(entry.integrity),
+      ranges: [],
+      hashes: parseIntegrity(pkg.integrity),
+      source: pkg.resolved,
+      sourceType: pkg.link ? 'workspace' : 'semver',
       dependencies: Object.keys(dependencies).length ? dependencies : undefined,
-      engines: entry.engines,
-      funding: entry.funding,
-      bin: entry.bin,
-      peerDependencies: entry.peerDependencies
-    }, path === "" ? path : undefined)
+      engines: pkg.engines,
+      funding: pkg.funding,
+      bin: pkg.bin,
+      peerDependencies: pkg.peerDependencies
+    }
 
     Object.entries<string>(dependencies).forEach(([_name, range]) => {
-      const _entry = getClosestEntry(_name, chain, lf.packages)
-      pushRange(_name, _entry.version, range)
+      const [_path, _entry] = getClosestPkg(_name, chain, lf.packages)
+      const {ranges} = processPackage(_path, _entry)
+
+      if (!ranges.includes(range)) {
+        ranges.push(range)
+        ranges.sort()
+      }
     })
-  })
+
+    return entries[id]
+  }
+
+  Object.entries(lf.packages).forEach(([path, entry]) => processPackage(path, entry))
 
   return sortObject(entries)
 }

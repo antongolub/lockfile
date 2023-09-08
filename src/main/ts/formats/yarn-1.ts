@@ -1,5 +1,5 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse} from '../interface'
+import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse, TMeta} from '../interface'
 import {parseIntegrity} from '../common'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -40,13 +40,14 @@ export const preparse = (value: string): TYarn1Lockfile  => {
 }
 
 export const parse: IParse = (value: string, pkg: string): TSnapshot => {
+    const meta: TMeta = {}
     const manifest = JSON.parse(pkg)
     const raw = preparse(value)
     const snapshot: TSnapshot = {
         entries: {},
         workspaces: {},
-        format: 'yarn-1',
         manifest,
+        meta,
     }
 
     Object.entries(raw).forEach((value) => {

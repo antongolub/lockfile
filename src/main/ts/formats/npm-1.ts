@@ -1,4 +1,14 @@
-import {ICheck, IFormat, IParse, TDependencies, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {
+    ICheck,
+    IFormat,
+    IParse,
+    TDependencies,
+    THashes,
+    TLockfileEntry,
+    TManifest,
+    TMeta,
+    TSnapshot
+} from '../interface'
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, isProd, formatTarballUrl} from '../common'
 import {analyze} from '../analyze'
@@ -35,6 +45,7 @@ export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfil
 
 export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const lf: TNpm1Lockfile = JSON.parse(lockfile)
+    const meta: TMeta = {}
     const manifest: TManifest = JSON.parse(pkg)
     const workspaces = {
         "": {
@@ -97,10 +108,10 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     extractRanges(entries[""].dependencies, lf.dependencies || {})
 
     return {
-        format: 'npm-1',
         entries: sortObject(entries),
         workspaces,
         manifest,
+        meta,
     }
 }
 
