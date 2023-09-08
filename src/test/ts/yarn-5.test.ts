@@ -5,7 +5,12 @@ import { testParseFormatInterop } from './helpers'
 
 const test = suite('yarn-5')
 test('parse/format interop for monorepo', async () => {
-  await testParseFormatInterop({input: path.resolve(__dirname, '../fixtures/yarn-5-mr/yarn.lock'), parse, format})
+  await testParseFormatInterop({
+    input: path.resolve(__dirname, '../fixtures/yarn-5-mr/yarn.lock'),
+    opts: path.resolve(__dirname, '../fixtures/yarn-5-mr/package.json'),
+    parse,
+    format
+  })
 })
 
-// test.run()
+test.run()

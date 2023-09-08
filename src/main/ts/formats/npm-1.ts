@@ -6,13 +6,11 @@ import {
     THashes,
     TLockfileEntry,
     TManifest,
-    TMeta,
     TSnapshot
 } from '../interface'
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, isProd, formatTarballUrl} from '../common'
 import {analyze} from '../analyze'
-import fs from "fs";
 
 export const version = 'npm-1'
 
@@ -45,15 +43,7 @@ export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfil
 
 export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const lf: TNpm1Lockfile = JSON.parse(lockfile)
-    const meta: TMeta = {}
     const manifest: TManifest = JSON.parse(pkg)
-    const workspaces = {
-        "": {
-            name: manifest.name,
-            path: '.',
-            manifest
-        }
-    }
     const entries: Record<string, TLockfileEntry> = {
         "": {
             name: manifest.name,
@@ -64,6 +54,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             },
             hashes: {},
             ranges: [],
+            manifest,
         }
     }
     const getClosestVersion = (name: string, ...deps: TNpm1LockfileDeps[]): string =>
@@ -107,26 +98,20 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     extractEntries(lf.dependencies)
     extractRanges(entries[""].dependencies, lf.dependencies || {})
 
-    return {
-        entries: sortObject(entries),
-        workspaces,
-        manifest,
-        meta,
-    }
+    return sortObject(entries)
 }
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
 export const preformat = (snap: TSnapshot): TNpm1Lockfile => {
     const idx = analyze(snap)
-    const root = snap.manifest
+    const root = snap[""].manifest as TManifest
     const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
 
     debugAsJson('deptree-legacy.json', deptree.map((entries: TLockfileEntry[]) => entries.map(e => e.name).join(',')))
 
     const formatNpm1LockfileEntry = (entry: TLockfileEntry): TNpm1LockfileEntry => {
         const {name, version, hashes} = entry
-        const _name = name.slice(name.indexOf('/') + 1)
         const _entry: TNpm1LockfileDeps[string] = {
             version,
             resolved: formatTarballUrl(name, version),

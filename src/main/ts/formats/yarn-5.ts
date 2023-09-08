@@ -1,7 +1,7 @@
 // https://github.com/yarnpkg/berry/commit/2f9e8073d15745f9d53e6b8b42fa9c81eb143d54
 
 import {load, dump} from 'js-yaml'
-import {ICheck, IFormat, IParse, TDependencies, TDependenciesMeta, TMeta, TSnapshot} from '../interface'
+import {ICheck, IFormat, IParse, TDependencies, TDependenciesMeta, TSnapshot} from '../interface'
 import {parseIntegrity} from '../common'
 
 export type TYarn5Lockfile = Record<string, {
@@ -27,14 +27,8 @@ __metadata:
 `)
 
 export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
-    const meta: TMeta = {}
     const manifest = JSON.parse(pkg)
-    const snapshot: TSnapshot = {
-        entries: {},
-        workspaces: {},
-        manifest,
-        meta,
-    }
+    const snapshot: TSnapshot = {}
 
     const raw = load(lockfile) as TYarn5Lockfile
 
@@ -49,7 +43,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         const key = `${name}@${version}`
         const hashes = parseIntegrity(checksum)
 
-        snapshot.entries[key] = {
+        snapshot[key] = {
             name,
             version,
             ranges,
@@ -65,13 +59,22 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         }
     })
 
+    snapshot[""] = {
+        name: manifest.name,
+        version: manifest.version,
+        ranges: [],
+        hashes: {},
+        manifest,
+        dependencies: manifest.dependencies
+    }
+
     return snapshot
 }
 
-export const preformat = (value: TSnapshot): TYarn5Lockfile => {
+export const preformat = (snapshot: TSnapshot): TYarn5Lockfile => {
     const lf: TYarn5Lockfile = {}
 
-    Object.values(value.entries).forEach((entry) => {
+    Object.values(snapshot).forEach((entry) => {
         const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, bin, conditions } = entry
         const key = ranges.map(r => `${name}@${r}`).join(', ')
         const isLocal = version === '0.0.0-use.local'
@@ -94,16 +97,18 @@ export const preformat = (value: TSnapshot): TYarn5Lockfile => {
         }
     })
 
+    delete lf[""]
+
     return lf
 }
 
-export const format: IFormat = (value: TSnapshot): string => {
+export const format: IFormat = (snapshot: TSnapshot): string => {
     const lines = dump({
         __metadata: {
             version: 5,
             cacheKey: 8,
         },
-        ...preformat(value)
+        ...preformat(snapshot)
     }, {
         quotingType: '"',
         flowLevel: -1,

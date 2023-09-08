@@ -5,21 +5,6 @@ export type TDependencies = Record<string, string>
 
 export type TDependenciesMeta = Record<string, { optional: boolean }>
 
-export interface TMetaEntry {
-    conditions?: string
-    dependencies?: TDependencies
-    dependenciesMeta?: TDependenciesMeta
-    optionalDependencies?: TDependencies
-    peerDependencies?: TDependencies
-    peerDependenciesMeta?: TDependenciesMeta
-    bin?: Record<string, string>
-    engines?: Record<string, string>
-    funding?: Record<string, string>
-    [index: string]: any
-}
-
-export type TMeta = Record<string, TMetaEntry>
-
 export interface THashes {
     sha512?: string
     sha256?: string
@@ -33,15 +18,16 @@ export interface TLockfileEntry {
     version: string
     ranges: string[]
     hashes: THashes
+    source?: string
+    sourceType?: TSourceType
 
+    manifest?: TManifest
     conditions?: string
     dependencies?: TDependencies
     dependenciesMeta?: TDependenciesMeta
     optionalDependencies?: TDependencies
     peerDependencies?: TDependencies
     peerDependenciesMeta?: TDependenciesMeta
-    sourceType?: TSourceType
-    source?: string
     bin?: Record<string, string>
     engines?: Record<string, string>
     funding?: Record<string, string>
@@ -62,12 +48,7 @@ export interface TWorkspace {
     // manifest: TManifest
 }
 
-export interface TSnapshot {
-    manifest: TManifest // root level package.json
-    entries: Record<string, TLockfileEntry>
-    workspaces: Record<string, TWorkspace>
-    meta: TMeta
-}
+export type TSnapshot = Record<string, TLockfileEntry>
 
 export type IParse = (lockfile: string, ...pkgJsons: string[]) => TSnapshot
 

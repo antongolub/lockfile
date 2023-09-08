@@ -1,4 +1,4 @@
-import {TLockfileEntry, TSnapshot} from './interface'
+import {TLockfileEntry, TManifest, TSnapshot} from './interface'
 import {debugAsJson, sortObject} from './util'
 
 export interface TSnapshotIndex {
@@ -32,8 +32,8 @@ type TWalkCtx = {
   parents?: TLockfileEntry[]
 }
 
-const getDeps = (entry: TLockfileEntry, snap: TSnapshot): Record<string, string> => entry.name === ''
-  ? {...sortObject(snap.manifest.dependencies || {}), ...sortObject({...snap.manifest.devDependencies, ...snap.manifest.optionalDependencies})}
+const getDeps = (entry: TLockfileEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry.name === ''
+  ? {...sortObject(manifest.dependencies || {}), ...sortObject({...manifest.devDependencies, ...manifest.optionalDependencies})}
   : entry.dependencies ? sortObject(entry.dependencies): {}
 
 const walk = (ctx: TWalkCtx) => {
@@ -80,13 +80,13 @@ const walk = (ctx: TWalkCtx) => {
 }
 
 export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
-  const rootEntry = snapshot.entries[""]
+  const rootEntry = snapshot[""]
   const prod =  new Set([rootEntry])
   const deps = new Map()
-  const entries: TLockfileEntry[] = Object.values(snapshot.entries)
+  const entries: TLockfileEntry[] = Object.values(snapshot)
   const edges: [string, string][] = []
   const tree: TSnapshotIndex['tree'] = {}
-  const prodRoots = Object.keys(snapshot.manifest.dependencies || {})
+  const prodRoots = Object.keys(rootEntry?.manifest?.dependencies || {})
 
   rootEntry.name = '' // temporary workaround
 
@@ -116,7 +116,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
       return `${name}@${version}`
     },
     getEntry (name: string, version?: string) {
-      return snapshot.entries[`${name || ''}${name && version ? '@' + version : ''}`]
+      return snapshot[`${name || ''}${name && version ? '@' + version : ''}`]
     },
     findEntry (name: string, range: string) {
       return entries.find(({name: _name, ranges}) => name === _name && ranges.includes(range))

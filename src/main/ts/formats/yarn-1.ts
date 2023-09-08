@@ -1,5 +1,5 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse, TMeta} from '../interface'
+import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse} from '../interface'
 import {parseIntegrity} from '../common'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -40,15 +40,9 @@ export const preparse = (value: string): TYarn1Lockfile  => {
 }
 
 export const parse: IParse = (value: string, pkg: string): TSnapshot => {
-    const meta: TMeta = {}
     const manifest = JSON.parse(pkg)
     const raw = preparse(value)
-    const snapshot: TSnapshot = {
-        entries: {},
-        workspaces: {},
-        manifest,
-        meta,
-    }
+    const snapshot: TSnapshot = {}
 
     Object.entries(raw).forEach((value) => {
         const [_key, _entry] = value
@@ -59,7 +53,7 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         const key = `${name}@${version}`
         const hashes = parseIntegrity(integrity)
 
-        snapshot.entries[key] = {
+        snapshot[key] = {
             name,
             version,
             ranges,
@@ -70,13 +64,22 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         }
     })
 
+    snapshot[""] = {
+        name: manifest.name,
+        version: manifest.version,
+        ranges: [],
+        hashes: {},
+        manifest,
+        dependencies: manifest.dependencies
+    }
+
     return snapshot
 }
 
-export const preformat = (value: TSnapshot): TYarn1Lockfile => {
+export const preformat = (snapshot: TSnapshot): TYarn1Lockfile => {
     const lf: TYarn1Lockfile = {}
 
-    Object.values(value.entries).forEach((entry) => {
+    Object.values(snapshot).forEach((entry) => {
         const { name, version, ranges, hashes, dependencies, optionalDependencies, source } = entry
         const key = ranges.map(r => `${name}@${r}`).join(', ')
         const integrity = Object.entries(hashes).map(([k, v]) => `${k}-${v}`).join(' ')
@@ -90,11 +93,13 @@ export const preformat = (value: TSnapshot): TYarn1Lockfile => {
         }
     })
 
+    delete lf[""]
+
     return lf
 }
 
-export const format: IFormat = (value: TSnapshot): string => {
-    const lf = preformat(value)
+export const format: IFormat = (snapshot: TSnapshot): string => {
+    const lf = preformat(snapshot)
     const lines: string[] = dump(lf, {
         quotingType: '"',
         flowLevel: -1,

@@ -1,4 +1,4 @@
-import {ICheck, IFormat, THashes, TLockfileEntry, TManifest, TMeta, TSnapshot} from '../interface'
+import {ICheck, IFormat, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
 import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
@@ -39,23 +39,19 @@ export const version = 'npm-2'
 export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfileVersion": 2')
 
 export const parse = (lockfile: string): TSnapshot => {
-  const lfraw = JSON.parse(lockfile)
-  const entries = parsePackages(lockfile)
-  const npm1snap = parseNpm1(lockfile, JSON.stringify(lfraw.packages['']))
+  const lf: TNpm2Lockfile = JSON.parse(lockfile)
+  const snapshot = parsePackages(lf.packages)
 
-  debugAsJson('npm1.json', npm1snap.entries)
-  debugAsJson('npm2.json', entries)
+  snapshot[""].manifest = lf.packages[""]
 
-  return {
-    ...npm1snap,
-    entries
-  }
+  debugAsJson('npm2-snapshot.json', snapshot)
+
+  return snapshot
 }
 
 const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_modules/')
 
-const parsePackages = (lockfile: string): any => {
-  const lf: TNpm2Lockfile = JSON.parse(lockfile)
+const parsePackages = (packages: TNpm2LockfileDeps): any => {
   const entries: Record<string, TLockfileEntry> = {}
   const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm2LockfileEntry>): [string, TNpm2LockfileEntry] => {
     let l = chain.length + 1
@@ -97,7 +93,7 @@ const parsePackages = (lockfile: string): any => {
     }
 
     Object.entries<string>(dependencies).forEach(([_name, range]) => {
-      const [_path, _entry] = getClosestPkg(_name, chain, lf.packages)
+      const [_path, _entry] = getClosestPkg(_name, chain, packages)
       const {ranges} = processPackage(_path, _entry)
 
       if (!ranges.includes(range)) {
@@ -109,7 +105,7 @@ const parsePackages = (lockfile: string): any => {
     return entries[id]
   }
 
-  Object.entries(lf.packages).forEach(([path, entry]) => processPackage(path, entry))
+  Object.entries(packages).forEach(([path, entry]) => processPackage(path, entry))
 
   return sortObject(entries)
 }
@@ -156,7 +152,7 @@ export const format: IFormat = (snap: TSnapshot): string => {
   )
 
   const nmtree = mapped.reduce<Record<string, {entry: TLockfileEntry, parent: string}>>((result, {key, id, chunks}) => {
-      const entry = snap.entries[id]
+      const entry = snap[id]
       if (!entry) {
         return result
       }
@@ -404,15 +400,16 @@ export const format: IFormat = (snap: TSnapshot): string => {
 
   // delete packages['node_modules/']
 
+  const manifest = snap[""].manifest as TManifest
   const packages = sortObject({
-    "": snap.manifest,
+    "": manifest,
     ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
       m[k] = {
         version: entry.version,
         resolved: formatTarballUrl(entry.name, entry.version),
         integrity: formatIntegrity(entry.hashes)
       }
-      if (!snap.manifest.dependencies?.[parent]) {
+      if (!manifest.dependencies?.[parent]) {
         m[k].dev = true
       }
       if (entry.dependencies) {

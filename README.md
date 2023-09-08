@@ -70,6 +70,36 @@ idx.edges
 
 https://yarnpkg.com/features/protocols
 
+### `TSnapshot`
+```ts
+export type TSnapshot = Record<string, {
+  name:       string
+  version:    string
+  ranges:     string[]
+  hashes:     {
+    sha512?:  string
+    sha256?:  string
+    sha1?:    string
+    checksum?: string
+    md5?:     string
+  }
+  source:     string
+  sourceType: TSourceType
+
+  // optional pm-specific lockfile meta
+  manifest?: TManifest
+  conditions?: string
+  dependencies?: TDependencies
+  dependenciesMeta?: TDependenciesMeta
+  optionalDependencies?: TDependencies
+  peerDependencies?: TDependencies
+  peerDependenciesMeta?: TDependenciesMeta
+  bin?: Record<string, string>
+  engines?: Record<string, string>
+  funding?: Record<string, string>
+}>
+```
+
 ### Caveats
 * There is an infinite number of `nmtrees` that corresponds to the specified `deptree`, but among them there is a finite set of effective (sufficient) for the target criterion — for example, nesting, size, homogeneity of versions
 * npm1: `optional: true` label is not supported by `format`
