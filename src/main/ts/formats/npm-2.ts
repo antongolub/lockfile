@@ -1,5 +1,5 @@
 import {ICheck, IFormat, IPreformat, THashes, TEntry, TManifest, TSnapshot} from '../interface'
-import {preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
+import {preformat as preformatNpm1, TNpm1LockfileDeps, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
 import {analyze} from '../analyze'
@@ -11,8 +11,7 @@ export type TNpm2LockfileEntry = {
   integrity: string
   dev?: boolean
   link?: boolean
-  requires?: Record<string, string>
-  dependencies?: TNpm2LockfileDeps,
+  dependencies?: Record<string, string>,
   engines?: Record<string, string>
   funding?: Record<string, string>
   peerDependencies?: Record<string, string>
@@ -21,7 +20,7 @@ export type TNpm2LockfileEntry = {
   bin?: any
 }
 
-export type TNpm2LockfileDeps = Record<string, any>
+export type TNpm2LockfileDeps = Record<string, TNpm2LockfileEntry>
 
 export type TNpm2Lockfile = {
   lockfileVersion: 2
@@ -29,7 +28,7 @@ export type TNpm2Lockfile = {
   version: string
   requires?: true
   packages: TNpm2LockfileDeps
-  dependencies: TNpm2LockfileDeps
+  dependencies: TNpm1LockfileDeps
 }
 
 export const version = 'npm-2'
@@ -170,7 +169,7 @@ export const preformat: IPreformat<TNpm2Lockfile> = (idx): TNpm2Lockfile => {
 
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject({
-    "": manifest,
+    "": manifest as TNpm2LockfileEntry,
     ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
       m[k] = {
         version: entry.version,

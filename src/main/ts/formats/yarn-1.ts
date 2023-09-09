@@ -1,7 +1,6 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse, IPreformat} from '../interface'
+import {TDependencies, TSnapshot, TSnapshotIndex, ICheck, IFormat, IParse, IPreformat} from '../interface'
 import {parseIntegrity} from '../common'
-import {TSnapshotIndex} from "../analyze";
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 

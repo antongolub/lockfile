@@ -6,11 +6,11 @@ import {
     THashes,
     TEntry,
     TManifest,
-    TSnapshot
+    TSnapshot,
 } from '../interface'
 import {debugAsJson, sortObject} from '../util'
-import {parseIntegrity, isProd, formatTarballUrl} from '../common'
-import {analyze, TSnapshotIndex} from '../analyze'
+import {parseIntegrity, formatTarballUrl} from '../common'
+import {analyze} from '../analyze'
 
 export const version = 'npm-1'
 
