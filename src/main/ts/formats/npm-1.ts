@@ -10,7 +10,7 @@ import {
 } from '../interface'
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, isProd, formatTarballUrl} from '../common'
-import {analyze} from '../analyze'
+import {analyze, TSnapshotIndex} from '../analyze'
 
 export const version = 'npm-1'
 
@@ -103,8 +103,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
-export const preformat = (snap: TSnapshot): TNpm1Lockfile => {
-    const idx = analyze(snap)
+export const preformat = (snap: TSnapshot, idx: TSnapshotIndex = analyze(snap)): TNpm1Lockfile => {
+
     const root = snap[""].manifest as TManifest
     const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
 
