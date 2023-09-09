@@ -6,7 +6,7 @@ Each package manager brings its own philosophy of how to describe, store and con
 It _seems_ acceptable for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
 This lib is a naive attempt to build a pm-independent, generic, extensible and reliable deps representation.
 
-The ´package.json´ manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
+The `package.json` manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
 so both of them are required to build a dependency graph. We can try to convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
 And then, if necessary, try convert it back to the original/other format.
 

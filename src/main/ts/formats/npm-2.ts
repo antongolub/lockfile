@@ -3,8 +3,6 @@ import {parse as parseNpm1, preformat as preformatNpm1, TNpm1Lockfile} from './n
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
 import {analyze} from '../analyze'
-import fs from 'node:fs'
-import semver from 'semver'
 
 export type TNpm2LockfileEntry = {
   name?: string
@@ -114,37 +112,6 @@ export const format: IFormat = (snap: TSnapshot): string => {
   const lfnpm1: TNpm1Lockfile = preformatNpm1(snap)
   const idx = analyze(snap)
   const mapped = Object.values(idx.tree)
-    .sort((a, b) => {
-      return 0
-      // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
-      // (a.chunks.length - b.chunks.length) || a.key.localeCompare(b.key)
-      // a.chunks.length < 2 ? -1 : a.key.localeCompare(b.key)
-
-
-
-      const prod = snap.manifest.dependencies || {}
-
-      // return (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]]) || a.key.localeCompare(b.key) || (a.chunks.length - b.chunks.length)
-      // return (a.chunks.length - b.chunks.length) || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]]) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
-      // return (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]])
-
-      // return  (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0]) // || (+!!prod[a.chunks[0]] - +!!prod[b.chunks[0]])
-      // return a.chunks.slice(-1)[0] === b.chunks.slice(-1)[0] ? semver.compare(b.version, a.version) : (a.chunks.length - b.chunks.length)
-
-
-
-      // const d = Math.min(a.chunks.length, b.chunks.length)
-      //
-      // let i = 0
-      // while (i < d - 1) {
-      //   if (a.chunks[i].localeCompare(b.chunks[i]) === -1) {
-      //     return -1
-      //   }
-      //   i++
-      // }
-      //
-      // return a.chunks.length - b.chunks.length
-    })
 
   debugAsJson(
     'mapped.json',
@@ -158,8 +125,6 @@ export const format: IFormat = (snap: TSnapshot): string => {
       }
       const grandparent = chunks[0]
       const cl = chunks.length
-
-
 
       let l = 0
       while (l <= cl) {
@@ -184,11 +149,6 @@ export const format: IFormat = (snap: TSnapshot): string => {
             const pEntry = result[formatNmKey(__key)]?.entry
             const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')]?.id)
             if (__key.length && pEntry !== ppEntry) {
-              // console.log('!!!!!!', chunks.join(','))
-              // console.log('variant:', _key)
-              // console.log('variant_p:', __key)
-              // console.log('alt_p:', chunks.slice(0, cl - i - l).join(','))
-              // console.log('!!!!!!', pEntry?.name, pEntry?.version, ppEntry?.name, ppEntry?.version)
               i++
               continue
             }
@@ -200,205 +160,13 @@ export const format: IFormat = (snap: TSnapshot): string => {
         l++
       }
 
-
-      //
-      //
-      //
-      //
-      //
-      // chunks.reverse().forEach((_v, i, chunks) => {
-      //   let l = 0
-      //   while(l < i) {
-      //     let j = 0
-      //     while (j < i) {
-      //       const prefix = chunks.slice()
-      //       j++
-      //     }
-      //     l++
-      //
-      //
-      //
-      //
-      //
-      //
-      //     let m = i
-      //     while(m < cl) {
-      //       const j = m + l
-      //       const prefix = chunks.slice(m, j === cl ? cl - 1 : j)
-      //       const variant = formatNmKey([...prefix, entry.name].reverse())
-      //       const found = result[variant]
-      //
-      //       if (found?.entry === entry) {
-      //         return
-      //       }
-      //
-      //       if (!found) {
-      //         // if (prefix.length && (idx.tree[prefix.join(',')])) {
-      //         //   m++
-      //         //   continue
-      //         // }
-      //         result[variant] = {entry, parent: chunks[0]}
-      //         return
-      //       }
-      //       m++
-      //     }
-      //     l++
-      //   }
-      // })
-
-
       return result
     }, {})
 
   debugAsJson('tree.json', nmtree)
 
-
-  // const buildNmTree = (entry: TLockfileEntry, chain: TNmChain = [[entry, {}]], result: Record<string, TLockfileEntry> = {}, queue: [TLockfileEntry, TNmChain][] = []) => {
-  //   const {name, dependencies} = entry
-  //   const cl = chain.length
-  //
-  //   chain[0][1][name] = entry
-  //   chain.forEach(([parent, tree], i) => {
-  //     Object.values<TLockfileEntry>(tree).forEach(entry => {
-  //       let l = 0
-  //       while(l < cl - 1) {
-  //         let m = i
-  //         while(m < cl) {
-  //           const j = m + l
-  //           const prefix = chain.slice(m, j === cl ? cl - 1 : j)
-  //             .reverse()
-  //             .map(([{name}]) => name)
-  //             .filter(Boolean)
-  //
-  //           const variant = formatNmKey([...prefix, entry.name])
-  //           const found = result[variant]
-  //
-  //           if (found === entry) {
-  //             return
-  //           }
-  //
-  //           if (!found) {
-  //             if (prefix.length && (result[formatNmKey(prefix)] !== chain[m][0])) {
-  //               m++
-  //               continue
-  //             }
-  //             result[variant] = entry
-  //             return
-  //           }
-  //           m++
-  //         }
-  //         l++
-  //       }
-  //     })
-  //   })
-  //
-  //   const _tree = {}
-  //   dependencies && Object.entries(dependencies).forEach(([_name, range]) => {
-  //     const _entry = entries.find(({
-  //       name: __name,
-  //       ranges
-  //     }) => _name === __name && ranges.includes(range)) as TLockfileEntry
-  //     if (!_entry) {
-  //       throw new Error(`inconsistent snapshot: ${_name} ${range}`)
-  //     }
-  //
-  //     queue.push([_entry, name ? [[entry, _tree], ...chain] : chain])
-  //   })
-  //
-  //   while(queue.length) {
-  //     const [entry, chain] = queue.shift() as [TLockfileEntry, TNmChain]
-  //     buildNmTree(entry, chain, result, queue)
-  //   }
-  //
-  //   return result
-  // }
-  //
-  // const tree = buildNmTree({...entries[0], name: ''})
-
-
-  // fs.writeFileSync('temp/flattree.json', JSON.stringify(Object.entries(idx.tree)
-  //   .map(([key, id]) => {
-  //     const chunks = key.split(',')
-  //
-  //     return {
-  //       chunks,
-  //       key,
-  //       id
-  //     }
-  //   })
-  //   // .sort((a, b) => {
-  //   //   const a0 = a.chunks[0]
-  //   //   const b0 = b.chunks[0]
-  //   //   const prod = snap.manifest.dependencies || {}
-  //   //   const p = prod[a0] && !prod[b0]
-  //   //     ? -1
-  //   //     : prod[b0] && !prod[a0]
-  //   //       ? 1
-  //   //       : 0
-  //   //
-  //   //   return (a.chunks.length - b.chunks.length) || p || a.key.localeCompare(b.key)
-  //   //
-  //   //
-  //   //   // (a.chunks.length - b.chunks.length) || a.chunks.slice(-1)[0].localeCompare(b.chunks.slice(-1)[0])
-  //   //   // (a.chunks.length - b.chunks.length) || a.key.localeCompare(b.key)
-  //   //   // a.chunks.length < 2 ? -1 : a.key.localeCompare(b.key)
-  //   //
-  //   //   // if (a.chunks.length === b.chunks.length) {
-  //   //   //   return a.key.localeCompare(b.key)
-  //   //   // }
-  //   //   //
-  //   //   // const d = Math.min(a.chunks.length, b.chunks.length)
-  //   //   // let i = 0
-  //   //   // while (i < d) {
-  //   //   //   const p = a.chunks[i].localeCompare(b.chunks[i])
-  //   //   //   if (p) {
-  //   //   //     return p
-  //   //   //   }
-  //   //   //   i++
-  //   //   // }
-  //   //   //
-  //   //   // return (a.chunks.length - b.chunks.length)// || a.key.localeCompare(b.key)
-  //   // })
-  //   .map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length), null, 2))
-
-
   // delete tree['node_modules/'] // FIXME
   const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
-  // const packages: any = {}
-  // const reformat = (node: any, ...parents: string[]): any => {
-  //
-  //   if (node.dependencies) {
-  //     Object.entries(node.dependencies).forEach(([k, v]) => {
-  //       reformat(v, k, ...parents)
-  //     })
-  //   }
-  //   const name = parents[0]
-  //   const key = formatNmKey(parents.reverse())
-  //   const entry = idx.getEntry(name, node.version)
-  //   const _entry: any = {
-  //     version: entry.version,
-  //     resolved: formatTarballUrl(entry.name, entry.version),
-  //     integrity: formatIntegrity(entry.hashes)
-  //   }
-  //
-  //   _entry.dev = node.dev
-  //   // if (!snap.manifest.dependencies?.[parent]) {
-  //   //   _entry.dev = true
-  //   // }
-  //   if (entry.dependencies) {
-  //     _entry.dependencies = entry.dependencies
-  //   }
-  //   _entry.bin = entry.bin
-  //   _entry.engines = entry.engines
-  //   _entry.funding = entry.funding
-  //   _entry.peerDependencies = entry.peerDependencies
-  //
-  //   packages[key] = _entry
-  // }
-  //
-  // reformat(lfnpm1)
-
-  // delete packages['node_modules/']
 
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject({
