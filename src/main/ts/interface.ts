@@ -54,4 +54,6 @@ export type IParse = (lockfile: string, ...pkgJsons: string[]) => TSnapshot
 
 export type IFormat = (snapshot: TSnapshot) => string
 
+export type IPreformat<T> = (snapshot: TSnapshot) => T
+
 export type ICheck = (input: string) => boolean

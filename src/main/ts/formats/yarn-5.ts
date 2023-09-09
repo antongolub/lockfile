@@ -1,7 +1,7 @@
 // https://github.com/yarnpkg/berry/commit/2f9e8073d15745f9d53e6b8b42fa9c81eb143d54
 
 import {load, dump} from 'js-yaml'
-import {ICheck, IFormat, IParse, TDependencies, TDependenciesMeta, TSnapshot} from '../interface'
+import {ICheck, IFormat, IParse, IPreformat, TDependencies, TDependenciesMeta, TSnapshot} from '../interface'
 import {parseIntegrity} from '../common'
 
 export type TYarn5Lockfile = Record<string, {
@@ -71,7 +71,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     return snapshot
 }
 
-export const preformat = (snapshot: TSnapshot): TYarn5Lockfile => {
+export const preformat: IPreformat<TYarn5Lockfile> = (snapshot: TSnapshot): TYarn5Lockfile => {
     const lf: TYarn5Lockfile = {}
 
     Object.values(snapshot).forEach((entry) => {

@@ -1,4 +1,4 @@
-import {ICheck, IFormat, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {ICheck, IFormat, IPreformat, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
 import {preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
@@ -108,7 +108,7 @@ const parsePackages = (packages: TNpm2LockfileDeps): any => {
   return sortObject(entries)
 }
 
-export const format: IFormat = (snap: TSnapshot): string => {
+export const preformat: IPreformat<TNpm2Lockfile> = (snap: TSnapshot): TNpm2Lockfile => {
   const idx = analyze(snap)
   const lfnpm1: TNpm1Lockfile = preformatNpm1(snap, idx)
   const mapped = Object.values(idx.tree)
@@ -192,7 +192,7 @@ export const format: IFormat = (snap: TSnapshot): string => {
     }, {} as TNpm2LockfileDeps)
   })
 
-  const lf = {
+  return {
     name: lfnpm1.name,
     version: lfnpm1.version,
     lockfileVersion: 2,
@@ -200,6 +200,6 @@ export const format: IFormat = (snap: TSnapshot): string => {
     packages,
     dependencies: lfnpm1.dependencies,
   }
-
-  return JSON.stringify(lf, null, 2)
 }
+
+export const format: IFormat = (snapshot: TSnapshot): string => JSON.stringify(preformat(snapshot), null, 2)

@@ -1,7 +1,7 @@
 import {
     ICheck,
     IFormat,
-    IParse,
+    IParse, IPreformat,
     TDependencies,
     THashes,
     TLockfileEntry,
@@ -103,7 +103,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
-export const preformat = (snap: TSnapshot, idx: TSnapshotIndex = analyze(snap)): TNpm1Lockfile => {
+export const preformat: IPreformat<TNpm1Lockfile> = (snap: TSnapshot, idx: TSnapshotIndex = analyze(snap)): TNpm1Lockfile => {
 
     const root = snap[""].manifest as TManifest
     const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])

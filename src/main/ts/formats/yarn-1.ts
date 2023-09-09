@@ -1,5 +1,5 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse} from '../interface'
+import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse, IPreformat} from '../interface'
 import {parseIntegrity} from '../common'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -76,7 +76,7 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
     return snapshot
 }
 
-export const preformat = (snapshot: TSnapshot): TYarn1Lockfile => {
+export const preformat: IPreformat<TYarn1Lockfile> = (snapshot: TSnapshot): TYarn1Lockfile => {
     const lf: TYarn1Lockfile = {}
 
     Object.values(snapshot).forEach((entry) => {

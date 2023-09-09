@@ -8,7 +8,7 @@ export const formatTarballUrl = (name: string, version: string, registry = 'http
   `${registry}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`
 
 export const getSources = (snapshot: TSnapshot): string[] =>
-  Object.values(snapshot.entries)
+  Object.values(snapshot)
     .map(entry => entry.source as string)
     .filter(Boolean)
 
