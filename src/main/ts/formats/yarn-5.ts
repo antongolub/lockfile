@@ -3,6 +3,7 @@
 import {load, dump} from 'js-yaml'
 import {ICheck, IFormat, IParse, IPreformat, TDependencies, TDependenciesMeta, TSnapshot} from '../interface'
 import {parseIntegrity} from '../common'
+import {TSnapshotIndex} from "../analyze";
 
 export type TYarn5Lockfile = Record<string, {
     version: string
@@ -71,7 +72,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     return snapshot
 }
 
-export const preformat: IPreformat<TYarn5Lockfile> = (snapshot: TSnapshot): TYarn5Lockfile => {
+export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
+    const {snapshot} = idx
     const lf: TYarn5Lockfile = {}
 
     Object.values(snapshot).forEach((entry) => {
@@ -108,7 +110,7 @@ export const format: IFormat = (snapshot: TSnapshot): string => {
             version: 5,
             cacheKey: 8,
         },
-        ...preformat(snapshot)
+        ...preformat({snapshot} as TSnapshotIndex)
     }, {
         quotingType: '"',
         flowLevel: -1,

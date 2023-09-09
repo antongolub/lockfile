@@ -1,4 +1,4 @@
-import {ICheck, IFormat, IPreformat, THashes, TLockfileEntry, TManifest, TSnapshot} from '../interface'
+import {ICheck, IFormat, IPreformat, THashes, TEntry, TManifest, TSnapshot} from '../interface'
 import {preformat as preformatNpm1, TNpm1Lockfile} from './npm-1'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
@@ -50,7 +50,7 @@ export const parse = (lockfile: string): TSnapshot => {
 const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_modules/')
 
 const parsePackages = (packages: TNpm2LockfileDeps): any => {
-  const entries: Record<string, TLockfileEntry> = {}
+  const entries: Record<string, TEntry> = {}
   const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm2LockfileEntry>): [string, TNpm2LockfileEntry] => {
     let l = chain.length + 1
 
@@ -66,7 +66,7 @@ const parsePackages = (packages: TNpm2LockfileDeps): any => {
     return ["", entries[""]]
   }
 
-  const processPackage = (path: string, pkg: TNpm2LockfileEntry): TLockfileEntry => {
+  const processPackage = (path: string, pkg: TNpm2LockfileEntry): TEntry => {
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
     const name = pkg.name || chain[chain.length - 1]
     const version = pkg.version
@@ -108,9 +108,9 @@ const parsePackages = (packages: TNpm2LockfileDeps): any => {
   return sortObject(entries)
 }
 
-export const preformat: IPreformat<TNpm2Lockfile> = (snap: TSnapshot): TNpm2Lockfile => {
-  const idx = analyze(snap)
-  const lfnpm1: TNpm1Lockfile = preformatNpm1(snap, idx)
+export const preformat: IPreformat<TNpm2Lockfile> = (idx): TNpm2Lockfile => {
+  const snap = idx.snapshot
+  const lfnpm1: TNpm1Lockfile = preformatNpm1(idx)
   const mapped = Object.values(idx.tree)
 
   debugAsJson(
@@ -118,7 +118,7 @@ export const preformat: IPreformat<TNpm2Lockfile> = (snap: TSnapshot): TNpm2Lock
     mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
   )
 
-  const nmtree = mapped.reduce<Record<string, {entry: TLockfileEntry, parent: string}>>((result, {key, id, chunks}) => {
+  const nmtree = mapped.reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
       const entry = snap[id]
       if (!entry) {
         return result
@@ -202,4 +202,4 @@ export const preformat: IPreformat<TNpm2Lockfile> = (snap: TSnapshot): TNpm2Lock
   }
 }
 
-export const format: IFormat = (snapshot: TSnapshot): string => JSON.stringify(preformat(snapshot), null, 2)
+export const format: IFormat = (snapshot: TSnapshot): string => JSON.stringify(preformat(analyze(snapshot)), null, 2)

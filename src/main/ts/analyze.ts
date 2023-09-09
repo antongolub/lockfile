@@ -1,38 +1,16 @@
-import {TLockfileEntry, TManifest, TSnapshot} from './interface'
+import {TEntry, TManifest, TSnapshot, TSnapshotIndex} from './interface'
 import {debugAsJson, sortObject} from './util'
 
-export interface TSnapshotIndex {
-  snapshot: TSnapshot
-  entries: TLockfileEntry[]
-  edges: [string, string][]
-  tree: Record<string, {
-    key: string
-    chunks: string[]
-    parents: TLockfileEntry[]
-    id: string
-    name: string
-    version: string
-    entry: TLockfileEntry
-  }>
-  prod: Set<TLockfileEntry>
-  prodRoots: string[]
-  getDeps(entry: TLockfileEntry): TLockfileEntry[]
-  bound(from: TLockfileEntry, to: TLockfileEntry): void
-  getId ({name, version}: TLockfileEntry): string
-  getEntry (name: string, version?: string): TLockfileEntry | undefined,
-  findEntry (name: string, range: string): TLockfileEntry | undefined
-}
-
 type TWalkCtx = {
-  entry: TLockfileEntry
+  entry: TEntry
   idx: TSnapshotIndex
   prefix?: string
   depth?: number
   parentId?: string
-  parents?: TLockfileEntry[]
+  parents?: TEntry[]
 }
 
-const getDeps = (entry: TLockfileEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry.name === ''
+const getDeps = (entry: TEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry.name === ''
   ? {...sortObject(manifest.dependencies || {}), ...sortObject({...manifest.devDependencies, ...manifest.optionalDependencies})}
   : entry.dependencies ? sortObject(entry.dependencies): {}
 
@@ -83,7 +61,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const rootEntry = snapshot[""]
   const prod =  new Set([rootEntry])
   const deps = new Map()
-  const entries: TLockfileEntry[] = Object.values(snapshot)
+  const entries: TEntry[] = Object.values(snapshot)
   const edges: [string, string][] = []
   const tree: TSnapshotIndex['tree'] = {}
   const prodRoots = Object.keys(rootEntry?.manifest?.dependencies || {})
@@ -98,7 +76,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     prodRoots,
     deps,
     entries,
-    bound(from: TLockfileEntry, to: TLockfileEntry) {
+    bound(from: TEntry, to: TEntry) {
       const deps = this.getDeps(from)
       if (deps.includes(to)) {
         return
@@ -106,13 +84,13 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
 
       deps.push(to)
     },
-    getDeps (entry: TLockfileEntry): TLockfileEntry[] {
+    getDeps (entry: TEntry): TEntry[] {
       if (!deps.has(entry)) {
         deps.set(entry, [])
       }
       return deps.get(entry)
     },
-    getId ({name, version}: TLockfileEntry): string {
+    getId ({name, version}: TEntry): string {
       return `${name}@${version}`
     },
     getEntry (name: string, version?: string) {

@@ -4,7 +4,7 @@ import {
     IParse, IPreformat,
     TDependencies,
     THashes,
-    TLockfileEntry,
+    TEntry,
     TManifest,
     TSnapshot
 } from '../interface'
@@ -44,7 +44,7 @@ export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfil
 export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const lf: TNpm1Lockfile = JSON.parse(lockfile)
     const manifest: TManifest = JSON.parse(pkg)
-    const entries: Record<string, TLockfileEntry> = {
+    const entries: Record<string, TEntry> = {
         "": {
             name: manifest.name,
             version: manifest.version,
@@ -60,7 +60,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const getClosestVersion = (name: string, ...deps: TNpm1LockfileDeps[]): string =>
         deps.find((dep) => dep[name])?.[name]?.version as string
 
-    const upsertEntry = (name: string, version: string, data: Partial<TLockfileEntry> = {}): TLockfileEntry => {
+    const upsertEntry = (name: string, version: string, data: Partial<TEntry> = {}): TEntry => {
         const key = `${name}@${version}`
         if (!entries[key]) {
             // @ts-ignore
@@ -103,14 +103,13 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
-export const preformat: IPreformat<TNpm1Lockfile> = (snap: TSnapshot, idx: TSnapshotIndex = analyze(snap)): TNpm1Lockfile => {
-
-    const root = snap[""].manifest as TManifest
+export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
+    const root = idx.snapshot[""].manifest as TManifest
     const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
 
-    debugAsJson('deptree-legacy.json', deptree.map((entries: TLockfileEntry[]) => entries.map(e => e.name).join(',')))
+    debugAsJson('deptree-legacy.json', deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')))
 
-    const formatNpm1LockfileEntry = (entry: TLockfileEntry): TNpm1LockfileEntry => {
+    const formatNpm1LockfileEntry = (entry: TEntry): TNpm1LockfileEntry => {
         const {name, version, hashes} = entry
         const _entry: TNpm1LockfileDeps[string] = {
             version,
@@ -196,6 +195,6 @@ export const preformat: IPreformat<TNpm1Lockfile> = (snap: TSnapshot, idx: TSnap
     return lf
 }
 
-export const format: IFormat = (snap: TSnapshot): string =>
-    JSON.stringify(preformat(snap), null, 2)
+export const format: IFormat = (snap): string =>
+    JSON.stringify(preformat(analyze(snap)), null, 2)
 

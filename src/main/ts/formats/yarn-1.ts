@@ -1,6 +1,7 @@
 import {load, dump} from 'js-yaml'
 import {TDependencies, TSnapshot, THashes, ICheck, IFormat, IParse, IPreformat} from '../interface'
 import {parseIntegrity} from '../common'
+import {TSnapshotIndex} from "../analyze";
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -76,7 +77,8 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
     return snapshot
 }
 
-export const preformat: IPreformat<TYarn1Lockfile> = (snapshot: TSnapshot): TYarn1Lockfile => {
+export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
+    const {snapshot} = idx
     const lf: TYarn1Lockfile = {}
 
     Object.values(snapshot).forEach((entry) => {
@@ -99,7 +101,7 @@ export const preformat: IPreformat<TYarn1Lockfile> = (snapshot: TSnapshot): TYar
 }
 
 export const format: IFormat = (snapshot: TSnapshot): string => {
-    const lf = preformat(snapshot)
+    const lf = preformat({snapshot} as TSnapshotIndex)
     const lines: string[] = dump(lf, {
         quotingType: '"',
         flowLevel: -1,

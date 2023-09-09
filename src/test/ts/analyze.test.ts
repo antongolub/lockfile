@@ -4,7 +4,7 @@ import assert from 'node:assert'
 import fs from 'node:fs/promises'
 import { analyze } from '../../main/ts/analyze'
 import {parse} from '../../main/ts/formats/npm-1'
-import {TLockfileEntry} from '../../main/ts/interface'
+import {TEntry} from '../../main/ts/interface'
 
 const test = suite('analyze')
 
@@ -14,7 +14,7 @@ test('builds index by a snapshot', async () => {
 
   const snap = await parse(pkgLock, pkgJson)
   const idx = analyze(snap)
-  const entry = idx.getEntry('@antongolub/npm-test', '4.0.1') as TLockfileEntry
+  const entry = idx.getEntry('@antongolub/npm-test', '4.0.1') as TEntry
 
   assert.ok(idx.prod.has(entry))
   assert.deepEqual(idx.edges, [
