@@ -26,11 +26,11 @@ import { parse, format, analyze } from '@antongolub/lockfile'
 const snapshot = parse('yarn.lock <raw contents>', 'package.json <raw contents>', './packages/foo/package.json <raw contents>')
 
 const lf = format(snapshot)
-const lf2 = format(snapshot, 'npm-1')       // Throws err: npm v1 meta does not support workspaces
+const lf2 = format(snapshot, 'npm-1')         // Throws err: npm v1 meta does not support workspaces
 
-const meta = await readMeta()               // reads local package.jsons data to gather required data like `engines`, `license`, `bins`, etc
-const meta2 = await fetchMeta(snapshot)     // does the same, but from the remote registry
-const lf3 = format(snapshot, 'npm-3', meta) // meta is a "recommended" option
+const meta = await readMeta()                 // reads local package.jsons data to gather required data like `engines`, `license`, `bins`, etc
+const meta2 = await fetchMeta(snapshot)       // does the same, but from the remote registry
+const lf3 = format(snapshot, 'npm-3', {meta}) // format with options
 
 const idx = analyze(snapshot)
 idx.edges
@@ -52,11 +52,9 @@ idx.edges
 |------------------|-------------|------|-------|
 | npm <7           | 1           | ✓    | ✓     |
 | npm >=7          | 2           | ✓    |       |
-| npm >=9          | 3           |      |       | 
+| npm >=9          | 3           | ✓    |       | 
 | yarn 1 (classic) | 1           | ✓    | ✓     |
-| yarn 2 (berry)   | 5, 6        |      |       |
-| yarn 3           | 5, 6        | ✓    | ✓     |
-| yarn 4           | 6, 7        | ✓    |       |
+| yarn 2 (berry)   | 5, 6, 7     | ✓    | ✓     |
 
 ### Reference protocols
 | Type      | Supported |
@@ -66,7 +64,8 @@ idx.edges
 | workspace |           |
 | patch     |           |
 | file      |           |
-| git       |           |
+| github    |           |
+| tag       |           |
 
 https://yarnpkg.com/features/protocols
 

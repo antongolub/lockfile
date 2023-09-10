@@ -1,17 +1,17 @@
 import assert from 'node:assert'
 import path from 'node:path'
-import {parse, format, check} from '../../main/ts/formats/npm-2'
+import {parse, format, check} from '../../main/ts/formats/npm-3'
 import { suite } from 'uvu'
 import { testParseFormatInterop } from './helpers'
 
-const test = suite('npm-2')
+const test = suite('npm-3')
 
-test('detects npm lockfile v2', () => {
+test('detects npm lockfile v3', () => {
   assert.ok(check(`
 {
   "name": "@antongolub/npm-test",
   "version": "5.0.0",
-  "lockfileVersion": 2,
+  "lockfileVersion": 3,
   "requires": true,
 `))
 
@@ -28,9 +28,9 @@ test('detects npm lockfile v2', () => {
 //   await testParseFormatInterop(
 //     parse,
 //     format,
-//     path.resolve(__dirname, '../fixtures/npm-2/package-lock.json'),
-//     path.resolve(__dirname, '../fixtures/npm-2/package.json'),
+//     path.resolve(__dirname, '../fixtures/npm-3/package-lock.json'),
+//     path.resolve(__dirname, '../fixtures/npm-3/package.json'),
 //   )
 // })
 
-// test.run()
+test.run()

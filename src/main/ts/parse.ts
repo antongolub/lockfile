@@ -1,5 +1,6 @@
 import {parse as parseNpm1, check as checkNpm1} from './formats/npm-1'
 import {parse as parseNpm2, check as checkNpm2} from './formats/npm-2'
+import {parse as parseNpm3, check as checkNpm3} from './formats/npm-2'
 import {parse as parseYarnClassic, check as checkYarnClassic} from './formats/yarn-classic'
 import {parse as parseYarnBerry, check as checkYarnBerry} from './formats/yarn-berry'
 import {ICheck, IParse, TSnapshot} from './interface'
@@ -8,6 +9,7 @@ const isPkgJson = (input: string) => input.startsWith('{') && input.includes('"n
 const variants: [ICheck, IParse][] = [
   [checkNpm1, parseNpm1],
   [checkNpm2, parseNpm2],
+  [checkNpm3, parseNpm3],
   [checkYarnClassic, parseYarnClassic],
   [checkYarnBerry, parseYarnBerry],
 ]
