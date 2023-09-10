@@ -2,7 +2,7 @@ import { suite } from 'uvu'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import {parse, format, preparse} from '../../main/ts/formats/yarn-classic'
-import { testParseFormatInterop } from './helpers'
+import { testInterop } from './helpers'
 
 const test = suite('yarn-1')
 // const fixtures = path.resolve(__dirname, '../fixtures/yarn-1')
@@ -31,7 +31,7 @@ const test = suite('yarn-1')
 // })
 
 test('parse/format interop for regular repo', async () => {
-  await testParseFormatInterop(
+  await testInterop(
     parse,
     format,
     path.resolve(__dirname, '../fixtures/yarn-1/yarn.lock'),
@@ -40,7 +40,7 @@ test('parse/format interop for regular repo', async () => {
 })
 
 test('parse/format interop for monorepo', async () => {
-  await testParseFormatInterop(
+  await testInterop(
     parse,
     format,
     path.resolve(__dirname, '../fixtures/yarn-1-mr/yarn.lock'),

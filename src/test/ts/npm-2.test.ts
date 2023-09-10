@@ -2,7 +2,7 @@ import assert from 'node:assert'
 import path from 'node:path'
 import {parse, format, check} from '../../main/ts/formats/npm-2'
 import { suite } from 'uvu'
-import { testParseFormatInterop } from './helpers'
+import { testInterop } from './helpers'
 
 const test = suite('npm-2')
 
@@ -25,7 +25,7 @@ test('detects npm lockfile v2', () => {
 })
 
 // test('parse/format interop for regular repo', async () => {
-//   await testParseFormatInterop(
+//   await testInteropBySnapshot(
 //     parse,
 //     format,
 //     path.resolve(__dirname, '../fixtures/npm-2/package-lock.json'),
