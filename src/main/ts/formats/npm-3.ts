@@ -39,7 +39,7 @@ export const parse = (lockfile: string): TSnapshot => {
 
   snapshot[""].manifest = lf.packages[""]
 
-  debugAsJson('npm3-snapshot.json', snapshot)
+  // debugAsJson('npm3-snapshot.json', snapshot)
 
   return snapshot
 }
@@ -59,8 +59,8 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
         return [variant, entry]
       }
     }
-
-    return ["", entries[""]]
+    throw new Error('Malformed lockfile')
+    // return ["", entries[""]]
   }
 
   const processPackage = (path: string, pkg: TNpm3LockfileEntry): TEntry => {
@@ -72,7 +72,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       return entries[id]
     }
 
-    const dependencies = {...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies}
+    const dependencies = sortObject({...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies})
     entries[id] = {
       name,
       version,
@@ -96,7 +96,6 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
         ranges.sort()
       }
     })
-
     return entries[id]
   }
 
@@ -109,18 +108,23 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
   const snap = idx.snapshot
   const mapped = Object.values(idx.tree)
 
-  debugAsJson(
-    'mapped.json',
-    mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
-  )
+  // debugAsJson(
+  //   'mapped.json',
+  //   mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
+  // )
 
   const nmtree = mapped.reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
     const entry = snap[id]
     if (!entry) {
-      return result
+      throw new Error('Malformed snapshot')
+      // return result
     }
     const grandparent = chunks[0]
     const cl = chunks.length
+
+    if (entry.name === 'typescript') {
+      console.log('>>>', entry.version)
+    }
 
     let l = 0
     while (l <= cl) {
@@ -130,14 +134,11 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
       while (i < parents.length) {
         const __key = parents.slice(i, i + l).reverse()
         const _key = [...__key, name]//
-
         const variant = formatNmKey(_key)
         const found = result[variant]
 
-
         if (found) {
           if (found.entry === entry) {
-
             return result
           }
 

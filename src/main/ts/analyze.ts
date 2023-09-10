@@ -4,19 +4,19 @@ import {debugAsJson, sortObject} from './util'
 type TWalkCtx = {
   entry: TEntry
   idx: TSnapshotIndex
+  id?: string
   prefix?: string
   depth?: number
   parentId?: string
   parents?: TEntry[]
 }
 
-const getDeps = (entry: TEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry.name === ''
+const getDeps = (entry: TEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry === snap[""]
   ? {...sortObject(manifest.dependencies || {}), ...sortObject({...manifest.devDependencies, ...manifest.optionalDependencies})}
   : entry.dependencies ? sortObject(entry.dependencies): {}
 
 const walk = (ctx: TWalkCtx) => {
-  const {entry, prefix, depth = 0, parentId, idx, parents = []} = ctx
-  const id = idx.getId(entry)
+  const {entry, prefix, depth = 0, parentId, idx, id = idx.getId(entry), parents = []} = ctx
   const key = (prefix ? prefix + ',' : '') + entry.name
 
   if (!idx.tree[key]) {
@@ -66,7 +66,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const tree: TSnapshotIndex['tree'] = {}
   const prodRoots = Object.keys(rootEntry?.manifest?.dependencies || {})
 
-  rootEntry.name = '' // temporary workaround
+  // rootEntry.name = '' // temporary workaround
 
   const idx = {
     snapshot,
@@ -103,9 +103,9 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
 
   // const queue: any[] = []
 
-  walk({entry: rootEntry, idx})
+  walk({entry: rootEntry, idx, id: ''})
 
-  // debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
+  debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
   // debugAsJson('queue.json', queue)
 
   return idx
