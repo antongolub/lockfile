@@ -118,49 +118,49 @@ export const preformat: IPreformat<TNpm2Lockfile> = (idx): TNpm2Lockfile => {
   )
 
   const nmtree = mapped.reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
-      const entry = snap[id]
-      if (!entry) {
-        return result
-      }
-      const grandparent = chunks[0]
-      const cl = chunks.length
+    const entry = snap[id]
+    if (!entry) {
+      return result
+    }
+    const grandparent = chunks[0]
+    const cl = chunks.length
 
-      let l = 0
-      while (l <= cl) {
-        const [name, ...parents] = [...chunks].reverse()
+    let l = 0
+    while (l <= cl) {
+      const [name, ...parents] = [...chunks].reverse()
 
-        let i = 0
-        while (i < parents.length) {
-          const __key = parents.slice(i, i + l).reverse()
-          const _key = [...__key, name]//
+      let i = 0
+      while (i < parents.length) {
+        const __key = parents.slice(i, i + l).reverse()
+        const _key = [...__key, name]//
 
-          const variant = formatNmKey(_key)
-          const found = result[variant]
+        const variant = formatNmKey(_key)
+        const found = result[variant]
 
 
-          if (found) {
-            if (found.entry === entry) {
+        if (found) {
+          if (found.entry === entry) {
 
-              return result
-            }
-
-          } else {
-            const pEntry = result[formatNmKey(__key)]?.entry
-            const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')]?.id)
-            if (__key.length && pEntry !== ppEntry) {
-              i++
-              continue
-            }
-            result[variant] = {entry, parent: grandparent}
             return result
           }
-          i++
-        }
-        l++
-      }
 
-      return result
-    }, {})
+        } else {
+          const pEntry = result[formatNmKey(__key)]?.entry
+          const ppEntry = idx.getEntry(idx.tree[chunks.slice(0, cl - i - l).join(',')]?.id)
+          if (__key.length && pEntry !== ppEntry) {
+            i++
+            continue
+          }
+          result[variant] = {entry, parent: grandparent}
+          return result
+        }
+        i++
+      }
+      l++
+    }
+
+    return result
+  }, {})
 
   debugAsJson('tree.json', nmtree)
 

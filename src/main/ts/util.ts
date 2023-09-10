@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import * as process from "process";
+import * as process from 'node:process'
 
 export const sortObject = <T extends Record<string, any>>(
   unordered: T,

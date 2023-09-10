@@ -1,7 +1,7 @@
 import { suite } from 'uvu'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import {parse, format, preparse} from '../../main/ts/formats/yarn-1'
+import {parse, format, preparse} from '../../main/ts/formats/yarn-classic'
 import { testParseFormatInterop } from './helpers'
 
 const test = suite('yarn-1')
