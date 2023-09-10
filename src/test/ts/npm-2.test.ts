@@ -25,12 +25,12 @@ test('detects npm lockfile v2', () => {
 })
 
 // test('parse/format interop for regular repo', async () => {
-//   await testParseFormatInterop({
-//     input: path.resolve(__dirname, '../fixtures/npm-2/package-lock.json'),
-//     opts: path.resolve(__dirname, '../fixtures/npm-2/package.json'),
+//   await testParseFormatInterop(
 //     parse,
-//     format
-//   })
+//     format,
+//     path.resolve(__dirname, '../fixtures/npm-2/package-lock.json'),
+//     path.resolve(__dirname, '../fixtures/npm-2/package.json'),
+//   )
 // })
 
 test.run()

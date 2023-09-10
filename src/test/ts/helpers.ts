@@ -1,25 +1,24 @@
 import fs from 'node:fs/promises'
+import fss from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
 import * as assert from 'uvu/assert'
+import {IFormat, IParse} from '../../main/ts/interface'
 
-export const testParseFormatInterop =  async ({input, parse, format, opts}: {input: string, parse: any, format: any, opts?: any}) => {
-    const lockfile: string = input.endsWith('/yarn.lock') || input.endsWith('/package-lock.json')
-        ? await fs.readFile(path.resolve(input), 'utf-8')
-        : input
-    const _opts = typeof opts === 'string' && opts.endsWith('/package.json')
-        ? await fs.readFile(path.resolve(opts), 'utf-8')
-        : opts
-    const obj = await parse(lockfile, _opts)
-    const output: string = await format(obj)
+export const testParseFormatInterop =  async (parse: IParse, format: IFormat, ...args: string[]) => {
+    const [lockfile, pkg] = args.map(v => (v.endsWith('/yarn.lock') || v.endsWith('/package-lock.json') || v.endsWith('/package.json'))
+      ? fss.readFileSync(path.resolve(v), 'utf-8')
+      : v
+    )
+    const snapshot = parse(lockfile, pkg)
+    const _lockfile = format(snapshot)
 
-    // assert.ok(output === lockfile)
-    const c1 = output.split('\n')
-    const c2 = lockfile.split('\n')
+    const c1: string[] = _lockfile.split('\n')
+    const c2: string[] = lockfile.split('\n')
     for (let i in c1) {
         if (c1[i] !== c2[i]) {
-            await fs.writeFile(path.resolve(process.cwd(), 'actual.txt'), output)
+            await fs.writeFile(path.resolve(process.cwd(), 'actual.txt'), _lockfile)
             assert.ok(false, `${c1[i]} !== ${c2[i]}, index: ${i}`)
         }
     }

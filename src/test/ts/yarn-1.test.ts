@@ -31,21 +31,21 @@ const test = suite('yarn-1')
 // })
 
 test('parse/format interop for regular repo', async () => {
-  await testParseFormatInterop({
-    input: path.resolve(__dirname, '../fixtures/yarn-1/yarn.lock'),
-    opts: path.resolve(__dirname, '../fixtures/yarn-1/package.json'),
+  await testParseFormatInterop(
     parse,
-    format
-  })
+    format,
+    path.resolve(__dirname, '../fixtures/yarn-1/yarn.lock'),
+    path.resolve(__dirname, '../fixtures/yarn-1/package.json'),
+  )
 })
 
 test('parse/format interop for monorepo', async () => {
-  await testParseFormatInterop({
-    input: path.resolve(__dirname, '../fixtures/yarn-1-mr/yarn.lock'),
-    opts: path.resolve(__dirname, '../fixtures/yarn-1-mr/package.json'),
+  await testParseFormatInterop(
     parse,
-    format
-  })
+    format,
+    path.resolve(__dirname, '../fixtures/yarn-1-mr/yarn.lock'),
+    path.resolve(__dirname, '../fixtures/yarn-1-mr/package.json'),
+  )
 })
 
-// test.run()
+test.run()
