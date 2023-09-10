@@ -73,7 +73,12 @@ export interface TSnapshotIndex {
 
 export type IParse = (lockfile: string, ...pkgJsons: string[]) => TSnapshot
 
-export type IFormat = (snapshot: TSnapshot) => string
+export type IFormatOpts = {
+    meta?: Record<string, Partial<TEntry>>
+    [index: string]: any
+}
+
+export type IFormat = (snapshot: TSnapshot, opts?: IFormatOpts) => string
 
 export type IPreformat<T> = (idx: TSnapshotIndex) => T
 
