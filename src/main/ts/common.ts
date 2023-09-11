@@ -19,7 +19,7 @@ export const isDev = checkDepType.bind(null, 'devDependencies')
 export const isPeer = checkDepType.bind(null, 'peerDependencies')
 export const isOptional = checkDepType.bind(null, 'optionalDependencies')
 
-export const parseIntegrity = (integrity: string): THashes =>
+export const parseIntegrity = (integrity?: string): THashes =>
   integrity
     ? integrity.split(' ').reduce<THashes>((m, item) => {
       const [k, v] = item.split('-')
