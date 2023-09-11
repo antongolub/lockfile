@@ -23,4 +23,4 @@ test('parse/format interop for regular repo with recursive deps', async () => {
   )
 })
 
-// test.run()
+test.run()

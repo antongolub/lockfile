@@ -31,11 +31,14 @@ const walk = (ctx: TWalkCtx) => {
       entry,
       parents
     }
-    if (idx.prodRoots.includes(chunks[0])) {
+    if (idx.prodRoots.includes(chunks[1])) {
       idx.prod.add(entry)
     }
     if (parentId) {
       idx.edges.push([parentId, id])
+      return
+    }
+    if (depth) {
       return
     }
   }

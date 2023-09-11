@@ -2,6 +2,7 @@ import {ICheck, IFormat, IPreformat, THashes, TEntry, TManifest, TSnapshot} from
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
 import {analyze} from '../analyze'
+import semver from 'semver'
 
 export type TNpm3LockfileEntry = {
   name?: string
@@ -48,19 +49,24 @@ const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_m
 
 const parsePackages = (packages: TNpm3LockfileDeps): any => {
   const entries: Record<string, TEntry> = {}
-  const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm3LockfileEntry>): [string, TNpm3LockfileEntry] => {
+  const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm3LockfileEntry>, range: string): [string, TNpm3LockfileEntry] => {
     let l = chain.length + 1
+    const variants: string[] = []
 
     while (l--) {
-      const variant = formatNmKey([...chain.slice(0, l), name].filter(Boolean))
-      const entry = entries[variant]
+      let s = 0
+      while(s <= l) {
+        const variant = formatNmKey([...chain.slice(s, l), name].filter(Boolean))
+        const entry = entries[variant]
 
-      if (entry) {
-        return [variant, entry]
+        if (entry && semver.satisfies(entry.version, range)) {
+          return [variant, entry]
+        }
+        variants.push(variant)
+        s++
       }
     }
-    throw new Error('Malformed lockfile')
-    // return ["", entries[""]]
+    throw new Error(`Malformed lockfile: ${name} ${range}\n${variants.join('\n')}`)
   }
 
   const processPackage = (path: string, pkg: TNpm3LockfileEntry): TEntry => {
@@ -84,11 +90,12 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       engines: pkg.engines,
       funding: pkg.funding,
       bin: pkg.bin,
-      peerDependencies: pkg.peerDependencies
+      peerDependencies: pkg.peerDependencies,
+      optionalDependencies: pkg.optionalDependencies
     }
 
     Object.entries<string>(dependencies).forEach(([_name, range]) => {
-      const [_path, _entry] = getClosestPkg(_name, chain, packages)
+      const [_path, _entry] = getClosestPkg(_name, chain, packages, range)
       const {ranges} = processPackage(_path, _entry)
 
       if (!ranges.includes(range)) {
@@ -119,12 +126,8 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
       throw new Error('Malformed snapshot')
       // return result
     }
-    const grandparent = chunks[0]
+    const grandparent = chunks[1]
     const cl = chunks.length
-
-    if (entry.name === 'typescript') {
-      console.log('>>>', entry.version)
-    }
 
     let l = 0
     while (l <= cl) {
@@ -184,6 +187,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
       m[k].engines = entry.engines
       m[k].funding = entry.funding
       m[k].peerDependencies = entry.peerDependencies
+      m[k].optionalDependencies = entry.optionalDependencies
 
       return m
     }, {} as TNpm3LockfileDeps)
