@@ -30,6 +30,7 @@ export interface TEntry {
     bin?: Record<string, string>
     engines?: Record<string, string>
     funding?: Record<string, string>
+    license?: string
 }
 
 export interface TManifest {
@@ -52,6 +53,7 @@ export type TSnapshot = Record<string, TEntry>
 export interface TSnapshotIndex {
     snapshot: TSnapshot
     entries: TEntry[]
+    roots: TEntry[]
     edges: [string, string][]
     tree: Record<string, {
         key: string

@@ -1,8 +1,13 @@
 import {TEntry, TManifest, TSnapshot, TSnapshotIndex} from './interface'
 import {debugAsJson, sortObject} from './util'
 
+const getDeps = (entry: TEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry === snap[""]
+  ? {...sortObject(manifest.dependencies || {}), ...sortObject({...manifest.devDependencies, ...manifest.optionalDependencies})}
+  : entry.dependencies ? sortObject(entry.dependencies): {}
+
 type TWalkCtx = {
-  entry: TEntry
+  root: TEntry,
+  entry?: TEntry
   idx: TSnapshotIndex
   id?: string
   prefix?: string
@@ -11,13 +16,15 @@ type TWalkCtx = {
   parents?: TEntry[]
 }
 
-const getDeps = (entry: TEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry === snap[""]
-  ? {...sortObject(manifest.dependencies || {}), ...sortObject({...manifest.devDependencies, ...manifest.optionalDependencies})}
-  : entry.dependencies ? sortObject(entry.dependencies): {}
-
 const walk = (ctx: TWalkCtx) => {
-  const {entry, prefix, depth = 0, parentId, idx, id = idx.getId(entry), parents = []} = ctx
+  const {root, entry = root, prefix, depth = 0, parentId, idx, id = idx.getId(entry), parents = []} = ctx
   const key = (prefix ? prefix + ',' : '') + entry.name
+
+  if (id === undefined) {
+    throw new TypeError(`Invalid snapshot: ${key}`)
+  }
+
+  // console.log('key', depth, key)
 
   if (!idx.tree[key]) {
     const chunks = key.split(',')
@@ -31,7 +38,7 @@ const walk = (ctx: TWalkCtx) => {
       entry,
       parents
     }
-    if (idx.prodRoots.includes(chunks[1])) {
+    if (root.dependencies?.[chunks[1]] || idx.prodRoots.includes(chunks[1])) {
       idx.prod.add(entry)
     }
     if (parentId !== undefined) {
@@ -51,9 +58,12 @@ const walk = (ctx: TWalkCtx) => {
     if (!_entry) {
       throw new Error(`inconsistent snapshot: ${name} ${range}`)
     }
-    const _ctx = {entry: _entry, prefix: key, depth: depth + 1, parentId: id, idx, parents: [...parents, entry]}
-    walk(_ctx)
     idx.bound(entry, _entry)
+    if (parents.includes(entry)) {
+      return
+    }
+    const _ctx: TWalkCtx = {root, entry: _entry, prefix: key, depth: depth + 1, parentId: id, idx, parents: [...parents, entry]}
+    walk(_ctx)
     stack.push(_ctx)
   })
 
@@ -61,18 +71,18 @@ const walk = (ctx: TWalkCtx) => {
 }
 
 export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
-  const rootEntry = snapshot[""]
-  const prod =  new Set([rootEntry])
-  const deps = new Map()
   const entries: TEntry[] = Object.values(snapshot)
+  const workspaces = entries.filter(e => e.sourceType === 'workspace')
+  const roots = [snapshot[""], ...workspaces]
+  const rootEntry = snapshot[""]
+  const prod =  new Set(roots)
+  const deps = new Map()
   const edges: [string, string][] = []
   const tree: TSnapshotIndex['tree'] = {}
   const prodRoots = Object.keys(rootEntry?.manifest?.dependencies || {})
-
-  // rootEntry.name = '' // temporary workaround
-
   const idx = {
     snapshot,
+    roots,
     edges,
     tree,
     prod,
@@ -104,12 +114,12 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     }
   }
 
-  // const queue: any[] = []
+  roots.forEach((root, i) => walk({root, idx, id: i === 0 ? '' : undefined}))
 
-  walk({entry: rootEntry, idx, id: ''})
+  // walk({root: roots[0], idx, id: ''})
+  // walk({root: roots[2], idx})
 
   debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
-  // debugAsJson('queue.json', queue)
 
   return idx
 }

@@ -6,9 +6,9 @@ import semver from 'semver'
 
 export type TNpm3LockfileEntry = {
   name?: string
-  version: string
-  resolved: string
-  integrity: string
+  version?: string
+  resolved?: string
+  integrity?: string
   dev?: boolean
   link?: boolean
   dependencies?: Record<string, string>,
@@ -18,6 +18,7 @@ export type TNpm3LockfileEntry = {
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
   bin?: any
+  license?: string
 }
 
 export type TNpm3LockfileDeps = Record<string, TNpm3LockfileEntry>
@@ -50,29 +51,38 @@ const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_m
 const parsePackages = (packages: TNpm3LockfileDeps): any => {
   const entries: Record<string, TEntry> = {}
   const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm3LockfileEntry>, range: string): [string, TNpm3LockfileEntry] => {
-    let l = chain.length + 1
     const variants: string[] = []
 
-    while (l--) {
-      let s = 0
-      while(s <= l) {
+    let s = 0
+    let i = 0
+    while(s < chain.length) {
+      let l = chain.length + 1
+      while (l--) {
         const variant = formatNmKey([...chain.slice(s, l), name].filter(Boolean))
         const entry = entries[variant]
 
-        if (entry && semver.satisfies(entry.version, range)) {
+        if (entry && (!entry.version || semver.satisfies(entry.version as string, range))) { // FIXME later
           return [variant, entry]
         }
         variants.push(variant)
-        s++
       }
+      s++
     }
     throw new Error(`Malformed lockfile: ${name} ${range}\n${variants.join('\n')}`)
   }
 
   const processPackage = (path: string, pkg: TNpm3LockfileEntry): TEntry => {
+    const sourceType = pkg.link ? 'workspace' : 'semver'
+    if (sourceType === 'workspace' && !pkg.name){
+      return processPackage(path, {
+        ...pkg,
+        ...packages[pkg.resolved as string]
+      })
+    }
+
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
     const name = pkg.name || chain[chain.length - 1]
-    const version = pkg.version
+    const version = pkg.version as string
     const id = path === "" ? path : `${name}@${version}`
     if (entries[id]) {
       return entries[id]
@@ -85,13 +95,14 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       ranges: [],
       hashes: parseIntegrity(pkg.integrity),
       source: pkg.resolved,
-      sourceType: pkg.link ? 'workspace' : 'semver',
+      sourceType,
       dependencies: Object.keys(dependencies).length ? dependencies : undefined,
       engines: pkg.engines,
       funding: pkg.funding,
       bin: pkg.bin,
       peerDependencies: pkg.peerDependencies,
-      optionalDependencies: pkg.optionalDependencies
+      optionalDependencies: pkg.optionalDependencies,
+      license: pkg.license
     }
 
     Object.entries<string>(dependencies).forEach(([_name, range]) => {
@@ -106,7 +117,8 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
     return entries[id]
   }
 
-  Object.entries(packages).forEach(([path, entry]) => processPackage(path, entry))
+  Object.entries(packages).forEach(([path, entry]) =>
+    (path.startsWith('node_modules/') || path === '') && processPackage(path, entry))
 
   return sortObject(entries)
 }
@@ -124,7 +136,6 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
     const entry = snap[id]
     if (!entry) {
       throw new Error('Malformed snapshot')
-      // return result
     }
     const grandparent = chunks[1]
     const cl = chunks.length
@@ -165,13 +176,25 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 
   debugAsJson('tree.json', nmtree)
 
-  // delete tree['node_modules/'] // FIXME
   const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
 
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject({
     "": manifest as TNpm3LockfileEntry,
     ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
+      if (entry.sourceType === 'workspace') {
+        m[`node_modules/${entry.name}`] = {
+          resolved: entry.source as string,
+          link: true
+        }
+
+        m[entry.source as string] = {
+          name: entry.name,
+          version: entry.version,
+        }
+        return m
+      }
+
       m[k] = {
         version: entry.version,
         resolved: formatTarballUrl(entry.name, entry.version),
