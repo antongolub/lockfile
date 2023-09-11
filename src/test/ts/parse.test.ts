@@ -18,7 +18,7 @@ test('throws err on `suspicious` pkg json input', () => {
 
 test('returns a snapshot if possible', () => {
   const snapshot = parse(lf, pkgJson)
-  assert.equal(snapshot.manifest.name, JSON.parse(pkgJson).name)
+  assert.equal(snapshot[""]?.manifest?.name, JSON.parse(pkgJson).name)
 })
 
-// test.run()
+test.run()

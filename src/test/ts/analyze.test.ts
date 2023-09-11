@@ -17,12 +17,13 @@ test('builds index by a snapshot', async () => {
   const entry = idx.getEntry('@antongolub/npm-test', '4.0.1') as TEntry
 
   assert.ok(idx.prod.has(entry))
+
   assert.deepEqual(idx.edges, [
-    [ '@5.0.0', '@antongolub/npm-test@4.0.1' ],
+    [ '', '@antongolub/npm-test@4.0.1' ],
     [ '@antongolub/npm-test@4.0.1', '@antongolub/npm-test@3.0.1' ],
     [ '@antongolub/npm-test@3.0.1', '@antongolub/npm-test@2.0.1' ],
     [ '@antongolub/npm-test@2.0.1', '@antongolub/npm-test@1.0.0' ]
   ])
 })
 
-// test.run()
+test.run()
