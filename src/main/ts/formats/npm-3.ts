@@ -180,9 +180,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
       if (!manifest.dependencies?.[parent]) {
         m[k].dev = true
       }
-      if (entry.dependencies) {
-        m[k].dependencies = entry.dependencies
-      }
+      m[k].dependencies = entry.dependencies
       m[k].bin = entry.bin
       m[k].engines = entry.engines
       m[k].funding = entry.funding
