@@ -7,11 +7,11 @@ import * as assert from 'uvu/assert'
 import {IFormat, IParse} from '../../main/ts/interface'
 
 const checkLineByLine = (a: string, b: string) => {
-    const c1: string[] = a.split('\n')
-    const c2: string[] = b.split('\n')
+    const c1: string[] = a.trim().split('\n')
+    const c2: string[] = b.trim().split('\n')
     for (let i in c1) {
         if (c1[i] !== c2[i]) {
-            fss.writeFileSync(path.resolve(process.cwd(), 'actual.txt'), b)
+            fss.writeFileSync(path.resolve(process.cwd(), 'temp', 'actual.txt'), b)
             assert.ok(false, `${c1[i]} !== ${c2[i]}, index: ${i}`)
         }
     }

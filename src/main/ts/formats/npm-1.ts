@@ -105,7 +105,7 @@ const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(
 
 export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
     const root = idx.snapshot[""].manifest as TManifest
-    const deptree = Object.values(idx.tree).map(({parents, entry}) => [...parents.slice(1), entry])
+    const deptree = Object.values(idx.tree).slice(1).map(({parents, entry}) => [...parents.slice(1), entry])
 
     debugAsJson('deptree-legacy.json', deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')))
 
@@ -189,8 +189,6 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
             }
         }
     })
-
-    delete lf.dependencies[""]
 
     return lf
 }
