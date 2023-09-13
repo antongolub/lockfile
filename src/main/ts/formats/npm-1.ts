@@ -51,6 +51,10 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             dependencies: manifest.dependencies,
             devDependencies: manifest.devDependencies,
             hashes: {},
+            source: {
+                type: 'workspace',
+                id: '.'
+            },
             ranges: [],
             manifest,
         }
@@ -86,7 +90,11 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 
         upsertEntry(name, entry.version, {
             hashes: parseIntegrity(entry.integrity),
-            dependencies: requires
+            dependencies: requires,
+            source: {
+                type: 'npm',
+                id: entry.resolved
+            }
         })
 
         extractEntries(entry.dependencies, deps, ...parents)

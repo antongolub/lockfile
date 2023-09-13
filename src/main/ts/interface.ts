@@ -1,4 +1,3 @@
-export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace' | 'semver' | 'patch'
 
 export type TDependencies = Record<string, string>
 
@@ -12,13 +11,20 @@ export interface THashes {
     md5?: string
 }
 
+export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace' | 'semver' | 'patch'
+
+export interface TSource {
+    type: TSourceType
+    id: string
+    registry?: string
+}
+
 export interface TEntry {
     name: string
     version: string
     ranges: string[]
     hashes: THashes
-    source?: string
-    sourceType?: TSourceType
+    source: TSource
 
     manifest?: TManifest
     conditions?: string

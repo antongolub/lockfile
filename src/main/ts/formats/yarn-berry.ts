@@ -36,7 +36,7 @@ export const check: ICheck = (value: string): boolean => value.includes(`
 __metadata:
   version:`)
 
-const parseResolution = (resolution: string): {source: string, sourceType: TSourceType, name: string} => {
+const parseResolution = (resolution: string): {sourceId: string, sourceType: TSourceType, name: string} => {
     const colonPos = resolution.indexOf(':')
     const atPos = resolution.indexOf('@', 1)
     const name = resolution.slice(0, atPos)
@@ -44,13 +44,13 @@ const parseResolution = (resolution: string): {source: string, sourceType: TSour
     if (colonPos === -1) {
         return {
             name,
-            source: resolution.slice(atPos + 1),
+            sourceId: resolution.slice(atPos + 1),
             sourceType: 'npm'
         }
     }
     return {
         name,
-        source: resolution.slice(colonPos + 1),
+        sourceId: resolution.slice(colonPos + 1),
         sourceType: resolution.slice(atPos + 1, colonPos) as TSourceType
     }
 }
@@ -83,10 +83,13 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             return
         }
 
-
-        const ranges = refs.map(r => r.source).sort()
-        const {sourceType, source} = parseResolution(resolution)
+        const ranges = refs.map(r => r.sourceId).sort()
         const hashes = parseIntegrity(checksum)
+        const {sourceType, sourceId} = parseResolution(resolution)
+        const source = {
+            id: sourceId,
+            type: sourceType
+        }
 
         snapshot[key] = {
             name,
@@ -94,7 +97,6 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             ranges,
             hashes,
             source,
-            sourceType,
             dependencies,
             dependenciesMeta,
             optionalDependencies,
@@ -112,6 +114,10 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         version: manifest.version,
         ranges: [],
         hashes: {},
+        source: {
+            type: 'workspace',
+            id: '.'
+        },
         manifest,
         dependencies: manifest.dependencies,
         devDependencies: manifest.devDependencies
@@ -125,15 +131,15 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
     const lf: TYarn5Lockfile = {}
 
     Object.values(snapshot).forEach((entry) => {
-        const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, sourceType, patch, bin, conditions } = entry
+        const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, patch, bin, conditions } = entry
         const isLocal = version === '0.0.0-use.local'
         const languageName = isLocal ? 'unknown' : 'node'
         const linkType = isLocal ? 'soft' : 'hard'
-        const key = ranges.map(r => formatResolution(name, r, sourceType === 'workspace' ? ((r === '.' || r.includes('/')) ? 'workspace' : 'semver'): 'npm')).join(', ')
+        const key = ranges.map(r => formatResolution(name, r, source.type === 'workspace' ? ((r === '.' || r.includes('/')) ? 'workspace' : 'semver'): 'npm')).join(', ')
 
         lf[key] = {
             version,
-            resolution: formatResolution(name, source as string, sourceType),
+            resolution: formatResolution(name, source.id, source.type),
             dependencies,
             dependenciesMeta,
             optionalDependencies,

@@ -1,5 +1,5 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, TSnapshotIndex, ICheck, IFormat, IParse, IPreformat} from '../interface'
+import {TDependencies, TSnapshot, TSnapshotIndex, ICheck, IFormat, IParse, IPreformat, TSource} from '../interface'
 import {parseIntegrity} from '../common'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -48,10 +48,14 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         const [_key, _entry] = value
         const chunks = _key.split(', ')
         const ranges = chunks.map(r => r.slice(r.lastIndexOf('@') + 1)).sort()
-        const { version, integrity, dependencies, optionalDependencies, resolved: source } = _entry
+        const { version, integrity, dependencies, optionalDependencies, resolved } = _entry
         const name = chunks[0].slice(0, chunks[0].lastIndexOf('@'))
         const key = `${name}@${version}`
         const hashes = parseIntegrity(integrity)
+        const source: TSource = {
+            type: 'npm',
+            id: resolved
+        }
 
         snapshot[key] = {
             name,
@@ -69,6 +73,10 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         version: manifest.version,
         ranges: [],
         hashes: {},
+        source: {
+            type: 'workspace',
+            id: '.'
+        },
         manifest,
         dependencies: manifest.dependencies
     }
@@ -87,7 +95,7 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
 
         lf[key] = {
             version,
-            resolved: source as string,
+            resolved: source.id as string,
             integrity,
             dependencies,
             optionalDependencies,

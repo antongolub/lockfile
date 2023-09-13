@@ -5,7 +5,7 @@ import {parse as parseYarnClassic, check as checkYarnClassic} from './formats/ya
 import {parse as parseYarnBerry, check as checkYarnBerry} from './formats/yarn-berry'
 import {ICheck, IParse, TSnapshot} from './interface'
 
-const isPkgJson = (input: string) => input.startsWith('{') && input.includes('"name":') && input.includes('"version":')
+const isPkgJson = (input: string) => input.startsWith('{') && input.includes('"name":')
 const variants: [ICheck, IParse][] = [
   [checkNpm1, parseNpm1],
   [checkNpm2, parseNpm2],

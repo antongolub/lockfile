@@ -94,8 +94,10 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       version,
       ranges: [],
       hashes: parseIntegrity(pkg.integrity),
-      source: pkg.resolved,
-      sourceType,
+      source: {
+        id: pkg.resolved as string,
+        type: sourceType
+      },
       dependencies: pkg.dependencies,
       engines: pkg.engines,
       funding: pkg.funding,
@@ -174,7 +176,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
       l++
     }
 
-    if (entry.sourceType === 'workspace') {
+    if (entry.source.type === 'workspace') {
       result[formatNmKey([entry.name])] = {entry, parent: ''}
     }
 
@@ -189,14 +191,14 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
   const packages = sortObject({
     "": manifest as TNpm3LockfileEntry,
     ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
-      if (entry.sourceType === 'workspace') {
+      if (entry.source.type === 'workspace') {
 
         m[`node_modules/${entry.name}`] = {
-          resolved: entry.source as string,
+          resolved: entry.source.id as string,
           link: true
         }
 
-        m[entry.source as string] = {
+        m[entry.source.id as string] = {
           name: entry.name,
           version: entry.version,
           license: entry.license,

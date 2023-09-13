@@ -101,9 +101,11 @@ export type TEntry = {
     checksum?: string
     md5?:     string
   }
-  source:     string
-  sourceType: TSourceType // npm, workspace, gh, patch, etc
-
+  source:     {
+    type: TSourceType // npm, workspace, gh, patch, etc
+    id: string
+    registry?: string
+  }
   // optional pm-specific lockfile meta
   manifest?: TManifest
   conditions?: string
@@ -148,7 +150,7 @@ export interface TSnapshotIndex {
 * npm1: `optional: true` label is not supported yet
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
-* many `nmtree` projections may correspond the specified `depgraph`
+* many `nmtree` projections may correspond to the specified `depgraph`
 * no idea what todo with yarn `patch`
 
 ### Inspired by
