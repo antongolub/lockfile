@@ -162,6 +162,7 @@ export interface TSnapshotIndex {
 * [yarn.lock](https://classic.yarnpkg.com/en/docs/yarn-lock/)
 * [package-lock-json](https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json)
 * [what-is-package-lock-json](https://snyk.io/blog/what-is-package-lock-json/)
+* [the-ultimate-guide-to-yarn-lock-lockfiles](https://www.arahansen.com/the-ultimate-guide-to-yarn-lock-lockfiles/)
 
 ### License
 [MIT](./LICENSE)
