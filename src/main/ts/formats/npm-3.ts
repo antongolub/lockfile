@@ -1,7 +1,7 @@
-import {ICheck, IFormat, IPreformat, TEntry, TManifest, TSnapshot} from '../interface'
+import {ICheck, IFormat, IPreformat, TEntry, TManifest, TSnapshot, TSource} from '../interface'
 import {formatTarballUrl, parseIntegrity, formatIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
-import {analyze, getId} from '../analyze'
+import {analyze, getDeps, getId} from '../analyze'
 import semver from 'semver'
 
 export type TNpm3LockfileEntry = {
@@ -72,32 +72,34 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
   }
 
   const processPackage = (path: string, pkg: TNpm3LockfileEntry): TEntry => {
-    const sourceType = pkg.link ? 'workspace' : 'semver'
+    const sourceType = (pkg.link || path === "") ? 'workspace' : 'semver'
+
     if (sourceType === 'workspace' && !pkg.name){
       return processPackage(path, {
         ...pkg,
         ...packages[pkg.resolved as string]
       })
     }
+    const source: TSource = {
+      id: (pkg.resolved || '.') as string,
+      type: sourceType
+    }
 
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
     const name = pkg.name || chain[chain.length - 1]
     const version = pkg.version as string
     const id = path === "" ? path : getId(name, version)
+
     if (entries[id]) {
       return entries[id]
     }
 
-    const dependencies = sortObject({...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies})
     entries[id] = {
       name,
       version,
       ranges: [],
       hashes: parseIntegrity(pkg.integrity),
-      source: {
-        id: pkg.resolved as string,
-        type: sourceType
-      },
+      source,
       dependencies: pkg.dependencies,
       engines: pkg.engines,
       funding: pkg.funding,
@@ -108,7 +110,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       license: pkg.license
     }
 
-    Object.entries<string>(dependencies).forEach(([_name, range]) => {
+    Object.entries<string>(getDeps(entries[id])).forEach(([_name, range]) => {
       const [_path, _entry] = getClosestPkg(_name, chain, packages, range)
       const {ranges} = processPackage(_path, _entry)
 
@@ -186,10 +188,12 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
   debugAsJson('tree.json', nmtree)
 
   const manifest = snap[""].manifest as TManifest
-  const packages = sortObject({
-    "": manifest as TNpm3LockfileEntry,
-    ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
+  const packages = sortObject(Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
       if (entry.source.type === 'workspace') {
+        if (entry.source.id === '.') {
+          m[""] = manifest as TNpm3LockfileEntry
+          return m
+        }
 
         m[`node_modules/${entry.name}`] = {
           resolved: entry.source.id as string,
@@ -224,7 +228,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 
       return m
     }, {} as TNpm3LockfileDeps)
-  })
+  )
 
   return {
     name: manifest.name,

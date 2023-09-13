@@ -154,21 +154,11 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
 
         if (patch) {
             lf[patch.refs.join(', ')] = {
-                version,
+                ...lf[key],
                 resolution: patch.resolution,
-                dependencies,
-                dependenciesMeta,
-                optionalDependencies,
-                peerDependencies,
-                peerDependenciesMeta,
-                bin,
                 checksum: patch.checksum,
-                conditions,
-                languageName,
-                linkType,
             }
         }
-
     })
 
     delete lf[""]

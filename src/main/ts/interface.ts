@@ -54,12 +54,6 @@ export interface TManifest {
     [key: string]: any
 }
 
-export interface TWorkspace {
-    name: string
-    path: string // relative to the root of the workspace
-    // manifest: TManifest
-}
-
 export type TSnapshot = Record<string, TEntry>
 
 export interface TSnapshotIndex {
@@ -68,12 +62,12 @@ export interface TSnapshotIndex {
     roots: TEntry[]
     edges: [string, string][]
     tree: Record<string, {
+        name: string
+        version: string
+        id: string
         key: string
         chunks: string[]
         parents: TEntry[]
-        id: string
-        name: string
-        version: string
         entry: TEntry
     }>
     prod: Set<TEntry>

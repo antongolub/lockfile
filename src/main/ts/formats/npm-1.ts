@@ -10,7 +10,7 @@ import {
 } from '../interface'
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, formatTarballUrl} from '../common'
-import {analyze, getDeps} from '../analyze'
+import {analyze} from '../analyze'
 
 export const version = 'npm-1'
 
@@ -204,4 +204,3 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
 
 export const format: IFormat = (snap): string =>
     JSON.stringify(preformat(analyze(snap)), null, 2)
-

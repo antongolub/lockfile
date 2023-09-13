@@ -1,4 +1,4 @@
-# lockfile
+# @antongolub/lockfile
 > Read and write lockfiles with reasonable losses
 
 ## Motivation
@@ -65,13 +65,13 @@ idx.edges
 * `depgraph` — describes how resolved pkgs are related with each other
 
 ### Lockfiles types
-| Package manager      | Meta format | Parse | Format |
-|----------------------|-------------|-------|--------|
-| npm <7               | 1           | ✓     | ✓      |
-| npm >=7              | 2           | ✓     |        |
-| npm >=9              | 3           | ✓     |        | 
-| yarn 1 (classic)     | 1           | ✓     | ✓      |
-| yarn 2, 3, 4 (berry) | 5, 6, 7     | ✓     | ✓      |
+| Package manager      | Meta format | Read | Write |
+|----------------------|-------------|------|-------|
+| npm <7               | 1           | ✓    | ✓     |
+| npm >=7              | 2           | ✓    |       |
+| npm >=9              | 3           | ✓    |       | 
+| yarn 1 (classic)     | 1           | ✓    | ✓     |
+| yarn 2, 3, 4 (berry) | 5, 6, 7     | ✓    | ✓     |
 
 ### Reference protocols
 | Type      | Supported |

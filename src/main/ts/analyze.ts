@@ -82,8 +82,7 @@ export const getId = (name?: string, version: string = ''): string => name
 
 export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const entries: TEntry[] = Object.values(snapshot)
-  const workspaces = entries.filter(e => e.source.type === 'workspace' && e.source.id !== '.')
-  const roots = [snapshot[""], ...workspaces]
+  const roots = entries.filter(e => e.source.type === 'workspace')
   const prod = new Set(roots)
   const deps = new Map()
   const edges: [string, string][] = []
@@ -121,7 +120,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   }
 
   const now = Date.now()
-  roots.forEach((root, i) => walk({root, idx, id: i === 0 ? '' : undefined}))
+  roots.forEach((root, i) => walk({root, idx, id: root.source.id === '.' ? '' : undefined}))
   // walk({root: roots[0], idx, id: ''})
   // walk({root: roots[2], idx})
   console.log('analyze duration=', Date.now() - now, 'deptree size=', Object.keys(tree).length)
