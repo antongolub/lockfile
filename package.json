@@ -9,18 +9,18 @@
   "type": "module",
   "exports": "./target/es6/index.js",
   "dependencies": {
-    "@semrel-extra/topo": "^1.13.1",
+    "@semrel-extra/topo": "^1.14.0",
     "js-yaml": "^4.1.0",
     "semver": "^7.5.4"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.5",
-    "@types/node": "^20.5.0",
-    "@types/semver": "^7.5.0",
+    "@types/node": "^20.6.0",
+    "@types/semver": "^7.5.1",
     "esbuild": "^0.19.2",
-    "esbuild-node-externals": "^1.8.0",
+    "esbuild-node-externals": "^1.9.0",
     "tsm": "^2.3.0",
-    "typescript": "^5.1.6",
+    "typescript": "^5.2.2",
     "uvu": "^0.5.6"
   },
   "scripts": {

@@ -9,16 +9,16 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@antongolub/lockfile@workspace:."
   dependencies:
-    "@semrel-extra/topo": ^1.13.1
+    "@semrel-extra/topo": ^1.14.0
     "@types/js-yaml": ^4.0.5
-    "@types/node": ^20.5.0
-    "@types/semver": ^7.5.0
+    "@types/node": ^20.6.0
+    "@types/semver": ^7.5.1
     esbuild: ^0.19.2
-    esbuild-node-externals: ^1.8.0
+    esbuild-node-externals: ^1.9.0
     js-yaml: ^4.1.0
     semver: ^7.5.4
     tsm: ^2.3.0
-    typescript: ^5.1.6
+    typescript: ^5.2.2
     uvu: ^0.5.6
   languageName: unknown
   linkType: soft
@@ -218,14 +218,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@semrel-extra/topo@npm:^1.13.1":
-  version: 1.13.1
-  resolution: "@semrel-extra/topo@npm:1.13.1"
+"@semrel-extra/topo@npm:^1.14.0":
+  version: 1.14.0
+  resolution: "@semrel-extra/topo@npm:1.14.0"
   dependencies:
     fast-glob: ^3.3.1
     js-yaml: ^4.1.0
     toposource: ^1.1.4
-  checksum: ffaae98e0b691d6869def1467ce618c7c7e43e960ad603fbefc6c3cdddff352d7786c4aa64c569f75f39466c0997f0e1daa00ae0a16fa63a71f6e811de2bdf24
+  checksum: ff768060005e284e2df30c63d3f8b9529a08ea51cd6a11f80eaa25e7216ead22f5c04cecc655ce4cd502df130e6676291433a1f83ea11934231ff96892262108
   languageName: node
   linkType: hard
 
@@ -236,17 +236,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^20.5.0":
-  version: 20.5.0
-  resolution: "@types/node@npm:20.5.0"
-  checksum: 659bc5fc93b5c02bd88ca4bfae4f6b9dc307d45884d1dd9d69df85819a9943cdc00cd3c87eec3048866df6a67f52297f74d170e47a44f61edb3e8f770d94e85e
+"@types/node@npm:^20.6.0":
+  version: 20.6.0
+  resolution: "@types/node@npm:20.6.0"
+  checksum: 52611801af5cf151c6fac1963aa4a8a8ca2e388a9e9ed82b01b70bca762088ded5b32cc789c5564220d5d7dccba2b8dd34446a3d4fc74736805e1f2cf262e29d
   languageName: node
   linkType: hard
 
-"@types/semver@npm:^7.5.0":
-  version: 7.5.0
-  resolution: "@types/semver@npm:7.5.0"
-  checksum: 0a64b9b9c7424d9a467658b18dd70d1d781c2d6f033096a6e05762d20ebbad23c1b69b0083b0484722aabf35640b78ccc3de26368bcae1129c87e9df028a22e2
+"@types/semver@npm:^7.5.1":
+  version: 7.5.1
+  resolution: "@types/semver@npm:7.5.1"
+  checksum: 2fffe938c7ac168711f245a16e1856a3578d77161ca17e29a05c3e02c7be3e9c5beefa29a3350f6c1bd982fb70aa28cc52e4845eb7d36246bcdc0377170d584d
   languageName: node
   linkType: hard
 
@@ -385,15 +385,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"esbuild-node-externals@npm:^1.8.0":
-  version: 1.8.0
-  resolution: "esbuild-node-externals@npm:1.8.0"
+"esbuild-node-externals@npm:^1.9.0":
+  version: 1.9.0
+  resolution: "esbuild-node-externals@npm:1.9.0"
   dependencies:
     find-up: ^5.0.0
     tslib: ^2.4.1
   peerDependencies:
-    esbuild: 0.12 - 0.18
-  checksum: 6d1cb4e1c6877c33fc7cae9f901944d0867610f293649bdfae3a99a8b3a658b471ad7c350660c198ce31d33a1ae852de407ed3336d58a4e05b9b0856dbda1837
+    esbuild: 0.12 - 0.19
+  checksum: 15c0adba29c57eb54cf7640efc1c8b9bbef555eb09eb6927dc9aa6617b84ec161a42797f8d716771254314c6bedd16f7359598de2788aa9b36f3e02f501ee982
   languageName: node
   linkType: hard
 
@@ -828,23 +828,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@npm:^5.1.6":
-  version: 5.1.6
-  resolution: "typescript@npm:5.1.6"
+"typescript@npm:^5.2.2":
+  version: 5.2.2
+  resolution: "typescript@npm:5.2.2"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: b2f2c35096035fe1f5facd1e38922ccb8558996331405eb00a5111cc948b2e733163cc22fab5db46992aba7dd520fff637f2c1df4996ff0e134e77d3249a7350
+  checksum: 7912821dac4d962d315c36800fe387cdc0a6298dba7ec171b350b4a6e988b51d7b8f051317786db1094bd7431d526b648aba7da8236607febb26cf5b871d2d3c
   languageName: node
   linkType: hard
 
-"typescript@patch:typescript@^5.1.6#~builtin<compat/typescript>":
-  version: 5.1.6
-  resolution: "typescript@patch:typescript@npm%3A5.1.6#~builtin<compat/typescript>::version=5.1.6&hash=493e53"
+"typescript@patch:typescript@^5.2.2#~builtin<compat/typescript>":
+  version: 5.2.2
+  resolution: "typescript@patch:typescript@npm%3A5.2.2#~builtin<compat/typescript>::version=5.2.2&hash=493e53"
   bin:
     tsc: bin/tsc
     tsserver: bin/tsserver
-  checksum: 21e88b0a0c0226f9cb9fd25b9626fb05b4c0f3fddac521844a13e1f30beb8f14e90bd409a9ac43c812c5946d714d6e0dee12d5d02dfc1c562c5aacfa1f49b606
+  checksum: 07106822b4305de3f22835cbba949a2b35451cad50888759b6818421290ff95d522b38ef7919e70fb381c5fe9c1c643d7dea22c8b31652a717ddbd57b7f4d554
   languageName: node
   linkType: hard
 
