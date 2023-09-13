@@ -20,6 +20,23 @@ yarn add @antongolub/lockfile
 ```
 
 ## Usage
+tl;dr
+```ts
+import fs from 'fs/promises'
+import {parse, analyze} from '@antongolub/lockfile'
+
+const lf = await fs.readFile('yarn.lock', 'utf-8')
+const pkg = await fs.readFile('package.json', 'utf-8')
+
+const snapshot = parse(lf, pkg)
+const idx = analyze(snapshot)
+
+// idx.entries
+// idx.prod
+// idx.edges
+```
+
+## API
 ```ts
 import { parse, format, analyze } from '@antongolub/lockfile'
 
@@ -71,7 +88,9 @@ https://yarnpkg.com/features/protocols
 
 ### `TSnapshot`
 ```ts
-export type TSnapshot = Record<string, {
+export type TSnapshot = Record<string, TEntry>
+
+export type TEntry = {
   name:       string
   version:    string
   ranges:     string[]
@@ -83,13 +102,14 @@ export type TSnapshot = Record<string, {
     md5?:     string
   }
   source:     string
-  sourceType: TSourceType
+  sourceType: TSourceType // npm, workspace, gh, patch, etc
 
   // optional pm-specific lockfile meta
   manifest?: TManifest
   conditions?: string
   dependencies?: TDependencies
   dependenciesMeta?: TDependenciesMeta
+  devDependencies?: TDependencies
   optionalDependencies?: TDependencies
   peerDependencies?: TDependencies
   peerDependenciesMeta?: TDependenciesMeta
@@ -99,12 +119,37 @@ export type TSnapshot = Record<string, {
 }>
 ```
 
+### `TSnapshotIndex`
+```ts
+export interface TSnapshotIndex {
+  snapshot: TSnapshot
+  entries: TEntry[]
+  roots: TEntry[]
+  edges: [string, string][]
+  tree: Record<string, {
+    key: string
+    chunks: string[]
+    parents: TEntry[]
+    id: string
+    name: string
+    version: string
+    entry: TEntry
+  }>
+  prod: Set<TEntry>
+  getEntryId ({name, version}: TEntry): string
+  getEntry (name: string, version?: string): TEntry | undefined,
+  getEntryByRange (name: string, range: string): TEntry | undefined
+  getEntryDeps(entry: TEntry): TEntry[]
+}
+```
+
 ### Caveats
 * There is an infinite number of `nmtrees` that corresponds to the specified `deptree`, but among them there is a finite set of effective (sufficient) for the target criterion — for example, nesting, size, homogeneity of versions
-* npm1: `optional: true` label is not supported by `format`
+* npm1: `optional: true` label is not supported yet
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
 * many `nmtree` projections may correspond the specified `depgraph`
+* no idea what todo with yarn `patch`
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)

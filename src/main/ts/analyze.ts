@@ -60,7 +60,7 @@ const walk = (ctx: TWalkCtx) => {
   const stack: any[] = []
 
   Object.entries(dependencies).forEach(([name, range]) => {
-    const _entry = idx.findEntry(name, range)
+    const _entry = idx.getEntryByRange(name, range)
     if (!_entry) {
       throw new Error(`inconsistent snapshot: ${name} ${range}`)
     }
@@ -96,18 +96,12 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     prod,
     entries,
     bound(from: TEntry, to: TEntry) {
-      const deps = this.getDeps(from)
+      const deps = this.getEntryDeps(from)
       if (deps.includes(to)) {
         return
       }
 
       deps.push(to)
-    },
-    getDeps (entry: TEntry): TEntry[] {
-      if (!deps.has(entry)) {
-        deps.set(entry, [])
-      }
-      return deps.get(entry)
     },
     getEntryId ({name, version}: TEntry): string {
       return getId(name, version)
@@ -115,8 +109,14 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     getEntry (name: string, version?: string) {
       return snapshot[name] || snapshot[getId(name, version)]
     },
-    findEntry (name: string, range: string) {
+    getEntryByRange (name: string, range: string) {
       return entries.find(({name: _name, ranges}) => name === _name && ranges.includes(range))
+    },
+    getEntryDeps (entry: TEntry): TEntry[] {
+      if (!deps.has(entry)) {
+        deps.set(entry, [])
+      }
+      return deps.get(entry)
     }
   }
 

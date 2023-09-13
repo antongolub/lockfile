@@ -71,11 +71,11 @@ export interface TSnapshotIndex {
         entry: TEntry
     }>
     prod: Set<TEntry>
-    getDeps(entry: TEntry): TEntry[]
     bound(from: TEntry, to: TEntry): void
     getEntryId ({name, version}: TEntry): string
     getEntry (name: string, version?: string): TEntry | undefined,
-    findEntry (name: string, range: string): TEntry | undefined
+    getEntryByRange (name: string, range: string): TEntry | undefined
+    getEntryDeps(entry: TEntry): TEntry[]
 }
 
 export type IParse = (lockfile: string, ...pkgJsons: string[]) => TSnapshot

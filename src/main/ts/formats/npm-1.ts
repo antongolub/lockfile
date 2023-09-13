@@ -140,7 +140,7 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
     const nodes: TDepTree[] = [nmtree]
     const processEntry = (name: string, version: string, parents: TNpm1LockfileEntry[]) => {
         const entry = idx.getEntry(name, version)!
-        const deps = idx.getDeps(entry)
+        const deps = idx.getEntryDeps(entry)
         const queue: [string, string, TNpm1LockfileEntry[]][] = []
 
         deps.forEach((e) => {
