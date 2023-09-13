@@ -8,7 +8,7 @@ This lib is a naive attempt to build a pm-independent, generic, extensible and r
 
 The `package.json` manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
 so both of them are required to build a dependency graph. We can try to convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
-And then, if necessary, try convert it back to the original/other format.
+And then, if necessary, try convert it back to the original/another format.
 
 ## Status
 ⚠️ Initial draft. Alpha-version
