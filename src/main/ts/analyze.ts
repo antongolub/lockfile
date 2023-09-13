@@ -82,7 +82,7 @@ export const getId = (name?: string, version: string = ''): string => name
 
 export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const entries: TEntry[] = Object.values(snapshot)
-  const workspaces = entries.filter(e => e.sourceType === 'workspace')
+  const workspaces = entries.filter(e => e.sourceType === 'workspace' && e.source !== '.')
   const roots = [snapshot[""], ...workspaces]
   const prod = new Set(roots)
   const deps = new Map()

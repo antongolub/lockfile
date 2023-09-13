@@ -1,4 +1,4 @@
-export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace' | 'semver'
+export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace' | 'semver' | 'patch'
 
 export type TDependencies = Record<string, string>
 
@@ -32,6 +32,11 @@ export interface TEntry {
     engines?: Record<string, string>
     funding?: Record<string, string>
     license?: string
+    patch?: {
+        resolution: string,
+        refs: string[]
+        checksum: string
+    }
 }
 
 export interface TManifest {
