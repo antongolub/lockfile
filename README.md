@@ -64,22 +64,22 @@ idx.edges
 * `deptree` — bounds full dep paths with their resolved packages
 * `depgraph` — describes how resolved pkgs are related with each other
 
-### Lockfiles formats
-| Package manager      | Meta format | Read | Write |
-|----------------------|-------------|------|-------|
-| npm <7               | 1           | ✓    | ✓     |
-| npm >=7              | 2           | ✓    |       |
-| npm >=9              | 3           | ✓    |       | 
-| yarn 1 (classic)     | 1           | ✓    | ✓     |
-| yarn 2, 3, 4 (berry) | 5, 6, 7     | ✓    | ✓     |
+### Lockfiles types
+| Package manager      | Meta format | Parse | Format |
+|----------------------|-------------|-------|--------|
+| npm <7               | 1           | ✓     | ✓      |
+| npm >=7              | 2           | ✓     |        |
+| npm >=9              | 3           | ✓     |        | 
+| yarn 1 (classic)     | 1           | ✓     | ✓      |
+| yarn 2, 3, 4 (berry) | 5, 6, 7     | ✓     | ✓      |
 
 ### Reference protocols
 | Type      | Supported |
 |-----------|-----------|
 | semver    | ✓         |
 | npm       | ✓         |
-| workspace |           |
-| patch     |           |
+| workspace | _limited_ |
+| patch     | _limited_ |
 | file      |           |
 | github    |           |
 | tag       |           |
