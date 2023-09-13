@@ -151,11 +151,17 @@ export interface TSnapshotIndex {
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
 * many `nmtree` projections may correspond to the specified `depgraph`
-* no idea what todo with yarn `patch`
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
 * [snyk-nodejs-lockfile-parser](https://github.com/snyk/nodejs-lockfile-parser)
+* [yarn](https://github.com/yarnpkg/yarn/blob/master/src/lockfile/parse.js)
+* [yarn-lockfile](https://github.com/yarnpkg/yarn/tree/master/packages/lockfile)
+
+### Refs
+* [yarn.lock](https://classic.yarnpkg.com/en/docs/yarn-lock/)
+* [package-lock-json](https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json)
+* [what-is-package-lock-json](https://snyk.io/blog/what-is-package-lock-json/)
 
 ### License
 [MIT](./LICENSE)
