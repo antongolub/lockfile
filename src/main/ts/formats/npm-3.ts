@@ -1,7 +1,7 @@
 import {ICheck, IFormat, IPreformat, THashes, TEntry, TManifest, TSnapshot} from '../interface'
 import {formatTarballUrl, parseIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
-import {analyze} from '../analyze'
+import {analyze, getId} from '../analyze'
 import semver from 'semver'
 
 export type TNpm3LockfileEntry = {
@@ -83,7 +83,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
     const name = pkg.name || chain[chain.length - 1]
     const version = pkg.version as string
-    const id = path === "" ? path : `${name}@${version}`
+    const id = path === "" ? path : getId(name, version)
     if (entries[id]) {
       return entries[id]
     }
@@ -100,6 +100,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       engines: pkg.engines,
       funding: pkg.funding,
       bin: pkg.bin,
+      devDependencies: pkg.devDependencies,
       peerDependencies: pkg.peerDependencies,
       optionalDependencies: pkg.optionalDependencies,
       license: pkg.license
@@ -129,14 +130,15 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 
   // debugAsJson(
   //   'mapped.json',
-  //   mapped.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
+  //   mapped//.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
   // )
 
   const nmtree = mapped.reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
     const entry = snap[id]
     if (!entry) {
-      throw new Error('Malformed snapshot')
+      throw new Error(`Malformed snapshot: ${id}`)
     }
+
     const grandparent = chunks[1]
     const cl = chunks.length
 
@@ -150,8 +152,8 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
         const _key = [...__key, name]//
         const variant = formatNmKey(_key)
         const found = result[variant]
-
         if (found) {
+
           if (found.entry === entry) {
             return result
           }
@@ -163,12 +165,17 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
             i++
             continue
           }
+
           result[variant] = {entry, parent: grandparent}
           return result
         }
         i++
       }
       l++
+    }
+
+    if (entry.sourceType === 'workspace') {
+      result[formatNmKey([entry.name])] = {entry, parent: ''}
     }
 
     return result
@@ -183,6 +190,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
     "": manifest as TNpm3LockfileEntry,
     ...Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
       if (entry.sourceType === 'workspace') {
+
         m[`node_modules/${entry.name}`] = {
           resolved: entry.source as string,
           link: true
@@ -191,6 +199,10 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
         m[entry.source as string] = {
           name: entry.name,
           version: entry.version,
+          license: entry.license,
+          dependencies: entry.dependencies,
+          bin: entry.bin,
+          devDependencies: entry.devDependencies,
         }
         return m
       }

@@ -36,7 +36,7 @@ test('detects npm lockfile v3', () => {
 
 
 
-test('parse/format interop for regular repo', async () => {
+test('parse/format interop for monorerepo', async () => {
   await testInteropBySnapshot(
     parse,
     format,

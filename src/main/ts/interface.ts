@@ -24,6 +24,7 @@ export interface TEntry {
     conditions?: string
     dependencies?: TDependencies
     dependenciesMeta?: TDependenciesMeta
+    devDependencies?: TDependencies
     optionalDependencies?: TDependencies
     peerDependencies?: TDependencies
     peerDependenciesMeta?: TDependenciesMeta
@@ -68,7 +69,7 @@ export interface TSnapshotIndex {
     prodRoots: string[]
     getDeps(entry: TEntry): TEntry[]
     bound(from: TEntry, to: TEntry): void
-    getId ({name, version}: TEntry): string
+    getEntryId ({name, version}: TEntry): string
     getEntry (name: string, version?: string): TEntry | undefined,
     findEntry (name: string, range: string): TEntry | undefined
 }

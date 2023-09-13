@@ -17,7 +17,7 @@ type TWalkCtx = {
 }
 
 const walk = (ctx: TWalkCtx) => {
-  const {root, entry = root, prefix, depth = 0, parentId, idx, id = idx.getId(entry), parents = []} = ctx
+  const {root, entry = root, prefix, depth = 0, parentId, idx, id = idx.getEntryId(entry), parents = []} = ctx
   const key = (prefix ? prefix + ',' : '') + entry.name
 
   if (id === undefined) {
@@ -70,6 +70,10 @@ const walk = (ctx: TWalkCtx) => {
   stack.forEach(walk)
 }
 
+export const getId = (name?: string, version: string = ''): string => name
+  ? `${name}@${version}`
+  : ''
+
 export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const entries: TEntry[] = Object.values(snapshot)
   const workspaces = entries.filter(e => e.sourceType === 'workspace')
@@ -80,14 +84,13 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const edges: [string, string][] = []
   const tree: TSnapshotIndex['tree'] = {}
   const prodRoots = Object.keys(rootEntry?.manifest?.dependencies || {})
-  const idx = {
+  const idx: TSnapshotIndex = {
     snapshot,
     roots,
     edges,
     tree,
     prod,
     prodRoots,
-    deps,
     entries,
     bound(from: TEntry, to: TEntry) {
       const deps = this.getDeps(from)
@@ -103,11 +106,11 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
       }
       return deps.get(entry)
     },
-    getId ({name, version}: TEntry): string {
-      return `${name}@${version}`
+    getEntryId ({name, version}: TEntry): string {
+      return getId(name, version)
     },
     getEntry (name: string, version?: string) {
-      return snapshot[`${name || ''}${name && version ? '@' + version : ''}`]
+      return snapshot[name] || snapshot[getId(name, version)]
     },
     findEntry (name: string, range: string) {
       return entries.find(({name: _name, ranges}) => name === _name && ranges.includes(range))
