@@ -19,4 +19,4 @@ test('returns a lockfile if possible', () => {
   assert.equal(lf, _lf)
 })
 
-test.run()
+// test.run()

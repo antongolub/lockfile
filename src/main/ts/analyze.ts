@@ -1,9 +1,18 @@
-import {TEntry, TManifest, TSnapshot, TSnapshotIndex} from './interface'
+import {TEntry, TSnapshot, TSnapshotIndex} from './interface'
 import {debugAsJson, sortObject} from './util'
 
-const getDeps = (entry: TEntry, snap: TSnapshot, manifest: TManifest = (snap[""].manifest || {}) as TManifest): Record<string, string> => entry === snap[""]
-  ? {...sortObject(manifest.dependencies || {}), ...sortObject({...manifest.devDependencies, ...manifest.optionalDependencies})}
-  : entry.dependencies ? sortObject(entry.dependencies): {}
+export const getDeps = (entry: TEntry): Record<string, string> => {
+  if (!getDeps.cache.has(entry)) {
+    getDeps.cache.set(entry, ({
+      ...sortObject(entry.dependencies || {}),
+      ...sortObject({...entry.devDependencies, ...entry.optionalDependencies})
+    }))
+  }
+
+  return getDeps.cache.get(entry)
+}
+
+getDeps.cache = new WeakMap()
 
 type TWalkCtx = {
   root: TEntry,
@@ -38,7 +47,7 @@ const walk = (ctx: TWalkCtx) => {
       entry,
       parents
     }
-    if (root.dependencies?.[chunks[1]] || idx.prodRoots.includes(chunks[1])) {
+    if (root.dependencies?.[chunks[1]]) {
       idx.prod.add(entry)
     }
     if (parentId !== undefined) {
@@ -50,7 +59,7 @@ const walk = (ctx: TWalkCtx) => {
     }
   }
 
-  const dependencies = getDeps(entry, idx.snapshot)
+  const dependencies = getDeps(entry)
   const stack: any[] = []
 
   Object.entries(dependencies).forEach(([name, range]) => {
@@ -78,19 +87,16 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const entries: TEntry[] = Object.values(snapshot)
   const workspaces = entries.filter(e => e.sourceType === 'workspace')
   const roots = [snapshot[""], ...workspaces]
-  const rootEntry = snapshot[""]
-  const prod =  new Set(roots)
+  const prod = new Set(roots)
   const deps = new Map()
   const edges: [string, string][] = []
   const tree: TSnapshotIndex['tree'] = {}
-  const prodRoots = Object.keys(rootEntry?.manifest?.dependencies || {})
   const idx: TSnapshotIndex = {
     snapshot,
     roots,
     edges,
     tree,
     prod,
-    prodRoots,
     entries,
     bound(from: TEntry, to: TEntry) {
       const deps = this.getDeps(from)

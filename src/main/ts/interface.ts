@@ -66,7 +66,6 @@ export interface TSnapshotIndex {
         entry: TEntry
     }>
     prod: Set<TEntry>
-    prodRoots: string[]
     getDeps(entry: TEntry): TEntry[]
     bound(from: TEntry, to: TEntry): void
     getEntryId ({name, version}: TEntry): string

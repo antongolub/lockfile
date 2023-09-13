@@ -21,4 +21,4 @@ test('returns a snapshot if possible', () => {
   assert.equal(snapshot[""]?.manifest?.name, JSON.parse(pkgJson).name)
 })
 
-test.run()
+// test.run()

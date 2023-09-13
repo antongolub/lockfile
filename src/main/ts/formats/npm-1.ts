@@ -10,7 +10,7 @@ import {
 } from '../interface'
 import {debugAsJson, sortObject} from '../util'
 import {parseIntegrity, formatTarballUrl} from '../common'
-import {analyze} from '../analyze'
+import {analyze, getDeps} from '../analyze'
 
 export const version = 'npm-1'
 
@@ -48,10 +48,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         "": {
             name: manifest.name,
             version: manifest.version,
-            dependencies: {
-                ...manifest.dependencies,
-                ...manifest.devDependencies,
-            },
+            dependencies: manifest.dependencies,
+            devDependencies: manifest.devDependencies,
             hashes: {},
             ranges: [],
             manifest,
@@ -96,7 +94,10 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     })
 
     extractEntries(lf.dependencies)
-    extractRanges(entries[""].dependencies, lf.dependencies || {})
+    extractRanges({
+        ...entries[""].dependencies,
+        ...entries[""].devDependencies
+    }, lf.dependencies || {})
 
     return sortObject(entries)
 }
