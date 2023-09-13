@@ -1,7 +1,17 @@
 // https://github.com/yarnpkg/berry/commit/2f9e8073d15745f9d53e6b8b42fa9c81eb143d54
 
 import {load, dump} from 'js-yaml'
-import {ICheck, IFormat, IParse, IPreformat, TDependencies, TDependenciesMeta, TSnapshot, TSnapshotIndex} from '../interface'
+import {
+    ICheck,
+    IFormat,
+    IParse,
+    IPreformat,
+    TDependencies,
+    TDependenciesMeta,
+    TSnapshot,
+    TSnapshotIndex,
+    TSourceType
+} from '../interface'
 import {parseIntegrity} from '../common'
 
 export type TYarn5Lockfile = Record<string, {
@@ -25,6 +35,17 @@ export const check: ICheck = (value: string): boolean => value.includes(`
 __metadata:
   version:`)
 
+const parseResolution = (resolution: string): {source: string, sourceType: TSourceType} => {
+    const ref = resolution.slice(resolution.lastIndexOf('@') + 1)
+    const colonPos = ref.indexOf(':')
+    const sourceType = ref.slice(0, colonPos) as TSourceType
+    const source = ref.slice(colonPos + 1)
+
+    return {source, sourceType}
+}
+
+const formatResolution = (name: string, source: string, sourceType:  TSourceType = 'npm'): string => `${name}@${sourceType}:${source}`
+
 export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const manifest = JSON.parse(pkg)
     const snapshot: TSnapshot = {}
@@ -37,22 +58,24 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         const [_key, _entry] = value
         const chunks = _key.split(', ')
         const ranges = chunks.map(r => r.slice(r.lastIndexOf('@') + 1)).sort()
-        const { version, checksum, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, resolution: source, bin, conditions } = _entry
+        const { version, checksum, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, resolution, bin, conditions } = _entry
         const name = chunks[0].slice(0, chunks[0].lastIndexOf('@'))
         const key = `${name}@${version}`
         const hashes = parseIntegrity(checksum)
+        const {sourceType, source} = parseResolution(resolution)
 
         snapshot[key] = {
             name,
             version,
             ranges,
             hashes,
+            source,
+            sourceType,
             dependencies,
             dependenciesMeta,
             optionalDependencies,
             peerDependencies,
             peerDependenciesMeta,
-            source,
             bin,
             conditions,
         }
@@ -75,7 +98,7 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
     const lf: TYarn5Lockfile = {}
 
     Object.values(snapshot).forEach((entry) => {
-        const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, bin, conditions } = entry
+        const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, sourceType, bin, conditions } = entry
         const key = ranges.map(r => `${name}@${r}`).join(', ')
         const isLocal = version === '0.0.0-use.local'
         const languageName = isLocal ? 'unknown' : 'node'
@@ -83,7 +106,7 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
 
         lf[key] = {
             version,
-            resolution: source as string,
+            resolution: formatResolution(name, source as string, sourceType),
             dependencies,
             dependenciesMeta,
             optionalDependencies,

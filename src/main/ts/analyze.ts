@@ -9,10 +9,10 @@ export const getDeps = (entry: TEntry): Record<string, string> => {
     }))
   }
 
-  return getDeps.cache.get(entry)
+  return getDeps.cache.get(entry) as Record<string, string>
 }
 
-getDeps.cache = new WeakMap()
+getDeps.cache = new WeakMap<TEntry, Record<string, string>>()
 
 type TWalkCtx = {
   root: TEntry,
@@ -33,17 +33,14 @@ const walk = (ctx: TWalkCtx) => {
     throw new TypeError(`Invalid snapshot: ${key}`)
   }
 
-  // console.log('key', depth, key)
-
   if (!idx.tree[key]) {
     const chunks = key.split(',')
-    const version = id.slice(id.lastIndexOf('@') + 1)
     idx.tree[key] = {
       key,
       chunks,
       id,
       name: entry.name,
-      version,
+      version: entry.version,
       entry,
       parents
     }
@@ -72,8 +69,8 @@ const walk = (ctx: TWalkCtx) => {
       return
     }
     const _ctx: TWalkCtx = {root, entry: _entry, prefix: key, depth: depth + 1, parentId: id, idx, parents: [...parents, entry]}
-    walk(_ctx)
     stack.push(_ctx)
+    walk(_ctx)
   })
 
   stack.forEach(walk)
@@ -123,10 +120,11 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
     }
   }
 
+  const now = Date.now()
   roots.forEach((root, i) => walk({root, idx, id: i === 0 ? '' : undefined}))
-
   // walk({root: roots[0], idx, id: ''})
   // walk({root: roots[2], idx})
+  console.log('!!!', Date.now()- now, roots.length)
 
   debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
 

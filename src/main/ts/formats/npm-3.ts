@@ -96,7 +96,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
       hashes: parseIntegrity(pkg.integrity),
       source: pkg.resolved,
       sourceType,
-      dependencies: Object.keys(dependencies).length ? dependencies : undefined,
+      dependencies: pkg.dependencies,
       engines: pkg.engines,
       funding: pkg.funding,
       bin: pkg.bin,
