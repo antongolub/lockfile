@@ -1,5 +1,5 @@
-import {ICheck, IFormat, IPreformat, THashes, TEntry, TManifest, TSnapshot} from '../interface'
-import {formatTarballUrl, parseIntegrity} from '../common'
+import {ICheck, IFormat, IPreformat, TEntry, TManifest, TSnapshot} from '../interface'
+import {formatTarballUrl, parseIntegrity, formatIntegrity} from '../common'
 import {sortObject, debugAsJson} from '../util'
 import {analyze, getId} from '../analyze'
 import semver from 'semver'
@@ -185,8 +185,6 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 
   debugAsJson('tree.json', nmtree)
 
-  const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
-
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject({
     "": manifest as TNpm3LockfileEntry,
@@ -214,7 +212,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
         resolved: formatTarballUrl(entry.name, entry.version),
         integrity: formatIntegrity(entry.hashes)
       }
-      if (!manifest.dependencies?.[parent]) {
+      if (!idx.prod.has(entry)) {
         m[k].dev = true
       }
       m[k].dependencies = entry.dependencies

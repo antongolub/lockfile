@@ -3,13 +3,12 @@ import fs from 'node:fs/promises'
 import {topo, traverseDeps} from '@semrel-extra/topo'
 import {THashes, TManifest, TSnapshot} from './interface'
 
-
 export const formatTarballUrl = (name: string, version: string, registry = 'https://registry.npmjs.org') =>
   `${registry}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`
 
 export const getSources = (snapshot: TSnapshot): string[] =>
   Object.values(snapshot)
-    .map(entry => entry.source as string)
+    .map(entry => entry.source.id)
     .filter(Boolean)
 
 const checkDepType = (type: keyof TManifest, manifest: TManifest, name: string): boolean => Boolean(manifest[type]?.[name])
