@@ -41,7 +41,7 @@ export const parse = (lockfile: string): TSnapshot => {
 
   snapshot[""].manifest = lf.packages[""]
 
-  // debug.json(snapshot, 'npm3-snapshot.json')
+  debug.json('npm3-snapshot.json', snapshot)
 
   return snapshot
 }
@@ -130,14 +130,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
 
 export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
   const snap = idx.snapshot
-  const mapped = Object.values(idx.tree)
-
-  // debug.json(
-  //   'mapped.json',
-  //   mapped//.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
-  // )
-
-  const nmtree = mapped.reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
+  const nmtree = Object.values(idx.tree).reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
     const entry = snap[id]
     if (!entry) {
       throw new Error(`Malformed snapshot: ${id}`)
@@ -185,7 +178,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
     return result
   }, {})
 
-  debug.json(nmtree, 'tree.json')
+  debug.json('npm3-nmtree.json', nmtree)
 
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject(Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {

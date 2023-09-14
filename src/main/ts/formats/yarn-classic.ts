@@ -1,6 +1,7 @@
 import {load, dump} from 'js-yaml'
 import {TDependencies, TSnapshot, TSnapshotIndex, ICheck, IFormat, IParse, IPreformat, TSource} from '../interface'
 import {parseIntegrity} from '../common'
+import {debug} from '../util'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -80,6 +81,8 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         manifest,
         dependencies: manifest.dependencies
     }
+
+    debug.json('yarn-classic-snapshot.json', snapshot)
 
     return snapshot
 }

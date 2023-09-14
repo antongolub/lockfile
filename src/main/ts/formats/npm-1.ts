@@ -44,7 +44,7 @@ export const check: ICheck = (lockfile: string) => lockfile.includes('  "lockfil
 export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     const lf: TNpm1Lockfile = JSON.parse(lockfile)
     const manifest: TManifest = JSON.parse(pkg)
-    const entries: Record<string, TEntry> = {
+    const snapshot: Record<string, TEntry> = {
         "": {
             name: manifest.name,
             version: manifest.version,
@@ -64,11 +64,11 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 
     const upsertEntry = (name: string, version: string, data: Partial<TEntry> = {}): TEntry => {
         const key = `${name}@${version}`
-        if (!entries[key]) {
+        if (!snapshot[key]) {
             // @ts-ignore
-            entries[key] = {name, version, ranges: []}
+            snapshot[key] = {name, version, ranges: []}
         }
-        return Object.assign(entries[key], data)
+        return Object.assign(snapshot[key], data)
     }
     const pushRange = (name: string, version: string, range: string): void => {
         const entry = upsertEntry(name, version)
@@ -103,11 +103,13 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 
     extractEntries(lf.dependencies)
     extractRanges({
-        ...entries[""].dependencies,
-        ...entries[""].devDependencies
+        ...snapshot[""].dependencies,
+        ...snapshot[""].devDependencies
     }, lf.dependencies || {})
 
-    return sortObject(entries)
+    debug.json('npm1-snapshot.json', snapshot)
+
+    return sortObject(snapshot)
 }
 
 const formatIntegrity = (hashes: THashes): string => Object.entries(hashes).map(([key, value]) => `${key}-${value}`).join(' ')
@@ -116,7 +118,7 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
     const root = idx.snapshot[""].manifest as TManifest
     const deptree = Object.values(idx.tree).slice(1).map(({parents, entry}) => [...parents.slice(1), entry])
 
-    debug.json(deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')), 'deptree-legacy.json')
+    debug.json('deptree-npm-1.json', deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')))
 
     const formatNpm1LockfileEntry = (entry: TEntry): TNpm1LockfileEntry => {
         const {name, version, hashes} = entry

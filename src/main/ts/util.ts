@@ -4,7 +4,7 @@ import * as process from 'node:process'
 
 export const sortObject = <T extends Record<string, any>>(
   unordered: T,
-  predicate: (a: [string, any], b: [string, any]) => number = ([a], [b]) => a > b ? 1 : -1 // This actually what npm does
+  predicate: (a: [string, any], b: [string, any]) => number = ([a], [b]) => a > b ? 1 : -1 // This is actually what npm does
 ): T =>
     Object.entries({...unordered})
         .sort(predicate)

@@ -20,7 +20,7 @@ yarn add @antongolub/lockfile
 ```
 
 ## Usage
-tl;dr
+_tl;dr_
 ```ts
 import fs from 'fs/promises'
 import {parse, analyze} from '@antongolub/lockfile'

@@ -13,7 +13,7 @@ import {
     TSourceType
 } from '../interface'
 import {parseIntegrity} from '../common'
-import {sortObject} from '../util'
+import {debug, sortObject} from '../util'
 
 export type TYarn5Lockfile = Record<string, {
     version: string
@@ -123,6 +123,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         devDependencies: manifest.devDependencies
     }
 
+    debug.json('yarn-berry-snapshot.json', snapshot)
     return snapshot
 }
 
