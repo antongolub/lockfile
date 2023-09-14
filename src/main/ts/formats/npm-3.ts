@@ -1,6 +1,6 @@
 import {ICheck, IFormat, IPreformat, TEntry, TManifest, TSnapshot, TSource} from '../interface'
 import {formatTarballUrl, parseIntegrity, formatIntegrity} from '../common'
-import {sortObject, debugAsJson} from '../util'
+import {sortObject, debug} from '../util'
 import {analyze, getDeps, getId} from '../analyze'
 import semver from 'semver'
 
@@ -41,7 +41,7 @@ export const parse = (lockfile: string): TSnapshot => {
 
   snapshot[""].manifest = lf.packages[""]
 
-  // debugAsJson('npm3-snapshot.json', snapshot)
+  // debug.json(snapshot, 'npm3-snapshot.json')
 
   return snapshot
 }
@@ -132,7 +132,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
   const snap = idx.snapshot
   const mapped = Object.values(idx.tree)
 
-  // debugAsJson(
+  // debug.json(
   //   'mapped.json',
   //   mapped//.map(a => a.key + (' ').repeat(40) + a.id + ' ' + a.chunks.length)
   // )
@@ -185,7 +185,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
     return result
   }, {})
 
-  debugAsJson('tree.json', nmtree)
+  debug.json(nmtree, 'tree.json')
 
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject(Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {

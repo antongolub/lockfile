@@ -28,5 +28,22 @@ export const loadContents = async (value: string): Promise<string> =>
     ? value
     : fs.readFile(value, 'utf-8')
 
-export const debugAsJson = (name: string, data: any, temp = path.resolve(process.cwd(), 'temp')) =>
-  process.env.DEBUG && fs.writeFile(path.resolve(temp, name), JSON.stringify(data, null, 2))
+export const debug = Object.assign(function (this: any, ...chunks: any[]) {
+  if (!this.enable) return
+
+  console.log(...chunks)
+}, {
+  enable: process.env.DEBUG,
+  json(data: any, name: any = `debug-${Math.random().toString(16).slice(2)}.json`, base = path.resolve(process.cwd(), 'temp')) {
+    if (!this.enable) return
+
+    if (typeof data === 'string') {
+      this.json(name, data)
+      return
+    }
+
+    const _data = typeof data === 'function' ? data() : data
+
+    fs.writeFile(path.resolve(base, name), JSON.stringify(_data, null, 2))
+  }
+})

@@ -8,7 +8,7 @@ import {
     TManifest,
     TSnapshot,
 } from '../interface'
-import {debugAsJson, sortObject} from '../util'
+import {debug, sortObject} from '../util'
 import {parseIntegrity, formatTarballUrl} from '../common'
 import {analyze} from '../analyze'
 
@@ -116,7 +116,7 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
     const root = idx.snapshot[""].manifest as TManifest
     const deptree = Object.values(idx.tree).slice(1).map(({parents, entry}) => [...parents.slice(1), entry])
 
-    debugAsJson('deptree-legacy.json', deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')))
+    debug.json(deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')), 'deptree-legacy.json')
 
     const formatNpm1LockfileEntry = (entry: TEntry): TNpm1LockfileEntry => {
         const {name, version, hashes} = entry

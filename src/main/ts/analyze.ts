@@ -1,5 +1,5 @@
 import {TEntry, TSnapshot, TSnapshotIndex} from './interface'
-import {debugAsJson, sortObject} from './util'
+import {debug, sortObject} from './util'
 
 export const getDeps = (entry: TEntry): Record<string, string> => {
   if (!getDeps.cache.has(entry)) {
@@ -125,7 +125,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   // walk({root: roots[2], idx})
   console.log('analyze duration=', Date.now() - now, 'deptree size=', Object.keys(tree).length)
 
-  debugAsJson('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
+  debug.json('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
 
   return idx
 }
