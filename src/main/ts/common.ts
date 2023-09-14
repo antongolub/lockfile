@@ -11,13 +11,6 @@ export const getSources = (snapshot: TSnapshot): string[] =>
     .map(entry => entry.source.id)
     .filter(Boolean)
 
-const checkDepType = (type: keyof TManifest, manifest: TManifest, name: string): boolean => Boolean(manifest[type]?.[name])
-
-export const isProd = checkDepType.bind(null, 'dependencies')
-export const isDev = checkDepType.bind(null, 'devDependencies')
-export const isPeer = checkDepType.bind(null, 'peerDependencies')
-export const isOptional = checkDepType.bind(null, 'optionalDependencies')
-
 export const parseIntegrity = (integrity?: string): THashes =>
   integrity
     ? integrity.split(' ').reduce<THashes>((m, item) => {
