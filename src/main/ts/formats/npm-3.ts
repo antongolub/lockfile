@@ -54,14 +54,13 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
     const variants: string[] = []
 
     let s = 0
-    let i = 0
     while(s < chain.length) {
       let l = chain.length + 1
       while (l--) {
         const variant = formatNmKey([...chain.slice(s, l), name].filter(Boolean))
         const entry = entries[variant]
 
-        if (entry && (!entry.version || semver.satisfies(entry.version as string, range))) { // FIXME later
+        if (entry && (!entry.version || entry.version === range || semver.satisfies(entry.version as string, range))) {
           return [variant, entry]
         }
         variants.push(variant)

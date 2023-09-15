@@ -45,4 +45,4 @@ test('parse/format interop for monorerepo', async () => {
   )
 })
 
-// test.run()
+test.run()
