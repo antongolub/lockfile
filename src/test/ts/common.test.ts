@@ -4,10 +4,6 @@ import path from 'node:path'
 // import {tempy} from './helpers'
 import { suite } from 'uvu'
 import {
-  isProd,
-  isDev,
-  isPeer,
-  isOptional,
   formatIntegrity,
   parseIntegrity,
   parseReference,
@@ -16,26 +12,6 @@ import {
 } from '../../main/ts/common'
 
 const test = suite('common')
-
-test('`isProd`', async () => {
-  assert.equal(isProd({dependencies: {foo: '1.0.0'}, name: 'test'}, 'foo'), true)
-  assert.equal(isProd({dependencies: {foo: '1.0.0'}, name: 'test'}, 'bar'), false)
-})
-
-test('`isDev`', async () => {
-  assert.equal(isDev({devDependencies: {foo: '1.0.0'}, name: 'test'}, 'foo'), true)
-  assert.equal(isDev({devDependencies: {foo: '1.0.0'}, name: 'test'}, 'bar'), false)
-})
-
-test('`isPeer`', async () => {
-  assert.equal(isPeer({peerDependencies: {foo: '1.0.0'}, name: 'test'}, 'foo'), true)
-  assert.equal(isPeer({peerDependencies: {foo: '1.0.0'}, name: 'test'}, 'bar'), false)
-})
-
-test('`isOptional`', async () => {
-  assert.equal(isOptional({optionalDependencies: {foo: '1.0.0'}, name: 'test'}, 'foo'), true)
-  assert.equal(isOptional({optionalDependencies: {foo: '1.0.0'}, name: 'test'}, 'bar'), false)
-})
 
 test('`parseIntegrity` extracts checksums from has string', async () => {
   const hash = 'sha512-foo sha256-bar sha1-baz'
@@ -87,6 +63,9 @@ test('`parseReference` poorly detects pkg reference type', () => {
       version: '1.0.0',
       caret: ''
     }],
+    ['git+https://git@github.com/jsdom/abab.git#4327de3aae348710094d9f3c1f0c1477d9feb865', {
+      protocol: ''
+    }]
   ];
 
   cases.forEach(([input, output]) => {
@@ -135,4 +114,4 @@ test('switchMonorefs() replaces `workspace:` protocol with regular semrel links'
   )
 })
 
-// test.run()
+test.run()

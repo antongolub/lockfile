@@ -84,7 +84,8 @@ idx.edges
 | github    |           |
 | tag       |           |
 
-https://yarnpkg.com/features/protocols
+https://v3.yarnpkg.com/features/protocols
+https://yarnpkg.com/protocols
 
 ### `TSnapshot`
 ```ts
