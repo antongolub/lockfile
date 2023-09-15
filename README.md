@@ -11,7 +11,7 @@ so both of them are required to build a dependency graph. We can try to convert 
 And then, if necessary, try convert it back to the original/another format.
 
 ## Status
-⚠️ Initial draft. Alpha-version
+Proof of concept. The API may vary significantly ⚠️
 
 ## Getting started
 ### Install
@@ -28,8 +28,8 @@ import {parse, analyze} from '@antongolub/lockfile'
 const lf = await fs.readFile('yarn.lock', 'utf-8')
 const pkg = await fs.readFile('package.json', 'utf-8')
 
-const snapshot = parse(lf, pkg)
-const idx = analyze(snapshot)
+const snapshot = parse(lf, pkg) // Holds JSON-friendly TEntries[]
+const idx = analyze(snapshot)   // An index to represent repo dep graphs
 
 // idx.entries
 // idx.prod
