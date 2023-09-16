@@ -152,6 +152,7 @@ export interface TSnapshotIndex {
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
 * many `nmtree` projections may correspond to the specified `depgraph`
+* pkg.json `resolutions` directive is completely ignored for now
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
