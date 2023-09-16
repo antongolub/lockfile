@@ -60,9 +60,9 @@ idx.edges
 ```
 
 ### Terms
-* `nmtree` — fs projection of deps, directories structure
-* `deptree` — bounds full dep paths with their resolved packages
-* `depgraph` — describes how resolved pkgs are related with each other
+`nmtree` — fs projection of deps, directories structure  
+`deptree` — bounds full dep paths with their resolved packages  
+`depgraph` — describes how resolved pkgs are related with each other
 
 ### Lockfiles types
 | Package manager      | Meta format | Read | Write |
@@ -73,7 +73,7 @@ idx.edges
 | yarn 1 (classic)     | 1           | ✓    | ✓     |
 | yarn 2, 3, 4 (berry) | 5, 6, 7     | ✓    | ✓     |
 
-### Protocols
+### Dependency protocols
 | Type      | Supported | Example                                 | Description                                                    |
 |-----------|-----------|-----------------------------------------|----------------------------------------------------------------|
 | semver    | ✓         | `^1.2.3`                                | Resolves from the default registry                             |
@@ -89,7 +89,8 @@ idx.edges
 | workspace | _limited_ | `workspace:*`                           | Creates a link to a package in another workspace               |
 
 https://v3.yarnpkg.com/features/protocols  
-https://yarnpkg.com/protocols
+https://yarnpkg.com/protocols  
+https://docs.npmjs.com/cli/v10/configuring-npm/package-json#dependencies
 
 ### `TSnapshot`
 ```ts
@@ -172,5 +173,5 @@ export interface TSnapshotIndex {
 * [the-ultimate-guide-to-yarn-lock-lockfiles](https://www.arahansen.com/the-ultimate-guide-to-yarn-lock-lockfiles/)
 * [package-lock-json-the-complete-guide](https://medium.com/helpshift-engineering/package-lock-json-the-complete-guide-2ae40175ebdd)
 
-### License
+## License
 [MIT](./LICENSE)
