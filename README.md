@@ -73,16 +73,20 @@ idx.edges
 | yarn 1 (classic)     | 1           | ✓    | ✓     |
 | yarn 2, 3, 4 (berry) | 5, 6, 7     | ✓    | ✓     |
 
-### Reference protocols
-| Type      | Supported |
-|-----------|-----------|
-| semver    | ✓         |
-| npm       | ✓         |
-| workspace | _limited_ |
-| patch     | _limited_ |
-| file      |           |
-| github    |           |
-| tag       |           |
+### Protocols
+| Type      | Supported | Example                                 | Description                                                    |
+|-----------|-----------|-----------------------------------------|----------------------------------------------------------------|
+| semver    | ✓         | `^1.2.3`                                | Resolves from the default registry                             |
+| tag       |           | `latest`                                | Resolves from the default registry                             |
+| npm       | ✓         | `npm:name@...`                          | Resolves from the npm registry                                 |
+| git       |           | `git@github.com:foo/bar.git`            | Downloads a public package from a Git repository               |
+| github    |           | `github:foo/bar`                        | Downloads a public package from GitHub                         |
+| github    | ✓         | `foo/bar`                               | Alias for the github: protocol                                 |
+| file      |           | `file:./my-package`                     | Copies the target location into the cache                      |
+| link      |           | `link:./my-folder`                      | Creates a link to the ./my-folder folder (ignore dependencies) |
+| patch     |           | `patch:left-pad@1.0.0#./my-patch.patch` | Creates a patched copy of the original package                 |
+| portal    |           | `portal:./my-folder`                    | Creates a link to the ./my-folder folder (follow dependencies) |
+| workspace | _limited_ | `workspace:*`                           | Creates a link to a package in another workspace               |
 
 https://v3.yarnpkg.com/features/protocols
 https://yarnpkg.com/protocols
