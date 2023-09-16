@@ -108,17 +108,17 @@ export type TEntry = {
     registry?: string
   }
   // optional pm-specific lockfile meta
-  manifest?: TManifest
-  conditions?: string
-  dependencies?: TDependencies
-  dependenciesMeta?: TDependenciesMeta
-  devDependencies?: TDependencies
-  optionalDependencies?: TDependencies
-  peerDependencies?: TDependencies
-  peerDependenciesMeta?: TDependenciesMeta
-  bin?: Record<string, string>
-  engines?: Record<string, string>
-  funding?: Record<string, string>
+  manifest?:              TManifest
+  conditions?:            string
+  dependencies?:          TDependencies
+  dependenciesMeta?:      TDependenciesMeta
+  devDependencies?:       TDependencies
+  optionalDependencies?:  TDependencies
+  peerDependencies?:      TDependencies
+  peerDependenciesMeta?:  TDependenciesMeta
+  bin?:                   Record<string, string>
+  engines?:               Record<string, string>
+  funding?:               Record<string, string>
 }>
 ```
 
@@ -126,17 +126,17 @@ export type TEntry = {
 ```ts
 export interface TSnapshotIndex {
   snapshot: TSnapshot
-  entries: TEntry[]
-  roots: TEntry[]
-  edges: [string, string][]
-  tree: Record<string, {
-    key: string
-    chunks: string[]
-    parents: TEntry[]
-    id: string
-    name: string
-    version: string
-    entry: TEntry
+  entries:  TEntry[]
+  roots:    TEntry[]
+  edges:    [string, string][]
+  tree:       Record<string, {
+    key:      string
+    chunks:   string[]
+    parents:  TEntry[]
+    id:       string
+    name:     string
+    version:  string
+    entry:    TEntry
   }>
   prod: Set<TEntry>
   getEntryId ({name, version}: TEntry): string
