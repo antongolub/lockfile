@@ -1,5 +1,15 @@
-import {ICheck, IFormat, IPreformat, TEntry, TManifest, TSnapshot, TSource} from '../interface'
-import {formatTarballUrl, parseIntegrity, formatIntegrity} from '../common'
+import {
+  ICheck,
+  IFormat,
+  IFormatResolution,
+  IParseResolution,
+  IPreformat,
+  TEntry,
+  TManifest,
+  TSnapshot,
+  TSource
+} from '../interface'
+import {formatTarballUrl, parseIntegrity, formatIntegrity, parseTarballUrl} from '../common'
 import {sortObject, debug} from '../util'
 import {analyze, getDeps, getId} from '../analyze'
 import semver from 'semver'
@@ -71,19 +81,17 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
   }
 
   const processPackage = (path: string, pkg: TNpm3LockfileEntry): TEntry => {
-    const sourceType = (pkg.link || path === "") ? 'workspace' : 'semver'
-
-    if (sourceType === 'workspace' && !pkg.name){
+    if ((pkg.link || path === "") && !pkg.name){
       return processPackage(path, {
         ...pkg,
         ...packages[pkg.resolved as string]
       })
     }
-    const source: TSource = {
-      id: (pkg.resolved || '.') as string,
-      type: sourceType
-    }
-
+    // const source: TSource = {
+    //   id: (pkg.resolved || '.') as string,
+    //   type: sourceType
+    // }
+    const source = parseResolution(pkg.resolved as string)
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
     const name = pkg.name || chain[chain.length - 1]
     const version = pkg.version as string
@@ -205,7 +213,7 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 
       m[k] = {
         version: entry.version,
-        resolved: formatTarballUrl(entry.name, entry.version),
+        resolved: formatResolution(entry.source),
         integrity: formatIntegrity(entry.hashes)
       }
       if (!idx.prod.has(entry)) {
@@ -232,3 +240,35 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 }
 
 export const format: IFormat = (snapshot: TSnapshot): string => JSON.stringify(preformat(analyze(snapshot)), null, 2)
+
+export const parseResolution: IParseResolution = (input) => {
+  if (!input?.includes('://')) {
+    return {
+      type: 'workspace',
+      id: input || '.'
+    }
+  }
+
+  // git+ssh://git@github.com/mixmaxhq/throng.git#8a015a378c2c0db0c760b2147b2468a1c1e86edf
+  // 25                      x               5    40
+  if (input.startsWith('git+ssh://git@github.com/')) {
+     return {
+       name: input.slice(25, -45),
+       id: input.slice(-40),
+       type: 'github'
+     }
+  }
+
+  const npmResolution = parseTarballUrl(input)
+  if (!npmResolution) throw new TypeError(`Unsupported resolution format: ${input}`)
+
+  return npmResolution
+}
+
+export const formatResolution: IFormatResolution = ({type, id, name, registry, hash}) => {
+  if (type === 'github') {
+    return `git+ssh://git@github.com/${name}.git#${id}`
+  }
+
+  return formatTarballUrl(name as string, id, registry, hash)
+}

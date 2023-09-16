@@ -1,8 +1,10 @@
 import { suite } from 'uvu'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import {parse, format, preparse} from '../../main/ts/formats/yarn-classic'
+import {parse, format, preparse, formatResolution, parseResolution} from '../../main/ts/formats/yarn-classic'
 import { testInterop } from './helpers'
+import assert from "node:assert";
+import {TResolution} from "../../main/ts/interface";
 
 const test = suite('yarn-1')
 // const fixtures = path.resolve(__dirname, '../fixtures/yarn-1')
@@ -48,4 +50,22 @@ test('parse/format interop for monorepo', async () => {
   )
 })
 
-// test.run()
+test('parseResolution/formatResolution interop', () => {
+  const cases: [string, TResolution][] = [
+    [
+      'https://codeload.github.com/mixmaxhq/throng/tar.gz/8a015a378c2c0db0c760b2147b2468a1c1e86edf',
+      {type: 'github', id: '8a015a378c2c0db0c760b2147b2468a1c1e86edf', name: 'mixmaxhq/throng'}
+    ],
+    [
+      'https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.5.5.tgz#bc0782f6d69f7b7d49531219699b988f669a8f9d',
+      {type: 'npm', id: '7.5.5', name: '@babel/code-frame', registry: 'https://registry.yarnpkg.com', hash: '#bc0782f6d69f7b7d49531219699b988f669a8f9d'}
+    ]
+  ];
+
+  cases.forEach(([input, result]) => {
+    assert.deepStrictEqual(parseResolution(input), result)
+    assert.deepStrictEqual(formatResolution(result), input)
+  })
+})
+
+test.run()

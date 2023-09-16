@@ -7,9 +7,12 @@ import {
     TEntry,
     TManifest,
     TSnapshot,
+    IParseResolution,
+    IFormatResolution,
+    TResolution,
 } from '../interface'
 import {debug, sortObject} from '../util'
-import {parseIntegrity, formatTarballUrl} from '../common'
+import {parseIntegrity, formatTarballUrl, parseTarballUrl} from '../common'
 import {analyze} from '../analyze'
 
 export const version = 'npm-1'
@@ -91,10 +94,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         upsertEntry(name, entry.version, {
             hashes: parseIntegrity(entry.integrity),
             dependencies: requires,
-            source: {
-                type: 'npm',
-                id: entry.resolved
-            }
+            source: parseResolution(entry.resolved)
         })
 
         extractEntries(entry.dependencies, deps, ...parents)
@@ -121,10 +121,10 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
     debug.json('deptree-npm-1.json', deptree.map((entries: TEntry[]) => entries.map(e => e.name).join(',')))
 
     const formatNpm1LockfileEntry = (entry: TEntry): TNpm1LockfileEntry => {
-        const {name, version, hashes} = entry
+        const {name, version, hashes, source} = entry
         const _entry: TNpm1LockfileDeps[string] = {
             version,
-            resolved: formatTarballUrl(name, version),
+            resolved: formatResolution(source),
             integrity: formatIntegrity(hashes)
         }
 
@@ -206,3 +206,29 @@ export const preformat: IPreformat<TNpm1Lockfile> = (idx): TNpm1Lockfile => {
 
 export const format: IFormat = (snap): string =>
     JSON.stringify(preformat(analyze(snap)), null, 2)
+
+export const parseResolution: IParseResolution = (input: string) => {
+    if (input.startsWith('github:')) {
+        // github:mixmaxhq/throng#8a015a378c2c0db0c760b2147b2468a1c1e86edf
+        // 7      x              40
+        return {
+            type: 'github',
+            name: input.slice(7, -41),
+            id: input.slice(-40)
+        }
+    }
+
+    const npmResolution = parseTarballUrl(input)
+    if (!npmResolution) throw new TypeError(`Unsupported resolution format: ${input}`)
+
+    return npmResolution
+}
+
+export const formatResolution: IFormatResolution = (source: TResolution) => {
+    const {type, name, id, registry = 'https://registry.npmjs.org'} = source
+    if (type === 'github') {
+        return `github:${name}#${id}`
+    }
+
+    return formatTarballUrl(name as string, id, registry)
+}

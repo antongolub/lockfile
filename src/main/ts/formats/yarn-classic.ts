@@ -1,6 +1,18 @@
 import {load, dump} from 'js-yaml'
-import {TDependencies, TSnapshot, TSnapshotIndex, ICheck, IFormat, IParse, IPreformat, TSource} from '../interface'
-import {parseIntegrity} from '../common'
+import {
+    TDependencies,
+    TSnapshot,
+    TSnapshotIndex,
+    ICheck,
+    IFormat,
+    IParse,
+    IPreformat,
+    TSource,
+    TResolution,
+    IParseResolution,
+    IFormatResolution
+} from '../interface'
+import {parseIntegrity, formatTarballUrl, parseTarballUrl} from '../common'
 import {debug} from '../util'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -53,10 +65,7 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         const name = chunks[0].slice(0, chunks[0].lastIndexOf('@'))
         const key = `${name}@${version}`
         const hashes = parseIntegrity(integrity)
-        const source: TSource = {
-            type: 'npm',
-            id: resolved
-        }
+        const source: TSource = parseResolution(resolved)
 
         snapshot[key] = {
             name,
@@ -98,7 +107,7 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
 
         lf[key] = {
             version,
-            resolved: source.id as string,
+            resolved: formatResolution(source),
             integrity,
             dependencies,
             optionalDependencies,
@@ -144,4 +153,31 @@ export const format: IFormat = (snapshot: TSnapshot): string => {
 # yarn lockfile v1
 
 ${_value}`
+}
+
+export const parseResolution: IParseResolution = (input: string): TResolution => {
+    // https://github.com/yarnpkg/yarn/blob/master/src/resolvers/exotics/github-resolver.js
+    // https://github.com/yarnpkg/yarn/blob/master/src/resolvers/exotics/git-resolver.js
+    if (input.startsWith('https://codeload.github.com/')) {
+        // https://codeload.github.com/mixmaxhq/throng/tar.gz/8a015a378c2c0db0c760b2147b2468a1c1e86edf
+        // 28                          x              8       40
+        return {
+            type: 'github',
+            name: input.slice(28, -48),
+            id: input.slice(-40)
+        }
+    }
+
+    const npmResolution = parseTarballUrl(input)
+    if (!npmResolution) throw new TypeError(`Unsupported resolution format: ${input}`)
+
+    return npmResolution
+}
+
+export const formatResolution: IFormatResolution = ({type, id, name = '', registry = 'https://registry.yarnpkg.com', hash = ''}: TResolution): string => {
+    if (type === 'github') {
+        return `https://codeload.github.com/${name}/tar.gz/${id}`
+    }
+
+    return formatTarballUrl(name, id, registry, hash)
 }

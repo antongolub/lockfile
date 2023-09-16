@@ -11,20 +11,20 @@ export interface THashes {
     md5?: string
 }
 
-export type TSourceType = 'npm' | 'gh' | 'file' | 'workspace' | 'semver' | 'patch'
+export type TSourceType = 'npm' | 'github' | 'file' | 'workspace' | 'semver' | 'patch'
 
 export interface TSource {
     type: TSourceType
     id: string
     registry?: string
+    name?: string
+    hash?: string
+    alias?: string
 }
 
-export interface IReference {
-    protocol: string
-    id: string
+export interface TResolution extends TSource {
     name?: string
-    host?: string
-    [extra: string]: any
+    hash?: string
 }
 
 export interface TEntry {
@@ -98,3 +98,7 @@ export type IFormat = (snapshot: TSnapshot, opts?: IFormatOpts) => string
 export type IPreformat<T> = (idx: TSnapshotIndex) => T
 
 export type ICheck = (input: string) => boolean
+
+export type IParseResolution = (input: string) => TResolution
+
+export type IFormatResolution = (resolution: TResolution) => string
