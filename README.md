@@ -88,7 +88,7 @@ idx.edges
 | portal    |           | `portal:./my-folder`                    | Creates a link to the ./my-folder folder (follow dependencies) |
 | workspace | _limited_ | `workspace:*`                           | Creates a link to a package in another workspace               |
 
-https://v3.yarnpkg.com/features/protocols
+https://v3.yarnpkg.com/features/protocols  
 https://yarnpkg.com/protocols
 
 ### `TSnapshot`
@@ -107,8 +107,8 @@ export type TEntry = {
     md5?:     string
   }
   source:     {
-    type: TSourceType // npm, workspace, gh, patch, etc
-    id: string
+    type:     TSourceType // npm, workspace, gh, patch, etc
+    id:       string
     registry?: string
   }
   // optional pm-specific lockfile meta
@@ -123,7 +123,7 @@ export type TEntry = {
   bin?:                   Record<string, string>
   engines?:               Record<string, string>
   funding?:               Record<string, string>
-}>
+}
 ```
 
 ### `TSnapshotIndex`
@@ -156,7 +156,7 @@ export interface TSnapshotIndex {
 * yarn berry: no idea how to resolve and inject PnP patches https://github.com/yarnpkg/berry/tree/master/packages/plugin-compat
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
 * many `nmtree` projections may correspond to the specified `depgraph`
-* pkg.json `resolutions` directive is completely ignored for now
+* pkg.json `resolutions` and `overrides` directives are completely ignored for now
 * pkg aliases are not supported yet [#2](https://github.com/antongolub/lockfile/issues/2#issuecomment-1786613893)
 
 ### Inspired by
