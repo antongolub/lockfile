@@ -55,7 +55,7 @@ export const parseTarballUrl = (resolution: string): TSource | null => {
     return null
   }
 
-  const hasScope = org.startsWith('@')
+  const hasScope = org.charAt(0) === '@'
   const name = hasScope ? `${org}/${_name}` : _name
   const id = tgz.slice(_name.length + 1, tgz.lastIndexOf('.tgz'))
 
@@ -70,6 +70,33 @@ export const parseTarballUrl = (resolution: string): TSource | null => {
 
 export const formatTarballUrl = (name: string, version: string, registry = 'https://registry.npmjs.org', hash = '') =>
   `${registry}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz${hash}`
+
+
+// https://docs.npmjs.com/cli/v10/configuring-npm/package-json#dependencies
+// https://v3.yarnpkg.com/features/protocols
+const gitProtocols = ['git', 'git+ssh', 'git+http', 'git+https', 'git+file']
+const refProtocols = ['npm', 'github', 'workspace', 'semver', 'tag', 'patch', 'link', 'portal', 'file', ...gitProtocols]
+
+export const normalizeReference = (ref: string): string => {
+  if (refProtocols.some(p => ref.startsWith(p + ':'))) {
+    return ref
+  }
+
+  if (semver.validRange(ref)) {
+    return 'semver:' + ref
+  }
+
+  if (ref.includes('.git')) {
+    return 'git:' + ref
+  }
+
+  if (ref.includes('/')) {
+    return 'github:' + ref
+  }
+
+  return 'tag:' + ref
+  // throw new TypeError(`unsupported ref type: ${ref}`)
+}
 
 export const parseReference = (raw?: any): IReference => {
   if (raw.startsWith('workspace:')) {

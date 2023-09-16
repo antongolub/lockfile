@@ -7,6 +7,7 @@ import {
   formatIntegrity,
   parseIntegrity,
   parseReference,
+  normalizeReference,
   mapReference,
   switchMonorefs,
 } from '../../main/ts/common'
@@ -77,6 +78,34 @@ test('`parseReference` poorly detects pkg reference type', () => {
   })
 })
 
+test.only('`normalizeReference` normalizes inputs', () => {
+  const cases: [string, string?][] = [
+    ['git+ssh://git@github.com:npm/cli.git#v1.0.27'],
+    ['git+ssh://git@github.com:npm/cli#semver:^5.0'],
+    ['git+https://isaacs@github.com/npm/cli.git'],
+    ['git://github.com/npm/cli.git#v1.0.27'],
+    ['git://github.com/npm/cli.git'],
+    ['git@github.com:foo/bar.git', 'git:git@github.com:foo/bar.git'],
+    ['latest', 'tag:latest'],
+    ['npm/cli', 'github:npm/cli'],
+    ['github:foo/bar'],
+    ['github:mochajs/mocha#4727d357ea'],
+    ['github:user/repo#feature\/branch'],
+    ['*', 'semver:*'],
+    ['', 'semver:'],
+    ['^1.2.3', 'semver:^1.2.3'],
+    ['file:./my-package'],
+    ['link:./my-folder'],
+    ['portal:./my-folder'],
+    ['workspace:*'],
+    ['workspace:^'],
+  ];
+
+  cases.forEach(([input, expected = input]) => {
+    assert.equal(normalizeReference(input), expected)
+  })
+})
+
 test('`mapReference` maps v declaration as expected', () => {
   const cases: [string, string, string, string][] = [
     ['workspace:*',   'workspace',  'inherit',  'workspace:*'],
@@ -118,4 +147,4 @@ test('switchMonorefs() replaces `workspace:` protocol with regular semrel links'
   )
 })
 
-// test.run()
+test.run()
