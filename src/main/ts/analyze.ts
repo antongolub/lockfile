@@ -123,8 +123,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   roots.forEach((root, i) => walk({root, idx, id: root.source.id === '.' ? '' : undefined}))
   // walk({root: roots[0], idx, id: ''})
   // walk({root: roots[2], idx})
-  console.log('analyze duration=', Date.now() - now, 'deptree size=', Object.keys(tree).length)
-
+  debug('analyze duration=', Date.now() - now, 'deptree size=', Object.keys(tree).length)
   debug.json('deptree.json', Object.values(tree).map(({parents, name}) => [...parents.map(p=> p.name).slice(1), name].join(',')))
 
   return idx

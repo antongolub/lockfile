@@ -1,7 +1,8 @@
 import semver from 'semver'
 import fs from 'node:fs/promises'
 import {topo, traverseDeps} from '@semrel-extra/topo'
-import {THashes, TManifest, TSnapshot} from './interface'
+import {URL} from 'node:url'
+import {THashes, TSnapshot} from './interface'
 
 export const formatTarballUrl = (name: string, version: string, registry = 'https://registry.npmjs.org') =>
   `${registry}/${name}/-/${name.slice(name.indexOf('/') + 1)}-${version}.tgz`
@@ -34,35 +35,64 @@ export const formatIntegrity = (hashes: THashes): string => {
   return Object.entries(hashes).map(([k, v]) => `${k}-${v}`).join(' ')
 }
 
-export type IReferenceDeclaration = {
+export interface IReference {
   protocol: string
-  raw: string
-  version: string | null
+  id: string
+  name?: string
+  host?: string
   [extra: string]: any
 }
 
-const buildReference = (protocol: string, raw: string, value: string) => ({
-  protocol,
-  value,
-  raw,
-  caret: (value.startsWith('^') || value.startsWith('~')) ? value[0] : '',
-  version: semver.valid(raw) || semver.coerce(raw)?.version || null
-})
+const parseVersion = (version: string): string | null => semver.valid(version) || semver.coerce(version)?.version || null
 
-export const parseReference = (raw?: any): IReferenceDeclaration => {
+const parseCaret = (value: string): string => (value.startsWith('^') || value.startsWith('~')) ? value[0] : ''
+
+const parseName = (value: string): string => (value).slice(0, (value + '.').indexOf('.'))
+
+export const parseReference = (raw?: any): IReference => {
   if (raw.startsWith('workspace:')) {
-    return buildReference('workspace', raw, raw.slice(10))
+    return {
+      protocol: 'workspace',
+      id: raw.slice(10)
+    }
   }
 
   if (raw.startsWith('npm:')) {
-    return buildReference('npm', raw, raw.slice(4))
+    return {
+      protocol: 'npm',
+      id: raw.slice(4)
+    }
   }
 
-  return buildReference('semver', raw, raw)
+  if (URL.canParse(raw)) {
+    const url = new URL(raw)
+    return {
+      protocol: url.protocol.slice(0, -1),
+      name: parseName(url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname),
+      id: url.hash.slice(1),
+      host: url.host
+    }
+  }
+
+  if (raw.includes('/') && !raw.includes(':')) { // use regexp?
+    const name = raw.slice(0, (raw + '#').indexOf('#'))
+    return {
+      protocol: 'github',
+      name,
+      id: raw.slice(name.length + 1)
+    }
+  }
+
+  return {
+    protocol: 'semver',
+    id: raw,
+  }
 }
 
 export const mapReference = (current: string, targetProtocol: string, strategy = 'inherit'): string => {
-  const {caret, version, protocol} = parseReference(current)
+  const {id, protocol} = parseReference(current)
+  const version = parseVersion(id)
+  const caret = parseCaret(id)
   const prefix = targetProtocol === 'semver' ? '' : `${targetProtocol}:`
 
   if (protocol === targetProtocol) {

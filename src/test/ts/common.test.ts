@@ -30,41 +30,45 @@ test('`parseReference` poorly detects pkg reference type', () => {
   const cases = [
     ['1.0.0', {
       protocol: 'semver',
-      value: '1.0.0',
-      raw: '1.0.0',
-      version: '1.0.0',
-      caret: ''
+      id: '1.0.0',
     }],
     ['^1.0.0', {
       protocol: 'semver',
-      value: '^1.0.0',
-      raw: '^1.0.0',
-      version: '1.0.0',
-      caret: '^'
+      id: '^1.0.0'
     }],
     ['1.2.3-beta.0', {
       protocol: 'semver',
-      value: '1.2.3-beta.0',
-      raw: '1.2.3-beta.0',
-      version: '1.2.3-beta.0',
-      caret: ''
+      id: '1.2.3-beta.0'
     }],
     ['workspace:*', {
       protocol: 'workspace',
-      value: '*',
-      version: null,
-      raw: 'workspace:*',
-      caret: ''
+      id: '*'
     }],
     ['npm:1.0.0', {
       protocol: 'npm',
-      value: '1.0.0',
-      raw: 'npm:1.0.0',
-      version: '1.0.0',
-      caret: ''
+      id: '1.0.0'
     }],
     ['git+https://git@github.com/jsdom/abab.git#4327de3aae348710094d9f3c1f0c1477d9feb865', {
-      protocol: ''
+      protocol: 'git+https',
+      id: '4327de3aae348710094d9f3c1f0c1477d9feb865',
+      name: 'jsdom/abab',
+      host: 'github.com'
+    }],
+    ['github:mixmaxhq/throng#8a015a378c2c0db0c760b2147b2468a1c1e86edf', {
+      protocol: 'github',
+      id: '8a015a378c2c0db0c760b2147b2468a1c1e86edf',
+      name: 'mixmaxhq/throng',
+      host: ''
+    }],
+    ['mixmaxhq/throng#8a015a378c2c0db0c760b2147b2468a1c1e86edf', {
+      protocol: 'github',
+      id: '8a015a378c2c0db0c760b2147b2468a1c1e86edf',
+      name: 'mixmaxhq/throng'
+    }],
+    ['mixmaxhq/throng', {
+      protocol: 'github',
+      id: '',
+      name: 'mixmaxhq/throng'
     }]
   ];
 

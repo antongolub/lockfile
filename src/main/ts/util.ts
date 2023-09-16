@@ -28,8 +28,8 @@ export const loadContents = async (value: string): Promise<string> =>
     ? value
     : fs.readFile(value, 'utf-8')
 
-export const debug = Object.assign(function (this: any, ...chunks: any[]) {
-  if (!this.enable) return
+export const debug = Object.assign((...chunks: any[]) => {
+  if (!debug.enable) return
 
   console.log(...chunks)
 }, {

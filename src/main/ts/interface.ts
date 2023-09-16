@@ -19,6 +19,14 @@ export interface TSource {
     registry?: string
 }
 
+export interface IReference {
+    protocol: string
+    id: string
+    name?: string
+    host?: string
+    [extra: string]: any
+}
+
 export interface TEntry {
     name: string
     version: string
