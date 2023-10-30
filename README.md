@@ -16,7 +16,7 @@ Proof of concept. The API may vary significantly ⚠️
 ## Getting started
 ### Install
 ```shell
-yarn add @antongolub/lockfile
+yarn add @antongolub/lockfile@snapshot
 ```
 
 ## Usage
