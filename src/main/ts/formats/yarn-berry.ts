@@ -4,7 +4,9 @@ import {load, dump} from 'js-yaml'
 import {
     ICheck,
     IFormat,
-    IParse, IParseResolution,
+    IFormatOpts,
+    IParse,
+    IParseResolution,
     IPreformat,
     TDependencies,
     TDependenciesMeta,
@@ -12,7 +14,7 @@ import {
     TSnapshotIndex, TSource,
     TSourceType
 } from '../interface'
-import {parseIntegrity} from '../common'
+import {normalizeDeps, normalizeReference, parseIntegrity, processDeps} from '../common'
 import {debug, sortObject} from '../util'
 
 export type TYarn5Lockfile = Record<string, {
@@ -60,7 +62,7 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             return
         }
 
-        const ranges = chunks.map(c => c.slice(name.length + 1)).sort()
+        const ranges = chunks.map(c => c.slice(name.length + 1)).map(normalizeReference)//.sort()
         const hashes = parseIntegrity(checksum)
         const source = parseResolution(resolution)
 
@@ -70,10 +72,10 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             ranges,
             hashes,
             source,
-            dependencies,
+            dependencies: normalizeDeps(dependencies),
             dependenciesMeta,
-            optionalDependencies,
-            peerDependencies,
+            optionalDependencies: normalizeDeps(optionalDependencies),
+            peerDependencies: normalizeDeps(peerDependencies),
             peerDependenciesMeta,
             bin,
             conditions,
@@ -92,8 +94,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             id: '.'
         },
         manifest,
-        dependencies: manifest.dependencies,
-        devDependencies: manifest.devDependencies
+        dependencies: normalizeDeps(manifest.dependencies),
+        devDependencies: normalizeDeps(manifest.devDependencies)
     }
 
     debug.json('yarn-berry-snapshot.json', snapshot)
@@ -110,15 +112,15 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
         const languageName = isLocal ? 'unknown' : 'node'
         const linkType = isLocal ? 'soft' : 'hard'
         // const key = ranges.map(r => formatResolution(name, r, source.type === 'workspace' ? ((r === '.' || r.includes('/')) ? 'workspace' : 'semver'): 'npm')).join(', ')
-        const key = ranges.map(r => `${name}@${r}`).join(', ')
+        const key = ranges.map(r => `${name}@${formatReference(r)}`).join(', ')
 
         lf[key] = {
             version,
             resolution: formatResolution(source),
-            dependencies,
+            dependencies: formatDeps(dependencies),
             dependenciesMeta,
-            optionalDependencies,
-            peerDependencies,
+            optionalDependencies: formatDeps(optionalDependencies),
+            peerDependencies: formatDeps(peerDependencies),
             peerDependenciesMeta,
             bin,
             checksum: checksum as string,
@@ -178,6 +180,25 @@ export const format: IFormat = (snapshot: TSnapshot, {__metadata = {
 # Manual changes might be lost - proceed with caution!
 ${_value}`
 }
+
+const formatReference = (input: string, opts?: IFormatOpts = {}): string => {
+    const colonPos = input.indexOf(':')
+    const protocol = input.slice(0, colonPos)
+    const ref = input.slice(colonPos + 1)
+
+    if (protocol === 'git' || protocol === 'tag') {
+        return ref
+    }
+
+    if (protocol === 'semver') {
+        return 'npm:' + ref
+    }
+    // TODO restore github short alias
+
+    return input
+}
+
+const formatDeps = (deps?: TDependencies, opts?: IFormatOpts) => processDeps(deps, formatReference)
 
 export const parseResolution: IParseResolution = (input: string) => {
     const colonPos = input.indexOf(':')

@@ -205,3 +205,15 @@ export const formatResolution: IFormatResolution = ({type, id, name = '', regist
 
     return formatTarballUrl(name, id, registry, hash)
 }
+
+const formatReference = (input: string): string => {
+    const colonPos = input.indexOf(':')
+    const protocol = input.slice(0, colonPos)
+    const ref = input.slice(colonPos + 1)
+
+    if (protocol === 'git' || protocol === 'tag' || protocol === 'semver' || protocol === 'npm') {
+        return ref
+    }
+
+    return input
+}

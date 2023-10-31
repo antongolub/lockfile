@@ -78,7 +78,7 @@ test('`parseReference` poorly detects pkg reference type', () => {
   })
 })
 
-test.only('`normalizeReference` normalizes inputs', () => {
+test('`normalizeReference` normalizes inputs', () => {
   const cases: [string, string?][] = [
     ['git+ssh://git@github.com:npm/cli.git#v1.0.27'],
     ['git+ssh://git@github.com:npm/cli#semver:^5.0'],

@@ -2,7 +2,7 @@ import semver from 'semver'
 import fs from 'node:fs/promises'
 import {topo, traverseDeps} from '@semrel-extra/topo'
 import {URL} from 'node:url'
-import {THashes, TSnapshot, TSource} from './interface'
+import {TDependencies, THashes, TSnapshot, TSource} from './interface'
 
 export const getSources = (snapshot: TSnapshot): string[] =>
   Object.values(snapshot)
@@ -55,7 +55,7 @@ export const parseTarballUrl = (resolution: string): TSource | null => {
     return null
   }
 
-  const hasScope = org.charAt(0) === '@'
+  const hasScope = org[0] === '@'
   const name = hasScope ? `${org}/${_name}` : _name
   const id = tgz.slice(_name.length + 1, tgz.lastIndexOf('.tgz'))
 
@@ -76,6 +76,13 @@ export const formatTarballUrl = (name: string, version: string, registry = 'http
 // https://v3.yarnpkg.com/features/protocols
 const gitProtocols = ['git', 'git+ssh', 'git+http', 'git+https', 'git+file']
 const refProtocols = ['npm', 'github', 'workspace', 'semver', 'tag', 'patch', 'link', 'portal', 'file', ...gitProtocols]
+
+export const normalizeDeps = (deps?: TDependencies): TDependencies | undefined => processDeps(deps, normalizeReference)
+
+export const processDeps = (deps?: TDependencies, processor: (val: string) => string = v => v): TDependencies | undefined => deps && Object.entries(deps).reduce<TDependencies>((m, [k, v]) => {
+  m[k] = processor(v + '')
+  return m
+}, {})
 
 export const normalizeReference = (ref: string): string => {
   if (refProtocols.some(p => ref.startsWith(p + ':'))) {
