@@ -157,6 +157,7 @@ export interface TSnapshotIndex {
 * npm2 and npm3 requires `engines` and `funding` data, while yarn* or npm1 does not contain it
 * many `nmtree` projections may correspond to the specified `depgraph`
 * pkg.json `resolutions` directive is completely ignored for now
+* pkg aliases are not supported yet [#2](https://github.com/antongolub/lockfile/issues/2#issuecomment-1786613893)
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
