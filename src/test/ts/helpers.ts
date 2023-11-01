@@ -6,7 +6,7 @@ import os from 'node:os'
 import * as assert from 'uvu/assert'
 import {IFormat, IParse} from '../../main/ts/interface'
 
-const checkLineByLine = (a: string, b: string) => {
+export const checkLineByLine = (a: string, b: string) => {
     const c1: string[] = a.trim().split('\n')
     const c2: string[] = b.trim().split('\n')
     for (let i in c1) {

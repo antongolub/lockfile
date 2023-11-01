@@ -13,7 +13,7 @@ import {
     IFormatResolution
 } from '../interface'
 import {parseIntegrity, formatTarballUrl, parseTarballUrl} from '../common'
-import {debug} from '../util'
+import {debug, unique} from '../util'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -25,7 +25,7 @@ export type TYarn1Lockfile = Record<string, {
     optionalDependencies?: TDependencies
 }>
 
-export const version = 'yarn-1'
+export const version = 'yarn-classic'
 
 export const check: ICheck = (value: string): boolean => value.includes('# yarn lockfile v1')
 
@@ -59,22 +59,24 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
 
     Object.entries(raw).forEach((value) => {
         const [_key, _entry] = value
-        const chunks = _key.split(', ')
-        const ranges = chunks.map(r => r.slice(r.lastIndexOf('@') + 1)).sort()
         const { version, integrity, dependencies, optionalDependencies, resolved } = _entry
-        const name = chunks[0].slice(0, chunks[0].lastIndexOf('@'))
-        const key = `${name}@${version}`
         const hashes = parseIntegrity(integrity)
         const source: TSource = parseResolution(resolved)
+        const chunks = _key.split(', ')
+        const names = unique(chunks.map(c => c.slice(0, c.indexOf('@', 1))))
 
-        snapshot[key] = {
-            name,
-            version,
-            ranges,
-            hashes,
-            dependencies,
-            optionalDependencies,
-            source,
+        for (const name of names) {
+            const ranges = chunks.filter(c => c.startsWith(`${name}@`)).map(r => r.slice(r.indexOf('@', 1) + 1)).sort()
+            const key = `${name}@${version}`
+            snapshot[key] = {
+                name,
+                version,
+                ranges,
+                hashes,
+                dependencies,
+                optionalDependencies,
+                source,
+            }
         }
     })
 
@@ -96,18 +98,39 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
     return snapshot
 }
 
+
+
 export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
     const {snapshot} = idx
     const lf: TYarn1Lockfile = {}
+    const rangemap: Record<string, {keys: string[], key: string, name: string}> = {}
+    const keysorter = (a: string, b: string) => {
+        const _a = a.includes('npm:')
+        const _b = b.includes('npm:')
+        return _a === _b
+          ? 0
+          : +_b - +_a
+    }
 
     Object.values(snapshot).forEach((entry) => {
         const { name, version, ranges, hashes, dependencies, optionalDependencies, source } = entry
-        const key = ranges.map(r => `${name}@${r}`).join(', ')
+        const resolved = formatResolution(source)
+        const alias = rangemap[resolved]
         const integrity = Object.entries(hashes).map(([k, v]) => `${k}-${v}`).join(' ')
+        const keys = ranges.map(r => `${name}@${r}`)
 
+        if (alias) {
+            keys.push(...alias.keys)
+            keys.sort(keysorter)
+            delete lf[alias.key]
+        }
+
+        const key = keys.join(', ')
+
+        rangemap[resolved] = {keys, key, name}
         lf[key] = {
             version,
-            resolved: formatResolution(source),
+            resolved,
             integrity,
             dependencies,
             optionalDependencies,
@@ -125,12 +148,13 @@ export const format: IFormat = (snapshot: TSnapshot): string => {
         quotingType: '"',
         flowLevel: -1,
         lineWidth: -1,
-        forceQuotes: true
+        forceQuotes: true,
+        noRefs: true,
     }).split('\n')
     const _value = lines.map((line) => {
         // "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.12.13"
         if (line.length !==0 && line.charAt(0) !== ' ') {
-            const chunks = line.slice(0, -1).replaceAll('"', '').split(', ').map(chunk => chunk.startsWith('@') || chunk.includes(' ') ? `"${chunk}"` : chunk)
+            const chunks = line.slice(0, -1).replaceAll('"', '').split(', ').map(chunk => chunk.startsWith('@') || chunk.includes(' ') || chunk.includes('npm:')? `"${chunk}"` : chunk)
             return `\n${chunks.join(', ')}:`
         }
 

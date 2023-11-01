@@ -47,3 +47,5 @@ export const debug = Object.assign((...chunks: any[]) => {
     fs.writeFile(path.resolve(base, name), JSON.stringify(_data, null, 2))
   }
 })
+
+export const unique = (arr: string[]): string[] => [...new Set(arr)]
