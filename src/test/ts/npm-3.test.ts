@@ -24,14 +24,14 @@ test('detects npm lockfile v3', () => {
 `))
 })
 
-// test('parse/format interop for regular repo', async () => {
-//   await testInteropBySnapshot(
-//     parse,
-//     format,
-//     path.resolve(__dirname, '../fixtures/npm-3/package-lock.json'),
-//     path.resolve(__dirname, '../fixtures/npm-3/package.json'),
-//   )
-// })
+test('parse/format interop for regular repo', async () => {
+  await testInteropBySnapshot(
+    parse,
+    format,
+    path.resolve(__dirname, '../fixtures/npm-3/package-lock.json'),
+    path.resolve(__dirname, '../fixtures/npm-3/package.json'),
+  )
+})
 
 
 test('parse/format interop for monorerepo', async () => {
@@ -40,6 +40,15 @@ test('parse/format interop for monorerepo', async () => {
     format,
     path.resolve(__dirname, '../fixtures/npm-3-mr/package-lock.json'),
     path.resolve(__dirname, '../fixtures/npm-3-mr/package.json'),
+  )
+})
+
+test('parse/format interop for repo with deps aliases', async () => {
+  await testInteropBySnapshot(
+    parse,
+    format,
+    path.resolve(__dirname, '../fixtures/npm-3-aliases/package-lock.json'),
+    path.resolve(__dirname, '../fixtures/npm-3-aliases/package.json'),
   )
 })
 

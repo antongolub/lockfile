@@ -49,11 +49,10 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         const [_key, _entry] = value
         const { version, checksum, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, resolution, bin, conditions } = _entry
         const chunks = _key.split(', ')
-        const name = _key.slice(0, _key.indexOf('@', 1))
-        const key = `${name}@${version}`
         const names = unique(chunks.map(c => c.slice(0, c.indexOf('@', 1))))
 
         for (const name of names) {
+            const key = `${name}@${version}`
             // seems like a patch
             if (_key.includes('#')) {
                 snapshot[key].patch = {

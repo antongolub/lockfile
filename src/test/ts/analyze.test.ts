@@ -26,7 +26,7 @@ test('builds index by a snapshot', async () => {
   ])
 })
 
-test.only('builds looped tree', async () => {
+test('builds looped tree', async () => {
   const pkgLock = await fs.readFile(path.resolve(__dirname, '../fixtures/deploop/package-lock.json'), 'utf-8')
   const pkgJson = await fs.readFile(path.resolve(__dirname, '../fixtures/deploop/package.json'), 'utf-8')
 

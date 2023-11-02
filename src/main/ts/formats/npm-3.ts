@@ -60,8 +60,9 @@ const formatNmKey = (chunks: string[]) => `node_modules/` + chunks.join('/node_m
 
 const parsePackages = (packages: TNpm3LockfileDeps): any => {
   const entries: Record<string, TEntry> = {}
-  const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm3LockfileEntry>, range: string): [string, TNpm3LockfileEntry] => {
+  const getClosestPkg = (name: string, chain: string[], entries: Record<string, TNpm3LockfileEntry>, _range: string): [string, TNpm3LockfileEntry] => {
     const variants: string[] = []
+    const range = _range?.startsWith('npm:') ? _range.slice(_range.lastIndexOf('@') + 1) : _range
 
     let s = 0
     while(s < chain.length) {
@@ -82,6 +83,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
 
   const processPackage = (path: string, pkg: TNpm3LockfileEntry): TEntry => {
     if ((pkg.link || path === "") && !pkg.name){
+      // populates workspace entry refs
       return processPackage(path, {
         ...pkg,
         ...packages[pkg.resolved as string]
@@ -92,8 +94,10 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
     //   type: sourceType
     // }
     const source = parseResolution(pkg.resolved as string)
+    const isNpmAlias = path.startsWith('node_modules/') && pkg.name
     const chain: string[] = path ? ('/' + path).split('/node_modules/').filter(Boolean) : [""]
-    const name = pkg.name || chain[chain.length - 1]
+    // name is present for workspace and npm aliased pkgs and for the root pkg
+    const name = !isNpmAlias && pkg.name || chain[chain.length - 1]
     const version = pkg.version as string
     const id = path === "" ? path : getId(name, version)
 
