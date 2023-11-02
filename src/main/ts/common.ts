@@ -2,7 +2,7 @@ import semver from 'semver'
 import fs from 'node:fs/promises'
 import {topo, traverseDeps} from '@semrel-extra/topo'
 import {URL} from 'node:url'
-import {TDependencies, THashes, TSnapshot, TSource} from './interface'
+import {IFormatReference, TDependencies, THashes, TSnapshot, TSource} from './interface'
 
 export const getSources = (snapshot: TSnapshot): string[] =>
   Object.values(snapshot)
@@ -79,8 +79,8 @@ const refProtocols = ['npm', 'github', 'workspace', 'semver', 'tag', 'patch', 'l
 
 export const normalizeDeps = (deps?: TDependencies): TDependencies | undefined => processDeps(deps, normalizeReference)
 
-export const processDeps = (deps?: TDependencies, processor: (val: string) => string = v => v): TDependencies | undefined => deps && Object.entries(deps).reduce<TDependencies>((m, [k, v]) => {
-  m[k] = processor(v + '')
+export const processDeps = (deps?: TDependencies, formatter: IFormatReference = v => v, opts: any = {}): TDependencies | undefined => deps && Object.entries(deps).reduce<TDependencies>((m, [k, v]) => {
+  m[k] = formatter(v + '', opts)
   return m
 }, {})
 

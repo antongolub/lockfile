@@ -112,7 +112,7 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
         const languageName = isLocal ? 'unknown' : 'node'
         const linkType = isLocal ? 'soft' : 'hard'
         // const key = ranges.map(r => formatResolution(name, r, source.type === 'workspace' ? ((r === '.' || r.includes('/')) ? 'workspace' : 'semver'): 'npm')).join(', ')
-        const key = ranges.map(r => `${name}@${formatReference(r)}`).join(', ')
+        const key = ranges.map(r => `${name}@${formatReference(r, {semverAsNpm: true, isLocal})}`).join(', ')
 
         lf[key] = {
             version,
@@ -181,7 +181,12 @@ export const format: IFormat = (snapshot: TSnapshot, {__metadata = {
 ${_value}`
 }
 
-const formatReference = (input: string, opts?: IFormatOpts = {}): string => {
+type IFormatReferenceOpts = Partial<{
+    semverAsNpm: boolean
+    isLocal: boolean
+}>
+
+const formatReference = (input: string, opts: IFormatReferenceOpts = {}): string | number => {
     const colonPos = input.indexOf(':')
     const protocol = input.slice(0, colonPos)
     const ref = input.slice(colonPos + 1)
@@ -191,14 +196,16 @@ const formatReference = (input: string, opts?: IFormatOpts = {}): string => {
     }
 
     if (protocol === 'semver') {
-        return 'npm:' + ref
+        return opts.semverAsNpm && !opts.isLocal
+          ? 'npm:' + ref
+          : /^\d+$/.test(ref) ? +ref : ref
     }
     // TODO restore github short alias
 
     return input
 }
 
-const formatDeps = (deps?: TDependencies, opts?: IFormatOpts) => processDeps(deps, formatReference)
+const formatDeps = (deps?: TDependencies, opts?: IFormatReferenceOpts) => processDeps(deps, formatReference, opts)
 
 export const parseResolution: IParseResolution = (input: string) => {
     const colonPos = input.indexOf(':')

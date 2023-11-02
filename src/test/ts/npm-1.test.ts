@@ -43,4 +43,4 @@ test('parseResolution/formatResolution interop', () => {
   })
 })
 
-// test.run()
+test.run()

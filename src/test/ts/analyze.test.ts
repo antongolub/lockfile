@@ -34,4 +34,4 @@ test.only('builds looped tree', async () => {
   const idx = analyze(snap)
 })
 
-// test.run()
+test.run()
