@@ -177,6 +177,7 @@ export interface TSnapshotIndex {
 
 * [cvent/pnpm-lock-export](https://github.com/cvent/pnpm-lock-export)
 * [why-keep-package-lockjson](https://blog.npmjs.org/post/621733939456933888/npm-v7-series-why-keep-package-lockjson.html)
+* [pnpm/lockfile-utils](https://github.com/pnpm/pnpm/tree/main/lockfile/lockfile-utils)
 </details>
 
 ## License
