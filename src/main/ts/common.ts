@@ -80,7 +80,7 @@ const refProtocols = ['npm', 'github', 'workspace', 'semver', 'tag', 'patch', 'l
 export const normalizeDeps = (deps?: TDependencies): TDependencies | undefined => processDeps(deps, normalizeReference)
 
 export const processDeps = (deps?: TDependencies, formatter: IFormatReference = v => v, opts: any = {}): TDependencies | undefined => deps && Object.entries(deps).reduce<TDependencies>((m, [k, v]) => {
-  m[k] = formatter(v + '', opts)
+  m[k] = formatter(v + '', opts) as string
   return m
 }, {})
 
@@ -143,6 +143,14 @@ export const parseReference = (raw?: any): IReference => {
     protocol: 'semver',
     id: raw,
   }
+}
+
+export const referenceKeysSorter = (a: string, b: string) => {
+  const _a = a.includes('npm:')
+  const _b = b.includes('npm:')
+  return _a === _b
+    ? 0
+    : +_b - +_a
 }
 
 export const mapReference = (current: string, targetProtocol: string, strategy = 'inherit'): string => {

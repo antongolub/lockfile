@@ -12,7 +12,7 @@ import {
     IParseResolution,
     IFormatResolution
 } from '../interface'
-import {parseIntegrity, formatTarballUrl, parseTarballUrl} from '../common'
+import {parseIntegrity, formatTarballUrl, parseTarballUrl, referenceKeysSorter} from '../common'
 import {debug, unique} from '../util'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
@@ -104,13 +104,6 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
     const {snapshot} = idx
     const lf: TYarn1Lockfile = {}
     const rangemap: Record<string, {keys: string[], key: string, name: string}> = {}
-    const keysorter = (a: string, b: string) => {
-        const _a = a.includes('npm:')
-        const _b = b.includes('npm:')
-        return _a === _b
-          ? 0
-          : +_b - +_a
-    }
 
     Object.values(snapshot).forEach((entry) => {
         const { name, version, ranges, hashes, dependencies, optionalDependencies, source } = entry
@@ -121,7 +114,7 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
 
         if (alias) {
             keys.push(...alias.keys)
-            keys.sort(keysorter)
+            keys.sort(referenceKeysSorter)
             delete lf[alias.key]
         }
 

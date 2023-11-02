@@ -14,8 +14,8 @@ import {
     TSnapshotIndex, TSource,
     TSourceType
 } from '../interface'
-import {normalizeDeps, normalizeReference, parseIntegrity, processDeps} from '../common'
-import {debug, sortObject} from '../util'
+import {normalizeDeps, normalizeReference, parseIntegrity, processDeps, referenceKeysSorter} from '../common'
+import {debug, sortObject, unique} from '../util'
 
 export type TYarn5Lockfile = Record<string, {
     version: string
@@ -51,37 +51,40 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         const chunks = _key.split(', ')
         const name = _key.slice(0, _key.indexOf('@', 1))
         const key = `${name}@${version}`
+        const names = unique(chunks.map(c => c.slice(0, c.indexOf('@', 1))))
 
-        // seems like a patch
-        if (_key.includes('#')) {
-            snapshot[key].patch = {
-                resolution,
-                refs: chunks,
-                checksum
+        for (const name of names) {
+            // seems like a patch
+            if (_key.includes('#')) {
+                snapshot[key].patch = {
+                    resolution,
+                    refs: chunks,
+                    checksum
+                }
+                return
             }
-            return
+
+            const ranges = chunks.filter(c => c.startsWith(`${name}@`)).map(r => r.slice(r.indexOf('@', 1) + 1)).map(normalizeReference)//.sort()
+            const hashes = parseIntegrity(checksum)
+            const source = parseResolution(resolution)
+
+            snapshot[key] = {
+                name,
+                version,
+                ranges,
+                hashes,
+                source,
+                dependencies: normalizeDeps(dependencies),
+                dependenciesMeta,
+                optionalDependencies: normalizeDeps(optionalDependencies),
+                peerDependencies: normalizeDeps(peerDependencies),
+                peerDependenciesMeta,
+                bin,
+                conditions,
+            }
+
+            if (source.type === 'workspace') {}
         }
-
-        const ranges = chunks.map(c => c.slice(name.length + 1)).map(normalizeReference)//.sort()
-        const hashes = parseIntegrity(checksum)
-        const source = parseResolution(resolution)
-
-        snapshot[key] = {
-            name,
-            version,
-            ranges,
-            hashes,
-            source,
-            dependencies: normalizeDeps(dependencies),
-            dependenciesMeta,
-            optionalDependencies: normalizeDeps(optionalDependencies),
-            peerDependencies: normalizeDeps(peerDependencies),
-            peerDependenciesMeta,
-            bin,
-            conditions,
-        }
-
-        if (source.type === 'workspace') {}
     })
 
     snapshot[""] = {
@@ -105,18 +108,29 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
 export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
     const {snapshot} = idx
     const lf: TYarn5Lockfile = {}
+    const rangemap: Record<string, {keys: string[], key: string, name: string}> = {}
 
     Object.values(snapshot).forEach((entry) => {
         const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, patch, bin, conditions } = entry
+        const resolution = formatResolution(source)
+        const alias = rangemap[resolution]
         const isLocal = version === '0.0.0-use.local'
         const languageName = isLocal ? 'unknown' : 'node'
         const linkType = isLocal ? 'soft' : 'hard'
-        // const key = ranges.map(r => formatResolution(name, r, source.type === 'workspace' ? ((r === '.' || r.includes('/')) ? 'workspace' : 'semver'): 'npm')).join(', ')
-        const key = ranges.map(r => `${name}@${formatReference(r, {semverAsNpm: true, isLocal})}`).join(', ')
+        const keys = ranges.map(r => `${name}@${formatReference(r, {semverAsNpm: true, isLocal})}`)
 
+        if (alias) {
+            keys.push(...alias.keys)
+            keys.sort(referenceKeysSorter)
+            delete lf[alias.key]
+        }
+
+        const key = keys.join(', ')
+
+        rangemap[resolution] = {keys, key, name}
         lf[key] = {
             version,
-            resolution: formatResolution(source),
+            resolution,
             dependencies: formatDeps(dependencies),
             dependenciesMeta,
             optionalDependencies: formatDeps(optionalDependencies),
