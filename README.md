@@ -172,6 +172,12 @@ export interface TSnapshotIndex {
 * [what-is-package-lock-json](https://snyk.io/blog/what-is-package-lock-json/)
 * [the-ultimate-guide-to-yarn-lock-lockfiles](https://www.arahansen.com/the-ultimate-guide-to-yarn-lock-lockfiles/)
 * [package-lock-json-the-complete-guide](https://medium.com/helpshift-engineering/package-lock-json-the-complete-guide-2ae40175ebdd)
+<details>
+  <summary>more</summary>
+
+* [cvent/pnpm-lock-export](https://github.com/cvent/pnpm-lock-export)
+* [why-keep-package-lockjson](https://blog.npmjs.org/post/621733939456933888/npm-v7-series-why-keep-package-lockjson.html)
+</details>
 
 ## License
 [MIT](./LICENSE)
