@@ -13,7 +13,8 @@ const variants: [ICheck, IParse][] = [
   [checkYarnClassic, parseYarnClassic],
   [checkYarnBerry, parseYarnBerry],
 ]
-export const parse = (lockfile: string, ...pkgJsons: string[]): TSnapshot => {
+export const parse = (...inputs: (string|Buffer)[]): TSnapshot => {
+  const [lockfile, ...pkgJsons] = inputs.map((input) => input.toString('utf8'))
   const [,parser] = variants.find(([check]) => check(lockfile)) || []
 
   if (!parser) {

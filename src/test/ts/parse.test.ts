@@ -5,8 +5,8 @@ import assert from 'node:assert'
 import {parse} from '../../main/ts/parse'
 
 const test = suite('parse')
-const lf = fs.readFileSync(path.resolve(__dirname, '../fixtures/npm-1/package-lock.json'), 'utf-8')
-const pkgJson = fs.readFileSync(path.resolve(__dirname, '../fixtures/npm-1/package.json'), 'utf-8')
+const lf: Buffer = fs.readFileSync(path.resolve(__dirname, '../fixtures/npm-1/package-lock.json'))
+const pkgJson: string = fs.readFileSync(path.resolve(__dirname, '../fixtures/npm-1/package.json'), 'utf-8')
 
 test('throws err on unsupported lockfile', () => {
   assert.throws(() => parse('broken'), new TypeError('Unsupported lockfile format'))
