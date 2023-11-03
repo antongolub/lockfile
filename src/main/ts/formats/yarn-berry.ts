@@ -97,7 +97,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         },
         manifest,
         dependencies: normalizeDeps(manifest.dependencies),
-        devDependencies: normalizeDeps(manifest.devDependencies)
+        devDependencies: normalizeDeps(manifest.devDependencies),
+        optionalDependencies: normalizeDeps(manifest.optionalDependencies),
     }
 
     debug.json('yarn-berry-snapshot.json', snapshot)

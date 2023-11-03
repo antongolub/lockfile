@@ -90,7 +90,9 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
             id: '.'
         },
         manifest,
-        dependencies: manifest.dependencies
+        dependencies: manifest.dependencies,
+        devDependencies: manifest.devDependencies,
+        optionalDependencies: manifest.optionalDependencies,
     }
 
     debug.json('yarn-classic-snapshot.json', snapshot)
