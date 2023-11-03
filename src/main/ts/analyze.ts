@@ -116,7 +116,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
       }
 
       const _ranges = [range, range.replace('semver:', 'npm:'), range.replace('npm:', 'semver:')]
-      const found = entries.find(({name: _name, ranges}) => name === _name && _ranges.some(r => ranges.includes(r)))
+      const found = entries.find(e => name === e.name && _ranges.some(r => e.ranges.includes(r) || e.patch?.refs.includes(`${name}@${r}`)))
       rangeMap.set(key, found)
       return found
     },

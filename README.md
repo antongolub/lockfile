@@ -84,7 +84,7 @@ idx.edges
 | github    | ✓         | `foo/bar`                               | Alias for the github: protocol                                 |
 | file      |           | `file:./my-package`                     | Copies the target location into the cache                      |
 | link      |           | `link:./my-folder`                      | Creates a link to the ./my-folder folder (ignore dependencies) |
-| patch     |           | `patch:left-pad@1.0.0#./my-patch.patch` | Creates a patched copy of the original package                 |
+| patch     | _limited_ | `patch:left-pad@1.0.0#./my-patch.patch` | Creates a patched copy of the original package                 |
 | portal    |           | `portal:./my-folder`                    | Creates a link to the ./my-folder folder (follow dependencies) |
 | workspace | _limited_ | `workspace:*`                           | Creates a link to a package in another workspace               |
 

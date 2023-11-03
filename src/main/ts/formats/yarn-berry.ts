@@ -132,9 +132,9 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
             version,
             resolution,
             dependencies: formatDeps(dependencies),
-            dependenciesMeta,
             optionalDependencies: formatDeps(optionalDependencies),
             peerDependencies: formatDeps(peerDependencies),
+            dependenciesMeta,
             peerDependenciesMeta,
             bin,
             checksum: checksum as string,
@@ -183,6 +183,18 @@ export const format: IFormat = (snapshot: TSnapshot, {__metadata = {
 
             if (line.startsWith('  resolution: ')) {
                 return line.replaceAll('"', '').replace('  resolution: ', '  resolution: "').concat('"')
+            }
+
+            if (line.includes(': npm:')) {
+                return line.replace(': npm:', ': "npm:') + '"'
+            }
+
+            if (line.includes(': patch:')) {
+                return line.replace(': patch:', ': "patch:') + '"'
+            }
+
+            if (line.includes(': workspace:')) {
+                return line.replace(': workspace:', ': "workspace:') + '"'
             }
 
             return line

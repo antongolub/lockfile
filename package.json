@@ -1,6 +1,6 @@
 {
   "name": "@antongolub/lockfile",
-  "version": "0.0.0-snapshot.22",
+  "version": "0.0.0-snapshot.23",
   "publishConfig": {
     "access": "public"
   },
@@ -21,7 +21,8 @@
     "esbuild-node-externals": "^1.9.0",
     "tsm": "^2.3.0",
     "typescript": "^5.2.2",
-    "uvu": "^0.5.6"
+    "uvu": "^0.5.6",
+    "fast-glob": "^3.3.1"
   },
   "scripts": {
     "build": "yarn build:es6 && yarn build:libdef",
@@ -30,7 +31,7 @@
     "build:esmfix": "tsc-esm-fix --target=target/es6 --ext=.mjs",
     "test": "yarn test:unit",
     "test:unit": "DEBUG=true uvu -r tsm -i helpers 'src/test/ts/'",
-    "publish:snapshot": "yarn build && npm publish --no-git-tag-version --tag snapshot"
+    "publish:snap": "yarn build && npm publish --no-git-tag-version --tag snapshot"
   },
   "files": [
     "target",
