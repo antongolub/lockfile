@@ -87,6 +87,7 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   const deps = new Map()
   const edges: [string, string][] = []
   const tree: TSnapshotIndex['tree'] = {}
+  const rangeMap = new Map()
   const idx: TSnapshotIndex = {
     snapshot,
     roots,
@@ -109,7 +110,15 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
       return snapshot[name] || snapshot[getId(name, version)]
     },
     getEntryByRange (name: string, range: string) {
-      return entries.find(({name: _name, ranges}) => name === _name && ranges.includes(range))
+      const key = getId(name, range)
+      if (rangeMap.has(key)) {
+        return rangeMap.get(key)
+      }
+
+      const _ranges = [range, range.replace('semver:', 'npm:'), range.replace('npm:', 'semver:')]
+      const found = entries.find(({name: _name, ranges}) => name === _name && _ranges.some(r => ranges.includes(r)))
+      rangeMap.set(key, found)
+      return found
     },
     getEntryDeps (entry: TEntry): TEntry[] {
       if (!deps.has(entry)) {
@@ -120,7 +129,12 @@ export const analyze = (snapshot: TSnapshot): TSnapshotIndex => {
   }
 
   const now = Date.now()
-  roots.forEach((root, i) => walk({root, idx, id: root.source.id === '.' ? '' : undefined}))
+  roots.forEach((root) => {
+    const isRoot = root.source.id === '.'
+    // exclude pseudo root
+    if (isRoot && !root.manifest) return
+    walk({root, idx, id: isRoot ? '' : undefined})
+  })
   // walk({root: roots[0], idx, id: ''})
   // walk({root: roots[2], idx})
   debug('analyze duration=', Date.now() - now, 'deptree size=', Object.keys(tree).length)
