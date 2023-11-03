@@ -3,10 +3,10 @@ import {debug, sortObject} from './util'
 
 export const getDeps = (entry: TEntry): Record<string, string> => {
   if (!getDeps.cache.has(entry)) {
-    getDeps.cache.set(entry, ({
+    getDeps.cache.set(entry, {
       ...sortObject(entry.dependencies || {}),
       ...sortObject({...entry.devDependencies, ...entry.optionalDependencies})
-    }))
+    })
   }
 
   return getDeps.cache.get(entry) as Record<string, string>
@@ -56,8 +56,8 @@ const walk = (ctx: TWalkCtx) => {
     }
   }
 
-  const dependencies = getDeps(entry)
   const stack: any[] = []
+  const dependencies = getDeps(entry)
 
   Object.entries(dependencies).forEach(([name, range]) => {
     const _entry = idx.getEntryByRange(name, range)

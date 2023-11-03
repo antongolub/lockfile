@@ -7,7 +7,7 @@ import {
   TEntry,
   TManifest,
   TSnapshot,
-  TSource
+  TSnapshotIndex,
 } from '../interface'
 import {formatTarballUrl, parseIntegrity, formatIntegrity, parseTarballUrl} from '../common'
 import {sortObject, debug} from '../util'
@@ -139,7 +139,7 @@ const parsePackages = (packages: TNpm3LockfileDeps): any => {
   return sortObject(entries)
 }
 
-export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
+export const buildNmtree = (idx: TSnapshotIndex) => {
   const snap = idx.snapshot
   const nmtree = Object.values(idx.tree).reduce<Record<string, {entry: TEntry, parent: string}>>((result, {key, id, chunks}) => {
     const entry = snap[id]
@@ -191,6 +191,12 @@ export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
 
   debug.json('npm3-nmtree.json', nmtree)
 
+  return nmtree
+}
+
+export const preformat: IPreformat<TNpm3Lockfile> = (idx): TNpm3Lockfile => {
+  const snap = idx.snapshot
+  const nmtree = buildNmtree(idx)
   const manifest = snap[""].manifest as TManifest
   const packages = sortObject(Object.entries(nmtree).reduce((m, [k, {entry, parent}]) => {
       if (entry.source.type === 'workspace') {
