@@ -11,7 +11,7 @@ so both of them are required to build a dependency graph. We can try to convert 
 And then, if necessary, try convert it back to the original/another format.
 
 ## Status
-Proof of concept. The API may vary significantly ⚠️
+Proof of concept. The API may change significantly ⚠️
 
 ## Getting started
 ### Install
