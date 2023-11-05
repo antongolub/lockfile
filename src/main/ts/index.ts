@@ -1,4 +1,4 @@
-export {TSnapshot} from './interface'
+export { TSnapshot } from './interface'
 
 export { getSources } from './common'
 export { analyze } from './analyze'
