@@ -1,41 +1,54 @@
 {
   "name": "@antongolub/lockfile",
-  "version": "0.0.0-snapshot.23",
+  "version": "0.0.0-snapshot.24",
   "publishConfig": {
     "access": "public"
   },
   "description": "Read and write lockfiles with reasonable losses",
-  "main": "./target/es6/index.js",
-  "type": "module",
-  "exports": "./target/es6/index.js",
+  "main": "target/cjs/index.cjs",
+  "exports": {
+    ".": {
+      "types": "./target/dts/index.d.ts",
+      "require": "./target/cjs/index.cjs",
+      "import": "./target/esm/index.mjs",
+      "default": "./target/esm/index.mjs"
+    }
+  },
+  "module": "target/esm/index.mjs",
+  "types": "target/dts/index.d.ts",
   "dependencies": {
     "@semrel-extra/topo": "^1.14.0",
+    "fast-glob": "^3.3.1",
     "js-yaml": "^4.1.0",
+    "minimist": "^1.2.8",
     "semver": "^7.5.4"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.8",
+    "@types/minimist": "^1.2.4",
     "@types/node": "^20.8.10",
     "@types/semver": "^7.5.4",
+    "c8": "^8.0.1",
+    "concurrently": "^8.2.2",
     "esbuild": "^0.19.5",
     "esbuild-node-externals": "^1.9.0",
     "tsm": "^2.3.0",
     "typescript": "^5.2.2",
-    "uvu": "^0.5.6",
-    "fast-glob": "^3.3.1"
+    "uvu": "^0.5.6"
   },
   "scripts": {
-    "build": "yarn build:es6 && yarn build:libdef",
-    "build:es6": "node ./build.js",
-    "build:libdef": "tsc --emitDeclarationOnly --outDir target/es6",
-    "build:esmfix": "tsc-esm-fix --target=target/es6 --ext=.mjs",
+    "build": "concurrently 'npm:build:*'",
+    "build:esm": "node ./src/scripts/build.cjs",
+    "build:cjs": "node ./src/scripts/build.cjs --cjs",
+    "build:dts": "tsc --emitDeclarationOnly --skipLibCheck --outDir target/dts",
     "test": "yarn test:unit",
-    "test:unit": "DEBUG=true uvu -r tsm -i helpers 'src/test/ts/'",
+    "test:unit": "DEBUG=true c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/'",
     "publish:snap": "yarn build && npm publish --no-git-tag-version --tag snapshot"
   },
   "files": [
-    "target",
-    "LICENSE"
+    "target/cjs",
+    "target/esm",
+    "target/dts"
   ],
   "repository": {
     "type": "git",
