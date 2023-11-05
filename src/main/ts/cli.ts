@@ -7,7 +7,7 @@ import { parse } from './parse'
 import { format } from './format'
 import { TSnapshot } from './interface'
 import * as process from 'node:process'
-import path from "node:path";
+import path from 'node:path'
 
 export const parseArgv = (argv: string[] = process.argv.slice(2)) => {
   const _argv = minimist(argv, {
@@ -61,8 +61,14 @@ export const invoke = async (cmd: string, opts: Record<string, any>)=> {
 }
 
 export const main = async () => {
-  const argv = parseArgv()
-  return invoke(argv.cmd, argv)
+  try {
+    const argv = parseArgv()
+    await invoke(argv.cmd, argv)
+    process.exit(0)
+  } catch (e) {
+    console.error(e)
+    process.exit(1)
+  }
 }
 
 main()

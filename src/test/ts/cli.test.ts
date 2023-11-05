@@ -1,12 +1,14 @@
-import { suite } from 'uvu'
 import path from 'node:path'
 import assert from 'node:assert'
-import {tempy} from './helpers'
-import fs from "node:fs/promises";
+import fs from 'node:fs/promises'
+import process from 'node:process'
+import { suite } from 'uvu'
+import { tempy } from './helpers'
 
 const test = suite('cli')
 
 const _argv = process.argv
+const exit = process.exit
 const pkgJson = path.resolve(__dirname, '../fixtures/issue-2/package.json')
 const yarnLock = path.resolve(__dirname, '../fixtures/issue-2/yarn.lock')
 
@@ -16,6 +18,8 @@ test('invokes `parse` and `parse`', async () => {
   await fs.copyFile(pkgJson, path.resolve(temp, 'package.json'))
   await fs.copyFile(yarnLock, path.resolve(temp, 'yarn.lock'))
 
+  // @ts-ignore
+  process.exit = () => {}
   // parse
   {
     process.argv = [..._argv.slice(0, 2),
@@ -44,6 +48,9 @@ test('invokes `parse` and `parse`', async () => {
       await fs.readFile(yarnLock, 'utf8')
     )
   }
+
+  process.argv = _argv
+  process.exit = exit
 })
 
 test.run()
