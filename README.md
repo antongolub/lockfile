@@ -62,10 +62,10 @@ idx.edges
 
 ### CLI
 ```shell
-npx @antongolub/lockfile <cmd> [options]
+npx @antongolub/lockfile@snapshot <cmd> [options]
 
-npx @antongolub/lockfile parse --input=yarn.lock,package.json --output=snapshot.json
-npx @antongolub/lockfile format --input=snapshot.json --output=yarn.lock
+npx @antongolub/lockfile@snapshot lockfile parse --input=yarn.lock,package.json --output=snapshot.json
+npx @antongolub/lockfile@snapshot lockfile format --input=snapshot.json --output=yarn.lock
 ```
 
 | Command / Option | Description                                                                           |

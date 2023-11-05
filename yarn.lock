@@ -25,6 +25,8 @@ __metadata:
     tsm: ^2.3.0
     typescript: ^5.2.2
     uvu: ^0.5.6
+  bin:
+    lockfile: ./target/cjs/cli.cjs
   languageName: unknown
   linkType: soft
 
