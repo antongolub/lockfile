@@ -1,11 +1,14 @@
 {
   "name": "@antongolub/lockfile",
-  "version": "0.0.0-snapshot.29",
+  "version": "0.0.0-snapshot.31",
   "publishConfig": {
     "access": "public"
   },
   "description": "Read and write lockfiles with reasonable losses",
-  "bin": "./target/cjs/cli.cjs",
+  "bin": {
+    "lockf": "./target/cjs/cli.cjs",
+    "lockfile": "./target/cjs/cli.cjs"
+  },
   "main": "./target/cjs/index.cjs",
   "exports": {
     ".": {

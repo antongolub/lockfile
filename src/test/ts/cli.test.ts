@@ -49,6 +49,22 @@ test('invokes `parse` and `parse`', async () => {
     )
   }
 
+  // convert
+  {
+    process.argv = [..._argv.slice(0, 2),
+      'convert',
+      '--input', 'yarn.lock,package.json',
+      '--output', 'yarn.lock3',
+      '--format', 'yarn-classic',
+      '--cwd', temp
+    ]
+    await (await import('../../main/ts/cli')).main()
+    assert.equal(
+      await fs.readFile(path.resolve(temp, 'yarn.lock3'), 'utf8'),
+      await fs.readFile(yarnLock, 'utf8')
+    )
+  }
+
   process.argv = _argv
   process.exit = exit
 })

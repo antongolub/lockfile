@@ -3,8 +3,7 @@
 import fs from 'node:fs/promises'
 import glob from 'fast-glob'
 import minimist from 'minimist'
-import { parse } from './parse'
-import { format } from './format'
+import { parse, format, convert } from './index'
 import { TSnapshot } from './interface'
 import * as process from 'node:process'
 import path from 'node:path'
@@ -53,6 +52,14 @@ export const invoke = async (cmd: string, opts: Record<string, any>)=> {
   if (cmd === 'format') {
     const snapshot = JSON.parse(await fs.readFile(path.resolve(opts.cwd, opts.input[0]), 'utf8')) as TSnapshot
     const result = format(snapshot, opts.format)
+
+    return returnResult(result, opts.cwd, opts.output)
+  }
+
+  if (cmd === 'convert') {
+    const inputs = await glob(opts.input, {cwd: opts.cwd, absolute: true, onlyFiles: true})
+    const [lf, ...jsons] = await Promise.all(inputs.map(v => fs.readFile(v, 'utf8')))
+    const result = await convert(lf, jsons, opts.format)
 
     return returnResult(result, opts.cwd, opts.output)
   }

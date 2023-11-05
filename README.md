@@ -39,11 +39,13 @@ const idx = analyze(snapshot)   // An index to represent repo dep graphs
 ## API
 ### JS/TS
 ```ts
-import { parse, format, analyze } from '@antongolub/lockfile'
+import { parse, format, analyze, convert } from '@antongolub/lockfile'
 
-const snapshot = parse('yarn.lock <raw contents>', 'package.json <raw contents>', './packages/foo/package.json <raw contents>')
+const lf = await fs.readFile('yarn.lock', 'utf-8')
+const pkgJson = await fs.readFile('package.json', 'utf-8')
+const snapshot = parse(lf, pkgJson)
 
-const lf = format(snapshot)
+const lf1 = format(snapshot)
 const lf2 = format(snapshot, 'npm-1')         // Throws err: npm v1 meta does not support workspaces
 
 const meta = await readMeta()                 // reads local package.jsons data to gather required data like `engines`, `license`, `bins`, etc
@@ -58,20 +60,23 @@ idx.edges
 //  [ '@antongolub/npm-test@3.0.1', '@antongolub/npm-test@2.0.1' ],
 //  [ '@antongolub/npm-test@2.0.1', '@antongolub/npm-test@1.0.0' ]
 // ]
+
+const lf4 = await convert(lf, pkgJson, 'yarn-berry')
 ```
 
 ### CLI
 ```shell
 npx @antongolub/lockfile@snapshot <cmd> [options]
 
-npx @antongolub/lockfile@snapshot lockfile parse --input=yarn.lock,package.json --output=snapshot.json
-npx @antongolub/lockfile@snapshot lockfile format --input=snapshot.json --output=yarn.lock
+npx @antongolub/lockfile@snapshot parse --input=yarn.lock,package.json --output=snapshot.json
+npx @antongolub/lockfile@snapshot format --input=snapshot.json --output=yarn.lock
 ```
 
 | Command / Option | Description                                                                           |
 |------------------|---------------------------------------------------------------------------------------|
 | `parse`          | Parses lockfiles and package manifests into a snapshot                                |
 | `format`         | Formats a snapshot into a lockfile                                                    |
+| `convert`        | Converts a lockfile into another format. Shortcut for `parse` + `format`              |
 | `--input`        | A comma-separated list of files to parse: `snapshot.json` or `yarn.lock,package.json` |
 | `--output`       | A file to write the result to: `snapshot.json` or `yarn.lock`                         |
 | `--format`       | A lockfile format: `npm-1`, `npm-2`, `npm-3`, `yarn-berry`, `yarn-classic`            |
