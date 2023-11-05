@@ -12,6 +12,10 @@ test('throws err on unsupported lockfile', () => {
   assert.throws(() => parse('broken'), new TypeError('Unsupported lockfile format'))
 })
 
+test('throws err on empty lockfile', () => {
+  assert.throws(() => parse(), new TypeError('Lockfile is required'))
+})
+
 test('throws err on `suspicious` pkg json input', () => {
   assert.throws(() => parse(lf, '{"foo": "bar"}'), new TypeError('Invalid package json'))
 })

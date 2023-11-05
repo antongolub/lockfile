@@ -28,9 +28,10 @@ export const parseArgv = (argv: string[] = process.argv.slice(2)) => {
   }
 }
 
-export const returnResult = (result: string, cwd?: string, output?: string) => {
+export const outputResult = async (result: string, cwd?: string, output?: string) => {
   if (output && cwd) {
-    return fs.writeFile(path.resolve(cwd, output), result)
+    await fs.writeFile(path.resolve(cwd, output), result)
+    return
   }
   console.log(result)
 }
@@ -46,14 +47,14 @@ export const invoke = async (cmd: string, opts: Record<string, any>)=> {
     const snapshot = parse(...files)
     const result = JSON.stringify(snapshot, null, 2)
 
-    return returnResult(result, opts.cwd, opts.output)
+    return outputResult(result, opts.cwd, opts.output)
   }
 
   if (cmd === 'format') {
     const snapshot = JSON.parse(await fs.readFile(path.resolve(opts.cwd, opts.input[0]), 'utf8')) as TSnapshot
     const result = format(snapshot, opts.format)
 
-    return returnResult(result, opts.cwd, opts.output)
+    return outputResult(result, opts.cwd, opts.output)
   }
 
   if (cmd === 'convert') {
@@ -61,7 +62,7 @@ export const invoke = async (cmd: string, opts: Record<string, any>)=> {
     const [lf, ...jsons] = await Promise.all(inputs.map(v => fs.readFile(v, 'utf8')))
     const result = await convert(lf, jsons, opts.format)
 
-    return returnResult(result, opts.cwd, opts.output)
+    return outputResult(result, opts.cwd, opts.output)
   }
 
   throw new TypeError(`unsupported command: ${cmd}`)

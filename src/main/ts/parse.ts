@@ -15,8 +15,11 @@ const variants: [ICheck, IParse][] = [
 ]
 export const parse = (...inputs: (string|Buffer)[]): TSnapshot => {
   const [lockfile, ...pkgJsons] = inputs.map((input) => input.toString('utf8'))
-  const [,parser] = variants.find(([check]) => check(lockfile)) || []
+  if (!lockfile) {
+    throw new TypeError('Lockfile is required')
+  }
 
+  const [,parser] = variants.find(([check]) => check(lockfile)) || []
   if (!parser) {
     throw new TypeError('Unsupported lockfile format')
   }
