@@ -2,9 +2,8 @@ import { suite } from 'uvu'
 import path from 'node:path'
 import assert from 'node:assert'
 import fs from 'node:fs/promises'
-import { analyze } from '../../main/ts/analyze'
-import { parse } from '../../main/ts/parse'
-import {TEntry} from '../../main/ts/interface'
+import { analyze, parse } from '../../main/ts'
+import { TEntry } from '../../main/ts/interface'
 
 const test = suite('analyze')
 

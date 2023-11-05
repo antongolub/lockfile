@@ -1,10 +1,13 @@
 {
   "name": "@antongolub/lockfile",
-  "version": "0.0.0-snapshot.24",
+  "version": "0.0.0-snapshot.25",
   "publishConfig": {
     "access": "public"
   },
   "description": "Read and write lockfiles with reasonable losses",
+  "bin": {
+    "lockfile": "./target/cjs/cli.cjs"
+  },
   "main": "target/cjs/index.cjs",
   "exports": {
     ".": {
@@ -12,7 +15,14 @@
       "require": "./target/cjs/index.cjs",
       "import": "./target/esm/index.mjs",
       "default": "./target/esm/index.mjs"
-    }
+    },
+    "./cli": {
+      "types": "./target/dts/cli.d.ts",
+      "require": "./target/cjs/cli.cjs",
+      "import": "./target/esm/cli.mjs",
+      "default": "./target/esm/cli.mjs"
+    },
+    "./package.json": "./package.json"
   },
   "module": "target/esm/index.mjs",
   "types": "target/dts/index.d.ts",
@@ -38,8 +48,8 @@
   },
   "scripts": {
     "build": "concurrently 'npm:build:*'",
-    "build:esm": "node ./src/scripts/build.cjs",
-    "build:cjs": "node ./src/scripts/build.cjs --cjs",
+    "build:esm": "node ./src/scripts/build.mjs --entry='./src/main/ts/index.ts:./src/main/ts/cli.ts'",
+    "build:cjs": "node ./src/scripts/build.mjs --entry='./src/main/ts/index.ts:./src/main/ts/cli.ts' --cjs",
     "build:dts": "tsc --emitDeclarationOnly --skipLibCheck --outDir target/dts",
     "test": "yarn test:unit",
     "test:unit": "DEBUG=true c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/'",

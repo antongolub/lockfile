@@ -37,6 +37,7 @@ const idx = analyze(snapshot)   // An index to represent repo dep graphs
 ```
 
 ## API
+### JS/TS
 ```ts
 import { parse, format, analyze } from '@antongolub/lockfile'
 
@@ -58,6 +59,22 @@ idx.edges
 //  [ '@antongolub/npm-test@2.0.1', '@antongolub/npm-test@1.0.0' ]
 // ]
 ```
+
+### CLI
+```shell
+npx @antongolub/lockfile <cmd> [options]
+
+npx @antongolub/lockfile parse --input=yarn.lock,package.json --output=snapshot.json
+npx @antongolub/lockfile format --input=snapshot.json --output=yarn.lock
+```
+
+| Command / Option | Description                                                                           |
+|------------------|---------------------------------------------------------------------------------------|
+| `parse`          | Parses lockfiles and package manifests into a snapshot                                |
+| `format`         | Formats a snapshot into a lockfile                                                    |
+| `--input`        | A comma-separated list of files to parse: `snapshot.json` or `yarn.lock,package.json` |
+| `--output`       | A file to write the result to: `snapshot.json` or `yarn.lock`                         |
+| `--format`       | A lockfile format: `npm-1`, `npm-2`, `npm-3`, `yarn-berry`, `yarn-classic`            |
 
 ### Terms
 `nmtree` — fs projection of deps, directories structure  
