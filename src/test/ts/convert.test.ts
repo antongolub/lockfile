@@ -12,7 +12,7 @@ test('composes parse and format', async () => {
 
   const yarnLock2 = await convert(yarnLock, pkgJson, 'yarn-classic')
 
-  checkLineByLine(
+  await checkLineByLine(
     yarnLock,
     yarnLock2
   )

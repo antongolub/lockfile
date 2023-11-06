@@ -16,7 +16,7 @@ test('handles pkg aliases for yarn-classic lockfiles', async () => {
   const tree = await analyze(snapshot)
   const lf = await format(snapshot, 'yarn-classic')
 
-  checkLineByLine(
+  await checkLineByLine(
     yarnLock,
     lf
   )

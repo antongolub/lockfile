@@ -34,7 +34,7 @@ export const debug = Object.assign((...chunks: any[]) => {
   console.log(...chunks)
 }, {
   enable: process.env.DEBUG,
-  async json(data: any, name: any = `debug-${Math.random().toString(16).slice(2)}.json`, base = path.resolve(process.cwd(), process.env.TEMP || 'temp')) {
+  async json(data: any, name: any = `debug-${Math.random().toString(16).slice(2)}.json`, base?: string) {
     if (!this.enable) return
 
     if (typeof data === 'string') {
@@ -43,9 +43,15 @@ export const debug = Object.assign((...chunks: any[]) => {
     }
 
     const _data = typeof data === 'function' ? data() : data
+    const _base = base || await this.tempy()
 
-    await fs.mkdir(base, { recursive: true })
-    await fs.writeFile(path.resolve(base, name), JSON.stringify(_data, null, 2))
+    await fs.writeFile(path.resolve(_base, name), JSON.stringify(_data, null, 2))
+  },
+  async tempy() {
+    const temp = path.resolve(process.cwd(), process.env.TEMP || 'temp')
+    await fs.mkdir(temp, { recursive: true })
+
+    return temp
   }
 })
 

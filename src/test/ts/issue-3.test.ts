@@ -23,7 +23,7 @@ test('processes yarn entry patches for berry', async () => {
     }
   })
 
-  checkLineByLine(
+  await checkLineByLine(
     yarnLock,
     lf
   )
