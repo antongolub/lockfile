@@ -1,7 +1,7 @@
 # @antongolub/lockfile
 > Read and write lockfiles with reasonable losses
 
-## Motivation
+<p><img alt="@antongolub/lockfile" src="./pics/pic.png" align="right" width="300">
 Each package manager brings its own philosophy of how to describe, store and control project dependencies.
 It _seems_ acceptable for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
 This lib is a naive attempt to build a pm-independent, generic, extensible and reliable deps representation.
@@ -9,6 +9,7 @@ This lib is a naive attempt to build a pm-independent, generic, extensible and r
 The `package.json` manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
 so both of them are required to build a dependency graph. We can try to convert this data into a normalized representation for further analysis and processing (for example, to fix vulnerabilities).
 And then, if necessary, try convert it back to the original/another format.
+</p>
 
 ## Status
 Proof of concept. The API may change significantly ⚠️
