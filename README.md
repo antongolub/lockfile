@@ -3,7 +3,7 @@
 
 <p><img alt="@antongolub/lockfile" src="./pics/pic.png" align="right" width="300">
 Each package manager brings its own philosophy of how to describe, store and control project dependencies.
-It _seems_ acceptable for developers, but literally becomes a ~~pain in *** ***~~ headache for isec, devops and release engineers.
+It <i>seems</i> acceptable for developers, but literally becomes a <strike>pain in *** ***</strike> headache for isec, devops and release engineers.
 This lib is a naive attempt to build a pm-independent, generic, extensible and reliable deps representation.
 
 The `package.json` manifest contains its own deps requirements, the `lockfile` holds the deps resolution snapshot<sup>*</sup>,
