@@ -9,9 +9,10 @@ import {IFormat, IParse} from '../../main/ts/interface'
 export const checkLineByLine = (a: string, b: string) => {
     const c1: string[] = a.trim().split('\n')
     const c2: string[] = b.trim().split('\n')
+    const temp = path.resolve(process.cwd(), process.env.TEMP || 'temp')
     for (let i in c1) {
         if (c1[i] !== c2[i]) {
-            fss.writeFileSync(path.resolve(process.cwd(), 'temp', 'actual.txt'), b)
+            fss.writeFileSync(path.resolve(temp, 'actual.txt'), b)
             assert.ok(false, `${c1[i]} !== ${c2[i]}, index: ${i}`)
         }
     }
@@ -39,13 +40,14 @@ export const testInteropBySnapshot =  async (parse: IParse, format: IFormat, ...
     const snapshot = parse(lockfile, pkg)
     const f = format(snapshot)
     const _snapshot = parse(f, pkg)
+    const temp = path.resolve(process.cwd(), process.env.TEMP || 'temp')
 
     const s1 = JSON.stringify(snapshot, null, 2)
     const s2 = JSON.stringify(_snapshot, null, 2)
 
-    await fs.writeFile(path.resolve(process.cwd(), 'temp', 's1.json'), s1)
-    await fs.writeFile(path.resolve(process.cwd(), 'temp', 's2.json'), s2)
-    await fs.writeFile(path.resolve(process.cwd(), 'temp', 'pkg-lock.json'), f)
+    await fs.writeFile(path.resolve(temp, 's1.json'), s1)
+    await fs.writeFile(path.resolve(temp, 's2.json'), s2)
+    await fs.writeFile(path.resolve(temp, 'pkg-lock.json'), f)
 
     checkLineByLine(
       s1,
@@ -55,5 +57,4 @@ export const testInteropBySnapshot =  async (parse: IParse, format: IFormat, ...
     // assert.ok(JSON.stringify(snapshot) === JSON.stringify(_snapshot))
 }
 
-export const tempy = async () =>
-    fs.mkdtemp(path.join(os.tmpdir(), 'tempy-'))
+export const tempy = () => fss.mkdtempSync(path.join(os.tmpdir(), 'tempy-'))
