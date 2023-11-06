@@ -15,7 +15,7 @@ import {
     TSourceType
 } from '../interface'
 import {normalizeDeps, normalizeReference, parseIntegrity, processDeps, referenceKeysSorter} from '../common'
-import {debug, sortObject, unique} from '../util'
+import {debug, mergeDeps, sortObject, unique} from '../util'
 
 export type TYarn5Lockfile = Record<string, {
     version: string
@@ -38,8 +38,12 @@ export const check: ICheck = (value: string): boolean => value.includes(`
 __metadata:
   version:`)
 
-export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
-    const manifest = JSON.parse(pkg)
+export const parse: IParse = (lockfile: string, ...pkgs: string[]): TSnapshot => {
+    const manifest = JSON.parse(pkgs[0])
+    const manifests = Object.fromEntries(pkgs.map(p => {
+        const manifest = JSON.parse(p)
+        return [manifest.name, manifest]
+    }))
     const snapshot: TSnapshot = {}
     const raw = load(lockfile) as TYarn5Lockfile
 
@@ -50,6 +54,9 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
         const { version, checksum, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, resolution, bin, conditions } = _entry
         const chunks = _key.split(', ')
         const names = unique(chunks.map(c => c.slice(0, c.indexOf('@', 1))))
+        const isLocal = version === '0.0.0-use.local'
+        const hashes = parseIntegrity(checksum)
+        const source = parseResolution(resolution)
 
         for (const name of names) {
             const key = `${name}@${version}`
@@ -64,8 +71,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
             }
 
             const ranges = chunks.filter(c => c.startsWith(`${name}@`)).map(r => r.slice(r.indexOf('@', 1) + 1)).map(normalizeReference)//.sort()
-            const hashes = parseIntegrity(checksum)
-            const source = parseResolution(resolution)
+            const _dependencies = normalizeDeps(isLocal && manifests[name]?.dependencies || dependencies)
+            const _devDependencies = normalizeDeps(isLocal && manifests[name]?.devDependencies)
 
             snapshot[key] = {
                 name,
@@ -73,7 +80,8 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
                 ranges,
                 hashes,
                 source,
-                dependencies: normalizeDeps(dependencies),
+                dependencies: _dependencies,
+                devDependencies: _devDependencies,
                 dependenciesMeta,
                 optionalDependencies: normalizeDeps(optionalDependencies),
                 peerDependencies: normalizeDeps(peerDependencies),
@@ -105,19 +113,23 @@ export const parse: IParse = (lockfile: string, pkg: string): TSnapshot => {
     return snapshot
 }
 
-export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
+export const preformat: IPreformat<TYarn5Lockfile> = (idx, {__metadata} = {}): TYarn5Lockfile => {
     const {snapshot} = idx
     const lf: TYarn5Lockfile = {}
     const rangemap: Record<string, {keys: string[], key: string, name: string}> = {}
+    const isYarn4 = __metadata?.version >= 7
 
     Object.values(snapshot).forEach((entry) => {
-        const { name, version, ranges, hashes: {checksum}, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, patch, bin, conditions } = entry
+        const { name, version, ranges, hashes: {checksum}, devDependencies, dependencies, dependenciesMeta, optionalDependencies, peerDependencies, peerDependenciesMeta, source, patch, bin, conditions } = entry
         const resolution = formatResolution(source)
         const alias = rangemap[resolution]
         const isLocal = version === '0.0.0-use.local'
         const languageName = isLocal ? 'unknown' : 'node'
         const linkType = isLocal ? 'soft' : 'hard'
         const keys = ranges.map(r => `${name}@${formatReference(r, {semverAsNpm: true, isLocal})}`)
+
+        // NOTE yarn 3 uses `npm:` for keys but does not apply the prefix to deps
+        // but yarn 4 uses it everywhere
 
         if (alias) {
             keys.push(...alias.keys)
@@ -126,12 +138,14 @@ export const preformat: IPreformat<TYarn5Lockfile> = (idx): TYarn5Lockfile => {
         }
 
         const key = keys.join(', ')
+        const _dependencies = mergeDeps(dependencies, devDependencies)
+        if (_dependencies) sortObject(_dependencies)
 
         rangemap[resolution] = {keys, key, name}
         lf[key] = {
             version,
             resolution,
-            dependencies: formatDeps(dependencies),
+            dependencies: formatDeps(_dependencies, {semverAsNpm: isYarn4, isLocal: !isLocal}),
             optionalDependencies: formatDeps(optionalDependencies),
             peerDependencies: formatDeps(peerDependencies),
             dependenciesMeta,
@@ -163,7 +177,7 @@ export const format: IFormat = (snapshot: TSnapshot, {__metadata = {
 }} = {}): string => {
     const lines = dump({
         __metadata,
-        ...preformat({snapshot} as TSnapshotIndex)
+        ...preformat({snapshot} as TSnapshotIndex, {__metadata})
     }, {
         quotingType: '"',
         flowLevel: -1,

@@ -12,8 +12,8 @@ import {
     IParseResolution,
     IFormatResolution
 } from '../interface'
-import {parseIntegrity, formatTarballUrl, parseTarballUrl, referenceKeysSorter} from '../common'
-import {debug, unique} from '../util'
+import {parseIntegrity, formatTarballUrl, parseTarballUrl, referenceKeysSorter, normalizeDeps} from '../common'
+import {debug, mergeDeps, sortObject, unique} from '../util'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -52,8 +52,12 @@ export const preparse = (value: string): TYarn1Lockfile  => {
     return load(_value) as TYarn1Lockfile
 }
 
-export const parse: IParse = (value: string, pkg: string): TSnapshot => {
-    const manifest = JSON.parse(pkg)
+export const parse: IParse = (value: string, ...pkgs: string[]): TSnapshot => {
+    const manifest = JSON.parse(pkgs[0])
+    const manifests = Object.fromEntries(pkgs.map(p => {
+        const manifest = JSON.parse(p)
+        return [manifest.name, manifest]
+    }))
     const raw = preparse(value)
     const snapshot: TSnapshot = {}
 
@@ -64,16 +68,21 @@ export const parse: IParse = (value: string, pkg: string): TSnapshot => {
         const source: TSource = parseResolution(resolved)
         const chunks = _key.split(', ')
         const names = unique(chunks.map(c => c.slice(0, c.indexOf('@', 1))))
+        const isLocal = version === '0.0.0-use.local'
 
         for (const name of names) {
             const ranges = chunks.filter(c => c.startsWith(`${name}@`)).map(r => r.slice(r.indexOf('@', 1) + 1)).sort()
             const key = `${name}@${version}`
+            const _dependencies = isLocal && manifests[name]?.dependencies || dependencies
+            const _devDependencies = isLocal && manifests[name]?.devDependencies
+
             snapshot[key] = {
                 name,
                 version,
                 ranges,
                 hashes,
-                dependencies,
+                dependencies: _dependencies,
+                devDependencies: _devDependencies,
                 optionalDependencies,
                 source,
             }
@@ -108,7 +117,7 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
     const rangemap: Record<string, {keys: string[], key: string, name: string}> = {}
 
     Object.values(snapshot).forEach((entry) => {
-        const { name, version, ranges, hashes, dependencies, optionalDependencies, source } = entry
+        const { name, version, ranges, hashes, devDependencies, dependencies, optionalDependencies, source } = entry
         const resolved = formatResolution(source)
         const alias = rangemap[resolved]
         const integrity = Object.entries(hashes).map(([k, v]) => `${k}-${v}`).join(' ')
@@ -121,13 +130,15 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
         }
 
         const key = keys.join(', ')
+        const _dependencies = mergeDeps(dependencies, devDependencies)
+        if (_dependencies) sortObject(_dependencies)
 
         rangemap[resolved] = {keys, key, name}
         lf[key] = {
             version,
             resolved,
             integrity,
-            dependencies,
+            dependencies: _dependencies,
             optionalDependencies,
         }
     })

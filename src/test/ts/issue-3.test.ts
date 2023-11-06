@@ -6,7 +6,7 @@ import { suite } from 'uvu'
 import { parse, analyze, format } from '../../main/ts'
 import { checkLineByLine } from './helpers'
 
-const test = suite('issue-2')
+const test = suite('issue-3')
 
 test('processes yarn entry patches for berry', async () => {
   const base = path.resolve(__dirname, '../fixtures/issue-3')

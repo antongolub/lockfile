@@ -1,19 +1,20 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import * as process from 'node:process'
+import {TDependencies} from "./interface";
 
 export const sortObject = <T extends Record<string, any>>(
   unordered: T,
   predicate: (a: [string, any], b: [string, any]) => number = ([a], [b]) => a > b ? 1 : -1 // This is actually what npm does
 ): T =>
-    Object.entries({...unordered})
-        .sort(predicate)
-        .reduce((obj, [key, value]: [keyof T, T[keyof T]]) => {
-            obj[key] = value
-            return obj
-        },
-        flushObject(unordered) as T,
-    )
+  Object.entries({...unordered})
+    .sort(predicate)
+    .reduce((obj, [key, value]: [keyof T, T[keyof T]]) => {
+        obj[key] = value
+        return obj
+    },
+    flushObject(unordered) as T,
+  )
 
 export const flushObject = (obj: Record<string, any>) => {
     for (const key in obj) {
@@ -54,5 +55,13 @@ export const debug = Object.assign((...chunks: any[]) => {
     return temp
   }
 })
+
+export const mergeDeps = (...deps: (TDependencies|undefined)[]): TDependencies | undefined => {
+  const _deps = deps.filter(Boolean)
+  if (!_deps.length) return
+
+  return Object.assign({}, ..._deps)
+}
+
 
 export const unique = (arr: string[]): string[] => [...new Set(arr)]

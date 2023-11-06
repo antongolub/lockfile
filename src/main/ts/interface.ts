@@ -97,7 +97,7 @@ export type IFormat = (snapshot: TSnapshot, opts?: IFormatOpts) => string
 
 export type IFormatReference = (value: string, opts: any) => string | number
 
-export type IPreformat<T> = (idx: TSnapshotIndex) => T
+export type IPreformat<T> = (idx: TSnapshotIndex, opts?: IFormatOpts) => T
 
 export type ICheck = (input: string) => boolean
 
