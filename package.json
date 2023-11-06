@@ -54,7 +54,8 @@
     "build:cjs": "yarn run build:esm -- --cjs",
     "build:dts": "tsc --emitDeclarationOnly --skipLibCheck --outDir target/dts",
     "test": "yarn test:unit",
-    "test:unit": "DEBUG=true c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/'",
+    "test:unit": "c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/'",
+    "test:debug": "DEBUG=true yarn run test:unit",
     "publish:snap": "yarn build && npm publish --no-git-tag-version --tag snapshot"
   },
   "files": [
