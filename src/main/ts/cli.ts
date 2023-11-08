@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs/promises'
-import glob from 'fast-glob'
-import minimist from 'minimist'
-import { parse, format, convert } from './index'
-import { TSnapshot } from './interface'
 import * as process from 'node:process'
 import path from 'node:path'
+import { glob, minimist } from './vendor'
+import { parse, format, convert } from './index'
+import { TSnapshot } from './interface'
 
 export const parseArgv = (argv: string[] = process.argv.slice(2)) => {
   const _argv = minimist(argv, {

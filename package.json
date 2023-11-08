@@ -49,9 +49,9 @@
   },
   "scripts": {
     "build": "concurrently 'npm:build:*'",
-    "build:bin": "node ./src/scripts/build.mjs --entry='./src/main/ts/cli.ts' --no-bundle",
-    "build:esm": "node ./src/scripts/build.mjs --entry='./src/main/ts/index.ts'",
-    "build:cjs": "yarn run build:esm -- --cjs",
+    "build:bin": "node ./src/scripts/build.mjs --entry='./src/main/ts/cli.ts' --bundle=none",
+    "build:vendor": "node ./src/scripts/build.mjs --entry='./src/main/ts/vendor.ts' --bundle=all --format='cjs,esm'",
+    "build:index": "node ./src/scripts/build.mjs --entry='./src/main/ts/index.ts' --bundle=src --format='cjs,esm' --external='./src/main/ts/vendor,node:*' --map='../../src/main/ts/vendor:./vendor,../src/main/ts/vendor:./vendor'",
     "build:dts": "tsc --emitDeclarationOnly --skipLibCheck --outDir target/dts",
     "test": "yarn test:unit",
     "test:unit": "c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/'",

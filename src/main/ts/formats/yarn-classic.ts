@@ -1,4 +1,3 @@
-import {load, dump} from 'js-yaml'
 import {
     TDependencies,
     TSnapshot,
@@ -14,6 +13,7 @@ import {
 } from '../interface'
 import {parseIntegrity, formatTarballUrl, parseTarballUrl, referenceKeysSorter, normalizeDeps} from '../common'
 import {debug, mergeDeps, sortObject, unique} from '../util'
+import {yamlDump, yamlLoad} from '../vendor'
 
 const kvEntryPattern = /^(\s+)"?([^"]+)"?\s"?([^"]+)"?$/
 
@@ -49,7 +49,7 @@ export const preparse = (value: string): TYarn1Lockfile  => {
         return line
     }, '').join('\n')
 
-    return load(_value) as TYarn1Lockfile
+    return yamlLoad(_value) as TYarn1Lockfile
 }
 
 export const parse: IParse = (value: string, ...pkgs: string[]): TSnapshot => {
@@ -150,7 +150,7 @@ export const preformat: IPreformat<TYarn1Lockfile> = (idx): TYarn1Lockfile => {
 
 export const format: IFormat = (snapshot: TSnapshot): string => {
     const lf = preformat({snapshot} as TSnapshotIndex)
-    const lines: string[] = dump(lf, {
+    const lines: string[] = yamlDump(lf, {
         quotingType: '"',
         flowLevel: -1,
         lineWidth: -1,
