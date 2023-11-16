@@ -1,6 +1,6 @@
 {
   "name": "@antongolub/lockfile",
-  "version": "0.0.0-snapshot.41",
+  "version": "0.0.0-snapshot.42",
   "publishConfig": {
     "access": "public"
   },

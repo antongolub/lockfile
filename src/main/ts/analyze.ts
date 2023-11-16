@@ -42,7 +42,8 @@ const walk = (ctx: TWalkCtx) => {
       name: entry.name,
       version: entry.version,
       entry,
-      parents
+      parents,
+      depth,
     }
     if (root.dependencies?.[chunks[1]]) {
       idx.prod.add(entry)

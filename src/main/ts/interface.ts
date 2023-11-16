@@ -77,6 +77,7 @@ export interface TSnapshotIndex {
         chunks: string[]
         parents: TEntry[]
         entry: TEntry
+        depth: number
     }>
     prod: Set<TEntry>
     bound(from: TEntry, to: TEntry): void

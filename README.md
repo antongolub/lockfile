@@ -165,6 +165,7 @@ export interface TSnapshotIndex {
     name:     string
     version:  string
     entry:    TEntry
+    depth:    number // the lowest level where the dep@ver first time occurs
   }>
   prod: Set<TEntry>
   getEntryId ({name, version}: TEntry): string
@@ -182,6 +183,36 @@ export interface TSnapshotIndex {
 * many `nmtree` projections may correspond to the specified `depgraph`
 * pkg.json `resolutions` and `overrides` directives are completely ignored for now
 * pkg aliases are not _fully_ supported yet [#2](https://github.com/antongolub/lockfile/issues/2#issuecomment-1786613893)
+
+### Snippets
+Extracts all deps by depth:
+```ts
+const getDepsByDepth = (idx: TSnapshotIndex, depth = 0) => Object.values(idx.tree)
+  .filter(({depth: d}) => d === depth)
+  .map(({entry}) => entry)
+```
+
+Get the longest dep chain:
+```ts
+const getLongestChain = (): TEntry[] => {
+  let max = 0
+  let chain: TEntry[] = []
+
+  for (const e of Object.values(idx.tree)) {
+    if (e.depth > max) {
+      max = e.depth
+      chain = [...e.parents, e.entry]
+    }
+  }
+  return chain
+}
+
+constole.log(
+  getLongestChain()
+    .map((e) => idx.getEntryId(e))
+    .join(' -> ')
+)
+```
 
 ### Inspired by
 * [synp](https://github.com/imsnif/synp)
