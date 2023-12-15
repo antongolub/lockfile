@@ -35,6 +35,12 @@ const _external = _bundle
   : undefined  // https://github.com/evanw/esbuild/issues/1466
 
 const formats = format.split(',')
+const bannerData = `
+// https://github.com/evanw/esbuild/issues/1921
+const require = (await import("node:module")).createRequire(import.meta.url);
+const __filename = (await import("node:url")).fileURLToPath(import.meta.url);
+const __dirname = (await import("node:path")).dirname(__filename);
+`
 
 const esmConfig = {
   entryPoints,
@@ -67,6 +73,11 @@ const cjsConfig = {
 
 for (const format of formats) {
   const config = format === 'cjs' ? cjsConfig : esmConfig
+  if (format !== 'cjs') {
+    config.banner = {
+      js: bannerData,
+    }
+  }
 
   await esbuild
     .build(config)
@@ -85,7 +96,6 @@ async function patchOutputs (config) {
 }
 
 function fixModuleReferences (contents, ext = '.js',) {
-
   return contents.replace(
     /((?:\s|^)import\s+|\s+from\s+|\W(?:import|require)\s*\()(["'])([^"']+\/[^"']+|\.{1,2})\/?(["'])/g,
     (_matched, control, q1, from, q2) =>

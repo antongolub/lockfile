@@ -1,4 +1,3 @@
-import assert from 'node:assert'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import fg from 'fast-glob'

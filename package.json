@@ -54,7 +54,7 @@
     "build:index": "node ./src/scripts/build.mjs --entry='./src/main/ts/index.ts' --bundle=src --format='cjs,esm' --external='./src/main/ts/vendor,node:*' --map='../../src/main/ts/vendor:./vendor,../src/main/ts/vendor:./vendor'",
     "build:dts": "tsc --emitDeclarationOnly --skipLibCheck --outDir target/dts",
     "test": "yarn test:unit",
-    "test:unit": "c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/'",
+    "test:unit": "c8 -r lcov -r text -o target/coverage -x src/scripts -x src/test uvu -r tsm -i helpers 'src/test/ts/' && uvu -i helpers 'src/test/js/'",
     "test:debug": "DEBUG=true TEMP=temp yarn run test:unit",
     "publish:snap": "yarn build && npm publish --no-git-tag-version --tag snapshot"
   },
