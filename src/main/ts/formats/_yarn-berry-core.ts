@@ -515,6 +515,19 @@ export function rawConditionsScalarOfNode(graph: Graph, nodeId: string): string 
   return sidecarByGraph.get(graph)?.conditions?.get(nodeId)
 }
 
+/** The exact scalar the emitter projects for a node. The parsed sidecar remains
+ * verbatim-only; completion-added nodes derive their scalar from graph data
+ * without mutating that captured state. */
+function effectiveConditionsOfNode(
+  graph: Graph,
+  node: Node,
+  payload: TarballPayload | undefined,
+): string | undefined {
+  return rawConditionsScalarOfNode(graph, node.id)
+    ?? scalarConditionsHintOfNode(node)
+    ?? composeConditionsFromPayload(payload)
+}
+
 /** Whether a berry entry is keyed only by npm-alias descriptors and has no
  * conditions. Yarn leaves these alias-only entries without their own checksum;
  * the resolved target locator is the checksum-bearing identity. Same-format
@@ -536,14 +549,18 @@ export function isBareYarnBerryNpmAliasNode(graph: Graph, nodeId: string): boole
 /** Read-only conditions feature query for completeness assessment. */
 export function yarnBerryConditionsFeatureOf(graph: Graph): YarnBerryConditionsFeatureQuery {
   const sidecar = sidecarByGraph.get(graph)
-  const conditions = sidecar?.conditions
-  const entries = conditions === undefined
-    ? undefined
-    : [...conditions.entries()].sort(([left], [right]) => left.localeCompare(right))
+  if (sidecar === undefined) return { available: false, present: false }
+
+  const entries = Array.from(graph.nodes(), node => [
+    node.id,
+    effectiveConditionsOfNode(graph, node, graph.tarballOf(node.id)),
+  ] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1] !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
   return {
-    available: sidecar !== undefined,
-    present: entries !== undefined && entries.length > 0,
-    ...(entries === undefined || entries.length === 0
+    available: true,
+    present: entries.length > 0,
+    ...(entries.length === 0
       ? {}
       : { fingerprint: createHash('sha256').update(JSON.stringify(entries)).digest('hex') }),
   }
@@ -2316,9 +2333,7 @@ function entryOfNode(
   // scalar wins; a string node-field hint is the hand-built fallback. The syml
   // writer would quote it (spaces/`&`), so `stringifyFamily` post-unquotes the
   // `conditions:` lines to match yarn's bare emit (corrects ADR-0018 §A.v5).
-  const conditions = rawConditionsScalarOfNode(graph, node.id)
-    ?? scalarConditionsHintOfNode(node)
-    ?? composeConditionsFromPayload(payload)
+  const conditions = effectiveConditionsOfNode(graph, node, payload)
   if (conditions !== undefined) {
     if (config.conditionsAllowed) {
       entry['conditions'] = conditions

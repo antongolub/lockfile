@@ -252,7 +252,7 @@ describe('strict projection gate', () => {
     expect(error.losses?.some(loss => loss.feature === 'metadata:bin')).toBe(false)
   })
 
-  it('still rejects a target-stored field when emission loses its canonical carrier', () => {
+  it('still rejects platform metadata with no source Berry attribution', () => {
     const error = caught(
       'yarn-berry-v8',
       singleMetadataGraph(
@@ -263,7 +263,10 @@ describe('strict projection gate', () => {
     )
     expect(error.code).toBe('IRREDUCIBLE_LOSS')
     expect(error.losses?.some(loss =>
-      loss.feature === 'completeness-output-graph-mismatch')).toBe(true)
+      loss.feature === 'conditions'
+        && loss.diagnostic.code === 'COMPLETENESS_OUTPUT_FEATURE_MISMATCH')).toBe(true)
+    expect(error.losses?.some(loss =>
+      loss.feature === 'completeness-output-graph-mismatch')).toBe(false)
   })
 
   it.each([

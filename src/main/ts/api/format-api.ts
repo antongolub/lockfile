@@ -4,6 +4,7 @@ import type {
   Manifest,
   OverrideConstraint,
   PackageMetadataField,
+  TarballPayload,
 } from '../graph.ts'
 import { LockfileError } from './errors.ts'
 import type {
@@ -25,6 +26,7 @@ import {
 } from './mutation-lineage.ts'
 import { getFlatSidecar } from '../formats/_npm-core.ts'
 import { getPnpmOverridesCanonical } from '../formats/_pnpm-flat-core.ts'
+import { composeConditionsFromPayload } from '../formats/_yarn-berry-core.ts'
 import * as bunText from '../formats/bun-text.ts'
 import * as pnpmV5 from '../formats/pnpm-v5.ts'
 import * as yarnClassic from '../formats/yarn-classic.ts'
@@ -32,6 +34,7 @@ import {
   attachParsedEvidence,
 } from '../completeness/evidence.ts'
 import { detectGraphFeatures } from '../completeness/features.ts'
+import { targetProfileOf } from '../completeness/targets.ts'
 import type { ConversionContract } from '../completeness/types.ts'
 import {
   dedupeProjectionLosses,
@@ -479,7 +482,11 @@ export function canonicalProjectionGraphSnapshot(
   const projectedIntegrities = target === 'yarn-classic'
     ? yarnClassic.projectedCanonicalIntegrities(graph)
     : undefined
-  const projectedMetadataDrops = projectedStructuralMetadataDrops(graph, target)
+  const projectedMetadataDrops = projectedConditionsMetadataDrops(
+    graph,
+    target,
+    projectedStructuralMetadataDrops(graph, target),
+  )
   return canonicalGraphSnapshot(
     graph,
     contract,
@@ -489,6 +496,35 @@ export function canonicalProjectionGraphSnapshot(
     projectedIntegrities,
     projectedMetadataDrops,
   )
+}
+
+const CONDITION_METADATA_FIELDS = ['os', 'cpu', 'libc'] as const
+
+/** Berry serializes platform metadata through `conditions:` and reparses it as
+ * a scalar sidecar fact. Avoid comparing the same fact again as structured
+ * tarball metadata, but only for fields the current composer actually carries. */
+function projectedConditionsMetadataDrops(
+  graph: Graph,
+  target: FormatId,
+  structural: ReadonlyMap<string, ReadonlySet<PackageMetadataField>> | undefined,
+): ReadonlyMap<string, ReadonlySet<PackageMetadataField>> | undefined {
+  if (!target.startsWith('yarn-berry-')
+    || !targetProfileOf({ format: target }).capabilities.conditions) return structural
+
+  const projected = new Map<string, ReadonlySet<PackageMetadataField>>(structural)
+  for (const [key, payload] of graph.tarballs()) {
+    const represented = CONDITION_METADATA_FIELDS.filter(field => {
+      const values = payload[field]
+      if (values === undefined) return false
+      return composeConditionsFromPayload({ [field]: values } as TarballPayload) !== undefined
+    })
+    if (represented.length === 0) continue
+    projected.set(key, Object.freeze(new Set([
+      ...(projected.get(key) ?? []),
+      ...represented,
+    ])))
+  }
+  return projected.size === 0 ? undefined : projected
 }
 
 function projectionOutputDiagnostics(
