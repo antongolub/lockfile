@@ -1,8 +1,8 @@
 // _npm-core.ts — npm-flat-family (npm-2 / npm-3 / npm-4) shared core.
 //
 // Scope: the install-path-keyed `packages` block layout (npm
-// lockfileVersion 2 + 3). Per-version thin entries (`npm-2.ts`,
-// `npm-3.ts`) thread an `NpmFamilyConfig` through the shared parse /
+// lockfileVersion 2 + 3 + 4). Per-version thin entries (`npm-2.ts`,
+// `npm-3.ts`, `npm-4.ts`) thread an `NpmFamilyConfig` through the shared parse /
 // stringify / enrich / optimize implementations. The core itself
 // contains NO per-version branches except those routed via the
 // `topLevelShape` / `diagnosticPrefix` config fields and the optional
@@ -654,6 +654,9 @@ function addInstalledPackageNodes(context: NpmParseContext): void {
     })
     const patch = resolvedPatch?.patch
     const id = serializeNodeId(tailName, version, [], patch, source)
+    if (resolvedPatch?.diagnostic !== undefined) {
+      diagnostics.push(resolvedPatch.diagnostic)
+    }
     if (resolvedPatch?.normalised === true) {
       diagnostics.push(patchNormalizedDiagnostic(id))
     }
@@ -1193,7 +1196,7 @@ function deriveInstallPathsForStringify(
   // ordering, the fallback assigned `node_modules/<name>` by node-ID sort
   // and any root-direct edge to a non-lexicographically-first version then
   // collided at root (e.g. a root-direct `pkg@0.0.10` vs a deeper
-  // `pkg@1.0.0`). Node-flat sources (npm-2 / npm-3) carry sidecar
+  // `pkg@1.0.0`). Node-flat sources (npm-2 / npm-3 / npm-4) carry sidecar
   // install paths that have already filled every position above, so this
   // BFS is a no-op for them.
   // ADR-0026 replay vs generate. When every resolved node carries a
@@ -1427,7 +1430,7 @@ function reportPatchDrop(
   patchEmitDropped(
     node.id,
     'patch',
-    `npm-${config.lockfileVersion} has no patch: protocol; ${JSON.stringify(node.patch)} dropped`,
+    `npm-${config.lockfileVersion} cannot faithfully emit ${JSON.stringify(node.patch)} from the available native adapter state; patch dropped`,
     emitDiagnostic,
   )
 }

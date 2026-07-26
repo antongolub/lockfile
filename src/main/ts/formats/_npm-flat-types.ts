@@ -130,7 +130,11 @@ export interface NpmFamilyHooks {
     source?: string
     entry: NpmEntry
     options: NpmFamilyParseOptions
-  }) => Readonly<{ patch: string; normalised?: boolean }> | undefined
+  }) => Readonly<{
+    patch: string
+    normalised?: boolean
+    diagnostic?: Diagnostic
+  }> | undefined
   // Capture per-entry adapter state during pass-2 of parse (e.g.
   // npm-2 mirror's `resolved` URL by NodeId).
   captureEntry?: (srcId: string, entry: NpmEntry) => void
@@ -292,7 +296,7 @@ export interface NpmRootMeta {
   npmExtensionHash?: string
 }
 
-// Per-NodeId sidecar shared by every flat-family adapter (npm-2 + npm-3).
+// Per-NodeId sidecar shared by every flat-family adapter (npm-2/3/4).
 // Fields here are layout-agnostic; npm-2-only mirror-emit recovery state
 // lives in a SEPARATE WeakMap maintained by `_npm-2-mirror.ts`.
 export interface NpmFlatSidecar {

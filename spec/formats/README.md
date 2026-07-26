@@ -1,6 +1,6 @@
 # Format specifications
 
-> Updated: 2026-06-16.
+> Updated: 2026-07-26.
 
 Per-adapter specs. Each document follows [`_template.md`](./_template.md) and
 captures: compatibility, filename/encoding, sources, schema sketch, capability
@@ -30,6 +30,7 @@ Every spec declares its provenance to set expectations:
 | `npm-1`            | `lockfileVersion: 1`        | Official            | [npm-1.md](./npm-1.md) |
 | `npm-2`            | `lockfileVersion: 2`        | Official            | [npm-2.md](./npm-2.md) |
 | `npm-3`            | `lockfileVersion: 3`        | Official            | [npm-3.md](./npm-3.md) |
+| `npm-4`            | `lockfileVersion: 4`        | Source-only         | [npm-4.md](./npm-4.md) |
 | `yarn-classic`     | header comment only         | Source-only         | [yarn-classic.md](./yarn-classic.md) |
 | `yarn-berry-v3`    | `__metadata.version: 3` (RC-only) | Source-only   | [yarn-berry-v3.md](./yarn-berry-v3.md) |
 | `yarn-berry-v4`    | `__metadata.version: 4`     | Source-only         | [yarn-berry-v4.md](./yarn-berry-v4.md) |
@@ -62,23 +63,25 @@ treat as design intent until validated by the [test bench](../08-test-bench.md).
 
 ### npm
 
-| npm semver  | `npm-1` | `npm-2` | `npm-3` | Notes |
-|-------------|---------|---------|---------|-------|
-| `>=5 <7`    | RW (default) | – | – | introduced lockfileVersion |
-| `>=7 <9`    | RW (opt-in)  | RW (default) | RW (opt-in) | added `--lockfile-version` |
-| `>=9`       | R           | RW (opt-in) | RW (default) | dropped v1 *writer* |
+| npm semver  | `npm-1` | `npm-2` | `npm-3` | `npm-4` | Notes |
+|-------------|---------|---------|---------|---------|-------|
+| `>=5 <7`    | RW (default) | – | – | – | introduced lockfileVersion |
+| `>=7 <9`    | RW (opt-in)  | RW (default) | RW (opt-in) | – | added `--lockfile-version` |
+| `>=9 <12`   | R | RW (opt-in) | RW (default) | – | dropped v1 *writer* |
+| `>=12`      | R | RW (opt-in) | RW (default) | RW (feature-triggered) | `npm patch`, `packageExtensions`, or `.npm-extension` activates v4 |
 
 ### yarn
 
-| yarn semver       | `yarn-classic` | `yarn-berry-v4` | `yarn-berry-v5` | `yarn-berry-v6` | `yarn-berry-v7` | `yarn-berry-v8` | `yarn-berry-v9` | Notes |
-|-------------------|----------------|------------------|------------------|------------------|------------------|------------------|------------------|-------|
-| `>=1 <2`          | RW (default)   | – | – | – | – | – | – | classic line ends here |
-| `>=2 <3.1`        | R (`yarn import`) | RW (default) | – | – | – | – | – | empirically verified yarn 2.4.3 emits `__metadata.version: 4` |
-| `=3.1`            | R (`yarn import`) | R | RW (default) | – | – | – | – | one-minor v5 window; yarn 3.1.0 only |
-| `>=3.2 <4`        | R (`yarn import`) | R | R | RW (default) | – | – | – | jumps to v6 in 3.2.0 |
-| Yarn 4 RC window  | R (`yarn import`) | R | R | R | RW (default)    | – | – | `4.0.0-rc.27..rc.X`: transitional default before stable cut to v8 |
-| `>=4 <4.14`       | R (`yarn import`) | R | R | R | R                | RW (default) | – | stable Yarn 4 jumped to v8 at the 4.0 cut; reads v7 RC artefacts |
-| `>=4.14`          | R (`yarn import`) | R | R | R | R                | R            | RW (default) | bumped to v9 in 4.14.0 (2026-04-16) |
+| yarn semver       | `yarn-classic` | `yarn-berry-v4` | `yarn-berry-v5` | `yarn-berry-v6` | `yarn-berry-v7` | `yarn-berry-v8` | `yarn-berry-v9` | `yarn-berry-v10` | Notes |
+|-------------------|----------------|------------------|------------------|------------------|------------------|------------------|------------------|-------------------|-------|
+| `>=1 <2`          | RW (default)   | – | – | – | – | – | – | – | classic line ends here |
+| `>=2 <3.1`        | R (`yarn import`) | RW (default) | – | – | – | – | – | – | empirically verified yarn 2.4.3 emits `__metadata.version: 4` |
+| `=3.1`            | R (`yarn import`) | R | RW (default) | – | – | – | – | – | one-minor v5 window; yarn 3.1.0 only |
+| `>=3.2 <4`        | R (`yarn import`) | R | R | RW (default) | – | – | – | – | jumps to v6 in 3.2.0 |
+| Yarn 4 RC window  | R (`yarn import`) | R | R | R | RW (default) | – | – | – | transitional default before stable cut to v8 |
+| `>=4 <4.14`       | R (`yarn import`) | R | R | R | R | RW (default) | – | – | stable Yarn 4 jumped to v8 at the 4.0 cut |
+| `>=4.14 <4.17.1`  | R (`yarn import`) | R | R | R | R | R | RW (default) | – | v9 window |
+| `>=4.17.1`        | R (`yarn import`) | R | R | R | R | R | R | RW (default) | stable Yarn 4.17.1 bumped to v10 |
 
 ### pnpm
 

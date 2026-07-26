@@ -1,10 +1,11 @@
 # Package-manager-derived lock entries
 
-> Status: **native-probed and corpus-measured reference** for Yarn-derived
+> Status: **native-probed and corpus-measured reference** for PM-derived
 > package facts.
 > Updated: 2026-07-26.
 > Provenance: official Yarn source plus byte-identical native probes against
-> pinned Yarn 4.13.0 and 4.14.1 releases.
+> pinned Yarn 4.13.0 and 4.14.1 releases, and npm 12.0.1 native patch /
+> extension artifacts.
 > Layer: package-manager behavior — the lockfile byte grammar remains in
 > [`spec/formats/`](../formats/).
 
@@ -35,6 +36,14 @@ Derived behavior is classified by the fact the package manager adds:
 One behavior may span the three kinds. The `fsevents` builtin-compat behavior
 uses all three; `resolve` and `typescript` use the derived-locator and
 derived-artifact kinds but need no manifest injection.
+
+The taxonomy classifies **what fact the package manager derived**, not how many
+rows its lockfile uses to store that fact. Yarn's builtin patch protocol records
+a registry base and a derived `patch:` sibling. npm 12's native patch semantics
+belong to the same derived-locator / artifact-fact classes but are stored as one
+installed entry carrying `patched: { integrity, path }`. A converter must follow
+the producer artifact and must not manufacture npm base/sibling rows by analogy
+with Yarn.
 
 This is not a license to infer arbitrary PM behavior. Each target-derived
 behavior is a profile row keyed by the package, resolved version, builtin

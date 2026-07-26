@@ -97,19 +97,21 @@ Generated format codes use the following notation in the tables:
 | `BUN_TEXT_PEER_VIRT_FLATTENED` | warning | Peer-virtual identity was flattened because Bun text cannot encode it. | Accept the loss or target a peer-virtual-capable format. |
 | `NPM_BAD_ENTRY` | warning | An npm entry is malformed or incomplete and was skipped/degraded. | Regenerate the package lock or repair that entry. |
 | `NPM_UNRESOLVED_DEP` | warning | An npm dependency path/range could not be bound to a node. | Restore the missing package entry or manifest evidence. |
-| `NPM_V1_WORKSPACES_UNSAFE` | warning | npm v1 cannot faithfully represent the workspace graph. | Emit npm v2/v3 or use a project-level conversion. |
-| `NPM_V1_PEER_DROPPED` | warning | npm v1 has no peer representation for the edge. | Choose npm v2/v3 or accept the loss. |
+| `NPM_V1_WORKSPACES_UNSAFE` | warning | npm v1 cannot faithfully represent the workspace graph. | Emit npm v2/v3/v4 or use a project-level conversion. |
+| `NPM_V1_PEER_DROPPED` | warning | npm v1 has no peer representation for the edge. | Choose npm v2/v3/v4 or accept the loss. |
 | `NPM_V1_PEER_UNSATISFIED` | warning | No npm v1 ancestor satisfies a peer range. | Correct/pin the peer dependency. |
 | `NPM_V1_PEER_AMBIGUOUS` | warning | Multiple npm v1 candidates could satisfy the peer and no safe choice exists. | Supply authoritative layout/manifests or disambiguate versions. |
 | `NPM_V1_NO_MANIFESTS` | warning | npm v1 peer/layout reconstruction needed manifests that were not supplied. | Pass complete manifests. |
 | `NPM_V1_PEER_VIRT_FLATTENED` | warning | Peer-virtual identity was flattened for npm v1. | Use a target that preserves peer instances or accept the loss. |
 | `NPM_V2_DUAL_MODE_DRIFT` | warning | npm v2's root dependency view and legacy package mirror disagree. | Regenerate the lock or resolve the two representations. |
-| `NPM_V{2,3}_ROOT_VERSION_SYNTHESIZED` | info | The adapter supplied the canonical synthetic workspace-root version. | No action unless a real root manifest version should be supplied. |
-| `NPM_V{2,3}_WORKSPACE_MEMBER_SYNTHESIZED` | info | A workspace package entry was synthesized from canonical graph state. | Supply complete manifests when exact package metadata matters. |
-| `NPM_V{2,3}_UNEXPECTED_LEGACY_MIRROR` | warning | A modern npm lock contains an unexpected legacy mirror that disagrees with canonical data. | Regenerate with the intended npm version. |
-| `NPM_V{2,3}_PEER_UNSATISFIED` | warning | No layout ancestor satisfies a peer range. | Correct/pin the peer or provide compatible layout evidence. |
-| `NPM_V{2,3}_PEER_AMBIGUOUS` | warning | Several layout candidates can satisfy a peer with no unique binding. | Disambiguate the layout/version set. |
-| `NPM_V{2,3}_PEER_VIRT_FLATTENED` | warning | npm cannot encode the source peer-virtual identity exactly. | Accept projection loss or use a preserving target. |
+| `NPM_V{2,3,4}_ROOT_VERSION_SYNTHESIZED` | info | The adapter supplied the canonical synthetic workspace-root version. | No action unless a real root manifest version should be supplied. |
+| `NPM_V{2,3,4}_WORKSPACE_MEMBER_SYNTHESIZED` | info | A workspace package entry was synthesized from canonical graph state. | Supply complete manifests when exact package metadata matters. |
+| `NPM_V{3,4}_UNEXPECTED_LEGACY_MIRROR` | warning | A packages-only npm lock contains an unexpected legacy mirror that disagrees with canonical data. | Regenerate with the intended npm version. |
+| `NPM_V{2,3,4}_PEER_UNSATISFIED` | warning | No layout ancestor satisfies a peer range. | Correct/pin the peer or provide compatible layout evidence. |
+| `NPM_V{2,3,4}_PEER_AMBIGUOUS` | warning | Several layout candidates can satisfy a peer with no unique binding. | Disambiguate the layout/version set. |
+| `NPM_V{2,3,4}_PEER_VIRT_FLATTENED` | warning | npm cannot encode the source peer-virtual identity exactly. | Accept projection loss or use a preserving target. |
+| `NPM_V4_PATCH_UNRESOLVED` | warning | npm v4 patch bytes were unavailable, so canonical identity is an unresolved sentinel while the native carrier is preserved. | Pass the project `workspaceRoot` with the patch file present before cross-format work. |
+| `NPM_V4_PATCH_INTEGRITY_MISMATCH` | warning | Available npm v4 patch bytes do not match the native raw-byte SRI; canonical identity follows the bytes while the SRI is preserved. | Restore the patch file recorded by the lock or regenerate the lock with npm 12. |
 | `PNPM_BAD_ENTRY` | warning | A pnpm package/snapshot entry is malformed or incomplete. | Regenerate `pnpm-lock.yaml` or fix the entry. |
 | `PNPM_UNRESOLVED_DEP` | warning | A pnpm dependency reference could not be bound to a package/snapshot. | Restore the missing record or provide manifests. |
 | `PNPM_WORKSPACE_PEER_ATTR_MISSING` | warning | Workspace-peer projection lacks the original peer attribute needed for faithful output. | Supply complete manifest/evidence data. |

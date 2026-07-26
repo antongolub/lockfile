@@ -71,6 +71,18 @@ function cloneJson(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJson(item)]))
 }
 
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJsonValue)
+  if (!isRecord(value)) return value
+  return Object.fromEntries(
+    Object.keys(value).sort().map(key => [key, stableJsonValue(value[key])]),
+  )
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(stableJsonValue(left)) === JSON.stringify(stableJsonValue(right))
+}
+
 function captureApplied(
   value: unknown,
   field: 'packageExtensionsApplied' | 'npmExtensionApplied',
@@ -80,6 +92,11 @@ function captureApplied(
   if (value === undefined) return
   if (!isRecord(value)) {
     throw parseFailed(`packages[${JSON.stringify(path)}].${field} must be an object`)
+  }
+  if (sidecar[field] !== undefined && !jsonValuesEqual(sidecar[field], value)) {
+    throw parseFailed(
+      `multiple install paths for one node disagree on ${field} at ${JSON.stringify(path)}`,
+    )
   }
   sidecar[field] = cloneJson(value)
 }
@@ -141,19 +158,32 @@ const NPM4_HOOKS: NpmFamilyHooks = {
         patch: sentinelHashOf(
           `npm-4:${name}@${version}:${carrier.path}:${carrier.integrity}`,
         ),
+        diagnostic: {
+          code: 'NPM_V4_PATCH_UNRESOLVED',
+          subject: `${name}@${version}`,
+          severity: 'warning',
+          message: options.workspaceRoot === undefined
+            ? 'workspaceRoot is unavailable; preserving native patch carrier with an unresolved canonical identity'
+            : `patch file ${JSON.stringify(carrier.path)} is unavailable; preserving native carrier with an unresolved canonical identity`,
+        },
       }
     }
 
     const rawDigest = createHash('sha512').update(bytes).digest('hex')
-    if (rawDigest !== carrier.digest) {
-      throw parseFailed(
-        `patch bytes for ${name}@${version} do not match ${carrier.integrity}`,
-      )
-    }
     const canonical = hashAndNormalizeBytes(bytes)
     return {
       patch: canonical.hash,
       ...(canonical.normalised ? { normalised: true } : {}),
+      ...(rawDigest === carrier.digest ? {} : {
+        diagnostic: {
+          code: 'NPM_V4_PATCH_INTEGRITY_MISMATCH',
+          subject: `${name}@${version}`,
+          severity: 'warning',
+          message:
+            `patch bytes for ${name}@${version} do not match ${carrier.integrity}; `
+            + 'computed canonical identity from the available bytes and preserved the native SRI verbatim',
+        },
+      }),
     }
   },
 

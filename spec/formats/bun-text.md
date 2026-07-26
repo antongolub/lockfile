@@ -133,6 +133,11 @@ this is only how bun-text *carries* it.
 - `lockfileVersion: 1` for bun-text refers to bun's own text-format version,
   unrelated to npm's `lockfileVersion: 1`. Real-world `bun.lock` files also
   carry a sibling `configVersion` integer the adapter currently ignores.
+- The adapter intentionally accepts only current `lockfileVersion: 1`. Early
+  text locks with `lockfileVersion: 0` exist in released Bun builds but are not
+  yet supported and fail closed. An unreleased Rust-rewrite branch also emits
+  `lockfileVersion: 2`; that schema is queued separately and is not accepted as
+  current Bun behavior until it ships.
 - JSONC parser must tolerate trailing commas and line comments.
 - The empty-string workspace key (`""`) is the root project.
 - `overrides` is bun's forced-resolution mechanism — the npm/bun analog of yarn
@@ -161,7 +166,7 @@ this is only how bun-text *carries* it.
 |---------|--------|
 | `trustedDependencies` → npm-*, yarn-*, pnpm-* | **strip** (it is bun-only; survives only a bun→bun round-trip via the sidecar) |
 | `overrides` → yarn-* | **strip** with `INTEROP_OVERRIDE_NOT_PROJECTED` (yarn carries no lockfile overrides block) — same as every other source |
-| `overrides` → npm-2/3, pnpm | **project** through the canonical `OverrideConstraint[]` (npm-shaped block ⇒ npm/pnpm projection) |
+| `overrides` → npm-2/3/4, pnpm | **project** through the canonical `OverrideConstraint[]` (npm-shaped block ⇒ npm/pnpm projection) |
 | `patchedDependencies` → non-bun | **strip** (bun-only patch-map shape) |
 | Per-node `Node.patch` (recipe form) → bun-text | **drop** with `RECIPE_FEATURE_DROPPED` (no per-node patch protocol; only the top-level `patchedDependencies` map) |
 | Positional encoding | not user-visible — internal only |
@@ -188,3 +193,7 @@ covered in `src/test/unit/bun-text.test.ts`.
 > **Open:** the always-empty slot-1 registry marker (`""`) — does bun ever
 > populate it for a non-default registry? No sample observed yet; the adapter
 > emits `""` unconditionally.
+>
+> **Queued schema work:** add a compatibility reader for released v0 text
+> locks, and add a distinct v2 adapter only after the Rust rewrite ships and a
+> released native oracle can pin its bytes. Do not widen the v1 detector.

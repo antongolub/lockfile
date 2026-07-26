@@ -221,6 +221,59 @@ describe('infra: frozen conversion native oracle', () => {
     expect(oracle.receipt!.configDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
   }, 60_000)
 
+  fullMatrixIt('materializes external Yarn patch files for frozen verification', () => {
+    const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === 'pm-yarn-berry-v9')!
+    const patchPath = '.yarn/patches/ms.patch'
+    const patch = `diff --git a/index.js b/index.js
+--- a/index.js
++++ b/index.js
+@@ -1,5 +1,6 @@
+ /**
++ * Lockgraph frozen-oracle external patch marker.
+  * Helpers.
+  */
+${' '}
+ var s = 1000;
+`
+    const manifest = {
+      name: 'lockgraph-frozen-oracle-yarn-external-patch',
+      version: '1.0.0',
+      private: true,
+      packageManager: packageManager(adapter),
+      dependencies: { ms: '2.1.3' },
+      resolutions: {
+        'ms@npm:2.1.3': `patch:ms@npm%3A2.1.3#./${patchPath}`,
+      },
+    }
+    const files = createNativeLock(adapter, {
+      'package.json': `${JSON.stringify(manifest, null, 2)}\n`,
+      '.yarnrc.yml': 'nodeLinker: node-modules\nenableScripts: false\nunsafeHttpWhitelist:\n  - 127.0.0.1\n',
+      [patchPath]: patch,
+    })
+    const lockfile = String(files['yarn.lock'])
+    expect(lockfile).toContain(`#./${patchPath}`)
+    const projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify({
+      target: { format: adapter.format, managerVersion: adapter.version },
+      lockfile,
+      companions: [],
+    })).digest('hex')}`
+    const candidate: FrozenOracleCandidate = Object.freeze({
+      protocol: 'lockgraph-frozen-projection/v1',
+      target: Object.freeze({ format: adapter.format, managerVersion: adapter.version }),
+      projectionDigest,
+      lockfile,
+      companions: Object.freeze([]),
+    })
+
+    const oracle = runFrozenOracle(candidate, adapter, files)
+    expect(oracle.reason).toBeUndefined()
+    expect(oracle.receipt).toMatchObject({
+      target: candidate.target,
+      projectionDigest,
+      verification: 'frozen-verified',
+    })
+  }, 60_000)
+
   for (const adapter of FROZEN_ORACLE_MATRIX.filter(adapterSelected)) {
     const runnable = runnableFor(adapter)
     runnable.run(`${adapter.alias} accepts one exact byte-stable candidate${runnable.suffix}`, () => {

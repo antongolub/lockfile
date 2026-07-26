@@ -1,0 +1,12 @@
+{
+  "name": "lockgraph-npm-v4-discovery",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "npm@12.0.1",
+  "dependencies": {
+    "is-number": "7.0.0"
+  },
+  "patchedDependencies": {
+    "is-number@7.0.0": "patches/is-number@7.0.0.patch"
+  }
+}

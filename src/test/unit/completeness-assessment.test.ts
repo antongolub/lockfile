@@ -22,6 +22,7 @@ const fixture = (file: string): string =>
 describe('targetProfileOf', () => {
   it('derives managers and keeps load-bearing unknown versions ambiguous', () => {
     expect(targetProfileOf({ format: 'npm-3' }).manager).toBe('npm')
+    expect(targetProfileOf({ format: 'npm-4' }).manager).toBe('npm')
     expect(targetProfileOf({ format: 'yarn-berry-v9' }).manager).toBe('yarn')
     expect(targetProfileOf({ format: 'pnpm-v9' }).manager).toBe('pnpm')
     expect(targetProfileOf({ format: 'bun-text' }).manager).toBe('bun')
@@ -43,6 +44,14 @@ describe('targetProfileOf', () => {
       format: 'npm-2',
       managerVersion: '8.3.0',
     }).capabilities.overridesConfigLocation).toBe('manifest')
+    expect(targetProfileOf({
+      format: 'npm-4',
+      managerVersion: '12.0.1',
+    }).capabilities.patches).toBe(true)
+    expect(() => targetProfileOf({
+      format: 'npm-4',
+      managerVersion: '11.18.0',
+    })).toThrowError('incompatible with npm-4')
     expect(targetProfileOf({
       format: 'pnpm-v9',
       managerVersion: '11.0.0',
