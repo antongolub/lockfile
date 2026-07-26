@@ -367,3 +367,63 @@ is sound and non-masking: a payload becomes empty only when its sole content was
 and any non-allowlisted field keeps the payload non-empty and still compared. (Reported by
 yarn-audit-fix as CASE-A; the paired CASE-B — override-out-of-range entry keying — is a genuine
 projection defect the self-check correctly rejects, fixed separately in the yarn-classic emitter.)
+
+## §9 Revision (2026-07-26) — Manifest-extension knowledge is independent of registry authority
+
+Package managers may extend a published package manifest before resolution.
+pnpm `packageExtensions` and `.pnpmfile.cjs` hooks can add dependency, optional,
+peer, or peer-metadata facts that the registry manifest does not contain. Such a
+difference is not contradictory registry evidence and must not roll back an
+otherwise valid transitive completion.
+
+`CompletenessProfile` therefore carries an independent `manifestKnowledge`
+axis:
+
+- `faithful` — there is no positive evidence that the represented dependency
+  declarations were extended;
+- `extended-unknown` — positive config evidence proves extension, but no
+  fingerprint is available; and
+- `extended-fingerprinted` — positive extension evidence includes an opaque
+  package-manager fingerprint.
+
+Absence of config evidence never demotes the axis. In particular, Yarn does not
+record `.yarnrc.yml#packageExtensions` in its lock, so a lock-only Berry parse
+remains `faithful`; it becomes `extended-unknown` only when the caller supplies
+positive config evidence. pnpm lock-borne non-empty
+`packageExtensionsChecksum` or `pnpmfileChecksum` values are positive
+`extended-fingerprinted` evidence. Their opaque values are retained but are not
+used to reconstruct the unrecoverable grafted declaration delta.
+
+When this axis is not `faithful`, a registry comparison that differs only in
+the extension-capable dependency fields is surfaced as
+`COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH`. It is diagnostic
+evidence, not a conflict, and cannot reject or roll back completion. Identity,
+artifact, integrity, and non-extension metadata differences remain
+authoritative conflicts and retain the fail-closed behavior. The axis is
+reported by assessment as a knowledge floor; neither extended state is itself
+an unsatisfied requirement.
+
+Adding the explicit axis changes the serialized assessment for every measured
+fixture, including clean locks whose value is `faithful`. The deterministic
+measurement baseline is therefore intentionally re-pinned as follows:
+
+The axis is hashed into the assessment payload, but the measurement report
+does not surface that payload or the literal axis value. It exposes only the
+derived `crossFormatAssessment.assessmentDigest` and
+`crossFormatAssessment.digest`; those are the only measured values that change
+per fixture before the enclosing result digest is recomputed. Parse,
+stringify, same-format round-trip, mutation, enrichment, and graph digests
+remain unchanged.
+
+| Fixture | Previous result digest | ManifestKnowledge result digest |
+| --- | --- | --- |
+| `npm-small` | `sha256:99497ab1983d558a8bb5b012dcbddaf0781c02dea83f9af386c0b640bacd8230` | `sha256:fe947e93301b771b13cf5795fdc1ab418f079ab87f0571b420ec87d81246dfe4` |
+| `npm-large` | `sha256:c3f3392358672c4db8523dd9818d469196d804d365e722332de4c5d6b51b8c2` | `sha256:3abb2ffc307c3ded4cf4f8899a5efc9741e5eff5fbd9687983a0bb35c4d0e723` |
+| `pnpm-small` | `sha256:f299a7aaa3fef681b29b83e06fa0082b33e5f311dbdf2ca649bd9870fa7b6afc` | `sha256:9bde016290063faabfd64c2c60513dc4b3b8a0c199d29238e9866cf27ab881a4` |
+| `pnpm-large` | `sha256:1e3a188248220ef6495d4eb2999a1c5673da9b42e2e6763c41a5bcaf38d14b68` | `sha256:54025b1660b21a1854eccb83a2e65364b30ffc8532592aeeaf17ca667e53ec12` |
+| `berry-small` | `sha256:297f471d092f7cb9eb488db3a0a82c76911e38773021a3b2e14b9189b9a2ac9e` | `sha256:d43f45bc93868ed37d36e9decbe1f90c0fefd0c7483a5aacd31b956af8ee2daa` |
+| `berry-large` | `sha256:bb0280e9b5cd0f21aa5f05f966e5d04ec37d6fd36b8fd84a0036aa17c2455155` | `sha256:885667c22f76c15b87b256f2380dca017c95bc290cb38497d52985ec1811eafd` |
+| `lockgraph-small` | `sha256:75f4b64d9923373dc730d30fbc1989dd711662dd9face63b3bcaa8011098394c` | `sha256:f93befaddda0d97a996790ce450210024687715edbb9c44b1b07dd578a57c1f7` |
+| `lockgraph-large` | `sha256:a6ae5e867d0a1f34d21b6e06fe5bc13d0f7f4811f77fb41f36be1d9c7d2def22` | `sha256:56d8f149ff67a4c21924beae20e45aaa28fe7a2c2ae2aaef524044ec85002038` |
+
+Fresh repeated measurement reproduces all eight new fixture/result pairs.

@@ -17,6 +17,7 @@ export type FormatId =
   | 'npm-1'
   | 'npm-2'
   | 'npm-3'
+  | 'npm-4'
   | 'pnpm-v5'
   | 'pnpm-v6'
   | 'pnpm-v9'
@@ -26,7 +27,7 @@ export type FormatId =
 export interface ParseOptions {
   /**
    * Filesystem root for adapter parse hooks that read out-of-lockfile
-   * sources (yarn-berry / pnpm v6 / pnpm v9 patch byte hashing per
+   * sources (yarn-berry / pnpm v6 / pnpm v9 / npm-4 patch byte hashing per
    * ADR-0014 §4.F2). Adapters without out-of-lockfile reads ignore it.
    */
   workspaceRoot?: string

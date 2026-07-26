@@ -12,10 +12,14 @@ default, and which can install from it. Adapter ids match the
 |------------|--------|----------------|--------|
 | `npm-1`    | `lockfileVersion: 1` | npm `>=5 <7` | npm `>=5` |
 | `npm-2`    | `lockfileVersion: 2` | npm `>=7 <9` | npm `>=7` |
-| `npm-3`    | `lockfileVersion: 3` | npm `>=9`    | npm `>=7` |
+| `npm-3`    | `lockfileVersion: 3` | npm `>=9` (default unless v4 features are active) | npm `>=7` |
+| `npm-4`    | `lockfileVersion: 4` | npm `>=12` (patch / extension features) | npm `>=12` |
 
 `npm install --lockfile-version=N` overrides the writer choice within
-the supported range.
+the supported range. npm 12 still writes v3 for an ordinary project; native
+`npm patch`, `packageExtensions`, or `.npm-extension` state activates v4.
+npm 11 can accept a v4-shaped file without a syntax error but does not apply
+its patch semantics, so it is not a compatible v4 reader.
 
 ## yarn
 
@@ -33,7 +37,7 @@ berry's `__metadata`.
 | `yarn-berry-v6`   | `__metadata.version: 6`      | yarn `>=3.2 <4`      | yarn `>=3.2` |
 | `yarn-berry-v8`   | `__metadata.version: 8`      | yarn `>=4.0 <4.14`   | yarn `>=4` |
 | `yarn-berry-v9`   | `__metadata.version: 9`      | yarn `>=4.14`        | yarn `>=4.14` |
-| `yarn-berry-v10`  | `__metadata.version: 10`     | yarn 5 (dev branch)  | yarn 5+ (preview — reverse-engineered from yarnpkg/berry master) |
+| `yarn-berry-v10`  | `__metadata.version: 10`     | yarn `>=4.17.1`      | yarn `>=4.17.1` |
 
 **Schema numbers that don't exist:**
 - `__metadata.version: 1` and `2` were never used by berry.
@@ -68,6 +72,10 @@ the resulting `bun.lock` via the `bun-text` adapter. bun's own
 binary reader stays in bun for back-compat — that is bun's
 responsibility, not ours.
 
+`bun-text` currently accepts only `lockfileVersion: 1`. Released early v0 text
+locks fail closed; an unreleased Rust-rewrite v2 is queued as a distinct future
+schema and is not detected as v1.
+
 ## Sources
 
 Where each schema is canonically defined. Permalinks pinned at specific
@@ -81,6 +89,12 @@ release tags / commits so claims here stay anchored.
   — schema reference for v3.
 - [GitHub: dependency-graph and Dependabot support npm v9](https://github.blog/changelog/2023-03-10-dependency-graph-and-dependabot-support-npm-v9/)
   — confirms v3 drops the legacy `dependencies` mirror.
+- npm 12.0.1 native-output corpus — v4 `patched`,
+  `packageExtensionsHash` / `packageExtensionsApplied`, and
+  `npmExtensionHash` / `npmExtensionApplied` carriers. npm has not yet
+  published a standalone v4 schema document; see
+  [`spec/formats/npm-4.md`](./spec/formats/npm-4.md) for the pinned empirical
+  contract.
 
 ### yarn
 
@@ -93,7 +107,9 @@ release tags / commits so claims here stay anchored.
 - [`Project.ts` at @yarnpkg/cli/4.0.0](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.0.0/packages/yarnpkg-core/sources/Project.ts)
   — bumps to 8; `YARN_LOCKFILE_VERSION_OVERRIDE` env var introduced here.
 - [`Project.ts` at @yarnpkg/cli/4.14.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.14.1/packages/yarnpkg-core/sources/Project.ts)
-  — current `LOCKFILE_VERSION = 9`.
+  — v9 baseline.
+- [`Project.ts` at @yarnpkg/cli/4.17.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.17.1/packages/yarnpkg-core/sources/Project.ts)
+  — stable `LOCKFILE_VERSION = 10`.
 - [Yarn 4.0 release blog](https://yarnpkg.com/blog/release/4.0)
   — narrative context (no explicit lockfile-bump mention).
 
@@ -118,4 +134,3 @@ release tags / commits so claims here stay anchored.
   — text format introduced in 1.1.39, default in 1.2.
 - [`bun-lock` source](https://github.com/oven-sh/bun) — `src/install/lockfile.zig`
   for the binary serializer.
-

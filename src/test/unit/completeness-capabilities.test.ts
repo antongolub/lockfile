@@ -14,6 +14,7 @@ const formats: readonly FormatId[] = [
   'npm-1',
   'npm-2',
   'npm-3',
+  'npm-4',
   'pnpm-v5',
   'pnpm-v6',
   'pnpm-v9',
@@ -31,6 +32,7 @@ describe('sourceCapabilitiesOf', () => {
         edgeKinds: expect.any(String),
         peerModel: expect.any(String),
         resolutionPolicy: expect.any(String),
+        manifestKnowledge: 'faithful',
         packageMetadata: expect.any(String),
         artifacts: expect.any(String),
         layout: expect.any(String),
@@ -41,6 +43,12 @@ describe('sourceCapabilitiesOf', () => {
 
   it('uses complete graph and edge-kind floors only where the lock encodes them', () => {
     expect(sourceCapabilitiesOf('npm-3').floor).toMatchObject({
+      projectTopology: 'complete',
+      resolvedGraph: 'complete',
+      edgeKinds: 'partial',
+      peerModel: 'declared',
+    })
+    expect(sourceCapabilitiesOf('npm-4').floor).toMatchObject({
       projectTopology: 'complete',
       resolvedGraph: 'complete',
       edgeKinds: 'partial',

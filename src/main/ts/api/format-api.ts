@@ -4,6 +4,7 @@ import type {
   Manifest,
   OverrideConstraint,
   PackageMetadataField,
+  TarballPayload,
 } from '../graph.ts'
 import { LockfileError } from './errors.ts'
 import type {
@@ -24,14 +25,21 @@ import {
   attachParsedMutationLineage,
 } from './mutation-lineage.ts'
 import { getFlatSidecar } from '../formats/_npm-core.ts'
-import { getPnpmOverridesCanonical } from '../formats/_pnpm-flat-core.ts'
+import { npm4ManifestExtensionFeatureOf } from '../formats/npm-4.ts'
+import {
+  getPnpmOverridesCanonical,
+  pnpmManifestExtensionFeatureOf,
+} from '../formats/_pnpm-flat-core.ts'
+import { composeConditionsFromPayload } from '../formats/_yarn-berry-core.ts'
 import * as bunText from '../formats/bun-text.ts'
 import * as pnpmV5 from '../formats/pnpm-v5.ts'
 import * as yarnClassic from '../formats/yarn-classic.ts'
 import {
   attachParsedEvidence,
+  type InternalEvidenceState,
 } from '../completeness/evidence.ts'
 import { detectGraphFeatures } from '../completeness/features.ts'
+import { targetProfileOf } from '../completeness/targets.ts'
 import type { ConversionContract } from '../completeness/types.ts'
 import {
   dedupeProjectionLosses,
@@ -48,6 +56,9 @@ import { captureOverrides, reportYarnOverridesNotProjected, type OverridePM } fr
 import { governingOverrideFor } from '../recipe/descriptor-resolve.ts'
 import type { Integrity } from '../recipe/integrity.ts'
 import type { ResolutionCanonical } from '../recipe/resolution.ts'
+import {
+  yarnBerryPluginCompatGapDiagnostics,
+} from '../enrich/yarn-berry-plugin-compat.ts'
 import {
   getManifestOverrides,
   mergeOverrides,
@@ -72,6 +83,21 @@ function observedPolicyCarrier(
   return format.startsWith('pnpm-') || format === 'bun-text'
     ? carrier ?? null
     : undefined
+}
+
+function observedManifestKnowledge(
+  format: FormatId,
+  graph: Graph,
+): InternalEvidenceState['observedManifestKnowledge'] {
+  if (format !== 'pnpm-v6' && format !== 'pnpm-v9' && format !== 'npm-4') return undefined
+  const observed = format === 'npm-4'
+    ? npm4ManifestExtensionFeatureOf(graph)
+    : pnpmManifestExtensionFeatureOf(graph)
+  if (!observed.available || observed.fingerprints.length === 0) return undefined
+  return Object.freeze({
+    knowledge: 'extended-fingerprinted',
+    fingerprints: observed.fingerprints,
+  })
 }
 
 export function diagnosticKey(diagnostic: Diagnostic): string {
@@ -135,6 +161,7 @@ export function stringifyProjected(
     format,
     options.overrides,
     options.pnpmWorkspaceNames,
+    options.targetVersion,
   )
   if (blockingProjectionLosses(losses).length === 0 && probeDiagnostics.length > 0) {
     const classified = projectionDiagnosticLosses(probeDiagnostics, format)
@@ -199,6 +226,7 @@ export function parse(format: FormatId, input: string, options: ParseOptions = {
     format,
     options.manifests,
     observedPolicyCarrier(format, graph),
+    observedManifestKnowledge(format, graph),
   )
   attachParsedMutationLineage(graph, format, hasFormatAdapterState(format, graph))
   return graph
@@ -479,7 +507,11 @@ export function canonicalProjectionGraphSnapshot(
   const projectedIntegrities = target === 'yarn-classic'
     ? yarnClassic.projectedCanonicalIntegrities(graph)
     : undefined
-  const projectedMetadataDrops = projectedStructuralMetadataDrops(graph, target)
+  const projectedMetadataDrops = projectedConditionsMetadataDrops(
+    graph,
+    target,
+    projectedStructuralMetadataDrops(graph, target),
+  )
   return canonicalGraphSnapshot(
     graph,
     contract,
@@ -491,12 +523,42 @@ export function canonicalProjectionGraphSnapshot(
   )
 }
 
+const CONDITION_METADATA_FIELDS = ['os', 'cpu', 'libc'] as const
+
+/** Berry serializes platform metadata through `conditions:` and reparses it as
+ * a scalar sidecar fact. Avoid comparing the same fact again as structured
+ * tarball metadata, but only for fields the current composer actually carries. */
+function projectedConditionsMetadataDrops(
+  graph: Graph,
+  target: FormatId,
+  structural: ReadonlyMap<string, ReadonlySet<PackageMetadataField>> | undefined,
+): ReadonlyMap<string, ReadonlySet<PackageMetadataField>> | undefined {
+  if (!target.startsWith('yarn-berry-')
+    || !targetProfileOf({ format: target }).capabilities.conditions) return structural
+
+  const projected = new Map<string, ReadonlySet<PackageMetadataField>>(structural)
+  for (const [key, payload] of graph.tarballs()) {
+    const represented = CONDITION_METADATA_FIELDS.filter(field => {
+      const values = payload[field]
+      if (values === undefined) return false
+      return composeConditionsFromPayload({ [field]: values } as TarballPayload) !== undefined
+    })
+    if (represented.length === 0) continue
+    projected.set(key, Object.freeze(new Set([
+      ...(projected.get(key) ?? []),
+      ...represented,
+    ])))
+  }
+  return projected.size === 0 ? undefined : projected
+}
+
 function projectionOutputDiagnostics(
   graph: Graph,
   output: string,
   target: FormatId,
   overrides?: readonly OverrideConstraint[],
   workspaceNames?: ReadonlyMap<string, string>,
+  targetVersion?: string,
 ): readonly Diagnostic[] {
   const diagnostics: Diagnostic[] = []
   if (!checkFormat(target, output)) {
@@ -522,9 +584,14 @@ function projectionOutputDiagnostics(
   }
 
   const comparisonOverrides = target.startsWith('pnpm-') ? overrides : undefined
+  const overlayGaps = yarnBerryPluginCompatGapDiagnostics(graph, {
+    format: target,
+    ...(targetVersion === undefined ? {} : { managerVersion: targetVersion }),
+  })
+  diagnostics.push(...overlayGaps)
   if (canonicalProjectionGraphSnapshot(graph, target, 'project', comparisonOverrides, workspaceNames)
     !== canonicalProjectionGraphSnapshot(reparsed, target, 'project', comparisonOverrides, workspaceNames)) {
-    diagnostics.push(assessedDiagnostic(
+    if (overlayGaps.length === 0) diagnostics.push(assessedDiagnostic(
       'COMPLETENESS_OUTPUT_GRAPH_MISMATCH',
       'target output does not preserve the canonical graph',
       { target },

@@ -18,3 +18,19 @@ export function packageMetadataDiagnostic(
     data: Object.freeze({ dimension: 'packageMetadata', subject }),
   })
 }
+
+export function manifestExtensionDependencyMismatchDiagnostic(
+  subject: string,
+  sources: readonly string[],
+): Diagnostic {
+  return Object.freeze({
+    code: 'COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH',
+    severity: 'warning',
+    subject,
+    message: 'dependency facts may differ because the source package manager extended the published manifest',
+    data: Object.freeze({
+      dimension: 'manifestKnowledge',
+      sources: Object.freeze([...sources]),
+    }),
+  })
+}

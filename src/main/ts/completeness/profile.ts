@@ -32,6 +32,7 @@ import type {
   EvidenceContext,
   Knowledge,
   LayoutKnowledge,
+  ManifestKnowledge,
   PeerKnowledge,
   PolicyKnowledge,
   StructuralCoverage,
@@ -46,6 +47,7 @@ const emptyProfile = (): CompletenessProfile => ({
   edgeKinds: 'none',
   peerModel: 'none',
   resolutionPolicy: 'none',
+  manifestKnowledge: 'faithful',
   packageMetadata: 'none',
   artifacts: 'none',
   layout: 'none',
@@ -128,6 +130,7 @@ export function completenessOf(graph: Graph, context: CompletenessContext = {}):
   const diagnostics = [...graph.diagnostics(), ...evidence.ledger.diagnostics]
 
   profile.verification = 'graph-validated'
+  profile.manifestKnowledge = manifestKnowledgeOf(state)
   if (graph.layoutHints() !== undefined) {
     profile.layout = higher(profile.layout, 'hints', layoutRank)
   }
@@ -297,6 +300,7 @@ function structuralCoverageOf(graph: Graph): StructuralCoverage {
           ? 'declared'
           : 'none',
     resolutionPolicy: nodes.length === 0 ? 'none' : hasPolicyCarrier ? 'normalized' : 'outcome-only',
+    manifestKnowledge: 'faithful',
     packageMetadata: hasSomeMetadata ? 'partial' : 'none',
     artifacts: nodes.length === 0 ? 'none' : hasUnknownArtifact ? 'none' : 'identified',
     layout: graph.layoutHints() === undefined ? 'none' : 'hints',
@@ -699,6 +703,8 @@ function applyConflicts(profile: CompletenessProfile, state: InternalEvidenceSta
       case 'resolutionPolicy':
         profile.resolutionPolicy = lower(profile.resolutionPolicy, 'normalized', policyRank)
         break
+      case 'manifestKnowledge':
+        break
       case 'peerModel':
         profile.peerModel = lower(profile.peerModel, 'declared', peerRank)
         break
@@ -713,6 +719,10 @@ function applyConflicts(profile: CompletenessProfile, state: InternalEvidenceSta
         break
     }
   }
+}
+
+function manifestKnowledgeOf(state: InternalEvidenceState): ManifestKnowledge {
+  return state.observedManifestKnowledge?.knowledge ?? 'faithful'
 }
 
 function evidenceScopeDelta(graph: Graph, anchor: Graph | undefined): EvidenceScopeDelta | undefined {

@@ -176,7 +176,7 @@ ideal tree**:
   member-to-member dependency is declared with an ordinary semver range that the
   local member satisfies; npm links the local copy when its version matches.
   *(Confirmed against this project's fixtures in
-  [ADR-0021](../decisions/0021-npm-family-completeness-contract.md): npm-2/3 locks
+  [ADR-0021](../decisions/0021-npm-family-completeness-contract.md): npm-2/3/4 locks
   carry `link: true` + `resolved: "<wsPath>"` symlink entries, never a
   `workspace:` range.)*
 
@@ -504,9 +504,11 @@ the major 2025 supply-chain campaigns (Shai-Hulud, Nx s1ngularity), which used
 
 npm writes **`package-lock.json`** (or, if the author wants to ship it inside the
 published tarball, **`npm-shrinkwrap.json`** — same schema, different name). The
-**three lockfileVersions** are three layouts over one field universe; they are
+**four lockfileVersions** are closely related layouts over one field universe;
+they are
 fully specced in [`formats/npm-1.md`](../formats/npm-1.md),
-[`npm-2.md`](../formats/npm-2.md), [`npm-3.md`](../formats/npm-3.md) and modelled
+[`npm-2.md`](../formats/npm-2.md), [`npm-3.md`](../formats/npm-3.md), and
+[`npm-4.md`](../formats/npm-4.md), and modelled
 by [ADR-0021](../decisions/0021-npm-family-completeness-contract.md) — **not
 re-documented here**. The npm-CLI↔version interaction only:
 
@@ -515,9 +517,12 @@ re-documented here**. The npm-CLI↔version interaction only:
 | **1** | npm **5–6** | nested `dependencies` tree only | npm 5+ |
 | **2** | npm **7–8** | **dual**: `packages` (flat, install-path-keyed, authoritative) **+** `dependencies` (legacy mirror for npm 6 readers) | npm 7+ |
 | **3** | npm **9+** (default) | `packages` only — **drops** the legacy mirror | npm **7+** (npm 5/6 **cannot** read v3) |
+| **4** | npm **12+** (feature-triggered) | v3 packages-only layout plus native patch and manifest-extension evidence | npm **12+** |
 
-> Verified current through **npm 12** (`12.0.1`, 2026-07): npm 10 / 11 / 12 follow
-> the `npm 9+` row (`lockfileVersion: 3`; npm 11 emits byte-identical to npm 12).
+> Verified current through **npm 12** (`12.0.1`, 2026-07): ordinary projects
+> follow the `npm 9+` row (`lockfileVersion: 3`; npm 11 emits byte-identical to
+> npm 12). Native `npm patch`, `packageExtensions`, or `.npm-extension` state
+> activates v4.
 > The one field change within the v3 era is **`license`, added per-entry at npm 10**
 > (npm 9 omits it). npm 12's breaking changes are install-time (Axis 5), not
 > lock-format.
@@ -686,7 +691,7 @@ Authoritative, cited inline above; consolidated:
   [ADR-0025](../decisions/0025-manifest-overrides.md),
   [ADR-0027](../decisions/0027-npm-layout-generator.md);
   [`registry/npm.md`](../registry/npm.md), [`registry/_common.md`](../registry/_common.md);
-  [`formats/npm-{1,2,3}.md`](../formats/npm-3.md).
+  [`formats/npm-{1,2,3,4}.md`](../formats/npm-4.md).
 
 ## Open questions
 
@@ -700,8 +705,10 @@ Authoritative, cited inline above; consolidated:
 - **`npm@12` specifics — resolved (2026-07).** v12 shipped (`12.0.1`); the three
   security breaking changes (`allowScripts` off, `--allow-git`/`--allow-remote`
   default `none`) and the raised Node floor are recorded in Axis 5. The lock
-  format is unchanged — still `lockfileVersion: 3`, byte-identical, verified
-  against `12.0.1`.
+  ordinary-project format remains `lockfileVersion: 3`, byte-identical,
+  verified against `12.0.1`; patch and manifest-extension features activate
+  `lockfileVersion: 4`, specified separately in
+  [`formats/npm-4.md`](../formats/npm-4.md).
 - **`peerDependenciesMeta` round-trip.** npm records optional-peer metadata that
   the current npm-family contract does not fully model
   ([ADR-0021](../decisions/0021-npm-family-completeness-contract.md) scope note) —

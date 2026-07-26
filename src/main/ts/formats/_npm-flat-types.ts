@@ -11,7 +11,7 @@
 // Layered constraint per ADR-0021 §5, breaking the import cycle:
 //   - core: depends on types only.
 //   - mirror (npm-2-only): depends on types only.
-//   - npm-{2,3}.ts thin entries: wire core + (optional) mirror via the
+//   - npm-{2,3,4}.ts thin entries: wire core + (optional) extensions via the
 //     `hooks` slot on `NpmFamilyConfig` so core never imports mirror.
 
 import { type Diagnostic, type EdgeKind, type Graph, type Node, type OverrideConstraint } from '../graph.ts'
@@ -92,9 +92,9 @@ export function edgeTripleKey(src: string, kind: EdgeKind, dst: string): string 
 export type NpmTopLevelShape = 'dual' | 'packages-only'
 
 export interface NpmFamilyConfig {
-  lockfileVersion: 2 | 3
+  lockfileVersion: 2 | 3 | 4
   topLevelShape: NpmTopLevelShape
-  diagnosticPrefix: 'NPM_V2' | 'NPM_V3'
+  diagnosticPrefix: 'NPM_V2' | 'NPM_V3' | 'NPM_V4'
   // Adapter-specific hook surface. Core invokes these at strategic points
   // but knows nothing about their implementation. npm-2 wires its
   // `_npm-2-mirror.ts` functions here; npm-3 leaves the slot unset.
@@ -106,6 +106,7 @@ export interface NpmFamilyParseHookContext {
   lf: NpmLockfile
   packages: Record<string, NpmEntry>
   rootId: string
+  options: NpmFamilyParseOptions
 }
 
 export interface NpmFamilyStringifyHookContext {
@@ -119,9 +120,39 @@ export interface NpmFamilyHooks {
   // Pre-main-parse extra top-level validation (e.g. dual-mode `dependencies`
   // requirement). Throws LockfileError on rejection.
   validateTopLevel?: (lf: NpmLockfile) => void
+  // Resolve an adapter-native patch record into the canonical Node.patch
+  // identity before the node is inserted. npm-4 uses this for `patched`;
+  // npm-2/3 leave it unset.
+  resolvePatch?: (ctx: {
+    path: string
+    name: string
+    version: string
+    source?: string
+    entry: NpmEntry
+    options: NpmFamilyParseOptions
+  }) => Readonly<{
+    patch: string
+    normalised?: boolean
+    diagnostic?: Diagnostic
+  }> | undefined
   // Capture per-entry adapter state during pass-2 of parse (e.g.
   // npm-2 mirror's `resolved` URL by NodeId).
   captureEntry?: (srcId: string, entry: NpmEntry) => void
+  // Capture adapter-native per-entry state into the common node sidecar after
+  // canonical identity has been resolved.
+  captureNodeSidecar?: (ctx: {
+    path: string
+    srcId: string
+    patch?: string
+    entry: NpmEntry
+    nodeSidecar: NpmFlatSidecar
+  }) => void
+  // Capture adapter-native root metadata after the common fields are built.
+  captureRootMeta?: (ctx: {
+    lf: NpmLockfile
+    rootEntry: NpmEntry
+    rootMeta: NpmRootMeta
+  }) => void
   // Emit pre-seal diagnostics (e.g. dual-mode drift).
   emitParseDiagnostics?: (ctx: { lf: NpmLockfile; packages: Record<string, NpmEntry>; diagnostics: Diagnostic[] }) => void
   // After the graph is sealed, finalise adapter-specific state attached
@@ -130,6 +161,17 @@ export interface NpmFamilyHooks {
   // After stringify-out is built, enrich it with adapter-specific top-level
   // keys (e.g. npm-2 legacy `dependencies` mirror).
   enrichStringifyOut?: (ctx: NpmFamilyStringifyHookContext) => void
+  // Add adapter-native state to a `packages` entry. The sidecar is replay
+  // authority; cross-family graphs do not fabricate npm-native fingerprints.
+  enrichPackageEntry?: (ctx: {
+    graph: Graph
+    node: Node
+    nodeSidecar: NpmFlatSidecar | undefined
+    body: Record<string, unknown>
+    kind: 'root' | 'workspace' | 'installed'
+  }) => void
+  // True iff an adapter can faithfully emit this node's canonical patch.
+  canEmitPatch?: (graph: Graph, node: Node, sidecar: NpmSidecar | undefined) => boolean
   // Per-entry stringify-time `resolved` URL recovery. npm-2 stashes the
   // on-disk URL in the mirror sidecar and replays it here when
   // `node.resolution` is unset (parser does not sync `resolved` → node).
@@ -141,7 +183,10 @@ export interface NpmFamilyHooks {
   pruneToNodes?: (graph: Graph, reachableNodeIds: ReadonlySet<string>) => void
 }
 
-export type NpmFamilyParseOptions = {}
+export interface NpmFamilyParseOptions {
+  workspaceRoot?: string
+  onDiagnostic?: (diagnostic: Diagnostic) => void
+}
 
 export interface NpmFamilyStringifyOptions {
   lineEnding?: 'lf' | 'crlf'
@@ -186,6 +231,15 @@ export interface NpmEntry {
   cpu?: string[]
   os?: string[]
   libc?: string[]
+  patched?: {
+    integrity?: unknown
+    path?: unknown
+    [key: string]: unknown
+  }
+  packageExtensionsHash?: unknown
+  npmExtensionHash?: unknown
+  packageExtensionsApplied?: unknown
+  npmExtensionApplied?: unknown
   [key: string]: unknown
 }
 
@@ -233,9 +287,16 @@ export interface NpmRootMeta {
    *  because the canonical name-chain drops npm-specific tails (`pkg@version`
    *  key qualifiers, self-key ordering). */
   nativeOverrides?: Record<string, unknown>
+  /** npm 12 v4 may omit top-level name/version even though packages[""]
+   *  carries them. Presence flags keep same-format replay byte-identical. */
+  topLevelNamePresent?: boolean
+  topLevelVersionPresent?: boolean
+  /** npm 12 manifest-extension fingerprints carried by packages[""]. */
+  packageExtensionsHash?: string
+  npmExtensionHash?: string
 }
 
-// Per-NodeId sidecar shared by every flat-family adapter (npm-2 + npm-3).
+// Per-NodeId sidecar shared by every flat-family adapter (npm-2/3/4).
 // Fields here are layout-agnostic; npm-2-only mirror-emit recovery state
 // lives in a SEPARATE WeakMap maintained by `_npm-2-mirror.ts`.
 export interface NpmFlatSidecar {
@@ -252,6 +313,14 @@ export interface NpmFlatSidecar {
   peerDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
+  /** npm 12 v4 native patch carrier, replayed only while its canonical
+   *  identity still matches Node.patch. */
+  patched?: Readonly<{ integrity: string; path: string }>
+  patchIdentity?: string
+  /** npm 12 v4 provenance for dependency facts already present in the normal
+   *  dependency blocks. Opaque, same-format replay data. */
+  packageExtensionsApplied?: unknown
+  npmExtensionApplied?: unknown
 }
 
 export interface NpmSidecar {

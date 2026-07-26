@@ -1,0 +1,12 @@
+--- a/index.js	
++++ b/index.js	
+@@ -7,8 +7,9 @@
+ 
+ 'use strict';
+ 
+ module.exports = function(num) {
++  // Native npm 12 patch discovery marker.
+   if (typeof num === 'number') {
+     return num - num === 0;
+   }
+   if (typeof num === 'string' && num.trim() !== '') {

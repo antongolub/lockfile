@@ -316,6 +316,16 @@ export interface PnpmCatalogFeatureQuery {
   readonly fingerprint?: string
 }
 
+export interface PnpmManifestExtensionFingerprint {
+  readonly source: 'packageExtensionsChecksum' | 'pnpmfileChecksum'
+  readonly value: string
+}
+
+export interface PnpmManifestExtensionFeatureQuery {
+  readonly available: boolean
+  readonly fingerprints: readonly PnpmManifestExtensionFingerprint[]
+}
+
 // ADR-0014 §4.F2 — parse-side overrides patch extraction.
 //
 // Scans the pnpm `overrides:` block for entries whose value is a `patch:`
@@ -2745,6 +2755,36 @@ export function pnpmCatalogFeatureOf(graph: Graph): PnpmCatalogFeatureQuery {
     available: sidecar !== undefined,
     present,
     ...(present ? { fingerprint: pnpmCatalogFingerprint(catalogs) } : {}),
+  }
+}
+
+/**
+ * Read-only positive evidence that pnpm may have grafted package-manifest
+ * fields before resolution. The checksum values are opaque PM fingerprints:
+ * they prove that an extension/hook surface participated, but cannot recover
+ * the applied declaration delta.
+ */
+export function pnpmManifestExtensionFeatureOf(
+  graph: Graph,
+): PnpmManifestExtensionFeatureQuery {
+  const sidecar = sidecarByGraph.get(graph)
+  if (sidecar === undefined) return { available: false, fingerprints: [] }
+  const fingerprints: PnpmManifestExtensionFingerprint[] = []
+  if ((sidecar.packageExtensionsChecksum?.length ?? 0) > 0) {
+    fingerprints.push({
+      source: 'packageExtensionsChecksum',
+      value: sidecar.packageExtensionsChecksum!,
+    })
+  }
+  if ((sidecar.pnpmfileChecksum?.length ?? 0) > 0) {
+    fingerprints.push({
+      source: 'pnpmfileChecksum',
+      value: sidecar.pnpmfileChecksum!,
+    })
+  }
+  return {
+    available: true,
+    fingerprints: Object.freeze(fingerprints.map(item => Object.freeze(item))),
   }
 }
 

@@ -10,7 +10,7 @@
 
 | PM | semver range | Default? | How to opt in |
 |----|--------------|:--------:|---------------|
-| npm | `>=9` | ✓ | drops the legacy `dependencies` mirror |
+| npm | `>=9` | ✓ | default when npm-4 patch / extension features are absent |
 | npm | `>=7 <9` | – | `npm install --lockfile-version=3` (verify minor where added) |
 
 ### Readers — PM semvers that *install* from this format
@@ -19,14 +19,16 @@
 |----|--------------|-------|
 | npm | `>=7` | npm 5 / 6 cannot read; npm 7 / 8 can install but won't auto-emit v3 |
 
-> **npm 12 (2026-07):** stays on the `>=9` default and emits v3 **byte-identical
-> to npm 9–11** (empirically confirmed — see Open questions). npm 12 raises its
+> **npm 12 (2026-07):** stays on the `>=9` default for ordinary projects and
+> emits v3 **byte-identical to npm 11**. Native `npm patch`,
+> `packageExtensions`, or `.npm-extension` state instead activates
+> [`lockfileVersion: 4`](./npm-4.md). npm 12 raises its
 > own Node floor to `^22.22.2 || ^24.15.0 || >=26.0.0` (Node ≤ 21 dropped); this
 > gates *running* npm 12 (fixture generation) — the `pm-npm-12` infra check is
 > Node-range-skipped — not the lock format. The npm 12 breaking changes
 > (install-scripts opt-in, `--allow-git` / `--allow-remote` default `none`,
 > `npm-shrinkwrap.json` removed) are runtime / `package.json` policy and do not
-> touch `package-lock.json` content, so a v3 lock re-emitted unchanged still
+> touch ordinary v3 `package-lock.json` content, so a v3 lock re-emitted unchanged still
 > installs frozen-clean under npm 12.
 
 ## File
@@ -124,7 +126,9 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/tes
 > integrity, link, dev, optional, devOptional, inBundle, hasInstallScript,
 > hasShrinkwrap, bin, license, engines, funding, os, cpu, libc, dependencies,
 > optionalDependencies, peerDependencies, peerDependenciesMeta`, and npm 11 emits
-> `lockfileVersion: 3` **byte-identical to npm 12** (full-lock diff). **npm 9
+> ordinary `lockfileVersion: 3` **byte-identical to npm 12** (full-lock diff).
+> npm 12 switches to v4 only when its new patch / extension features are used.
+> **npm 9
 > predates `license`**, so the canonical `npm-3` fixture writer (`pm-npm-9`) omits
 > it — but the lib captures and re-emits `license` verbatim, so an npm 10–12 lock
 > round-trips byte-identical. `pm-npm-12` was added to the PM matrix to keep this

@@ -106,6 +106,42 @@ describe('completeness evidence', () => {
     ])
   })
 
+  it('records extension-only package-manifest drift without creating a conflict', () => {
+    const graph = parse('pnpm-v9',
+      `lockfileVersion: '9.0'\n\n`
+      + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+      + `packageExtensionsChecksum: sha256-positive=\n\n`
+      + `importers:\n\n  .: {}\n`,
+    )
+    const first = withEvidence(evidenceOf(graph), {
+      kind: 'package-manifests',
+      authority: 'full-packument',
+      manifests: {
+        'pkg@1.0.0': {
+          name: 'pkg',
+          version: '1.0.0',
+          dependencies: { grafted: '1.0.0' },
+        },
+      },
+    })
+    const observed = withEvidence(first, {
+      kind: 'package-manifests',
+      authority: 'version-manifest',
+      manifests: {
+        'pkg@1.0.0': {
+          name: 'pkg',
+          version: '1.0.0',
+        },
+      },
+    })
+
+    expect(observed.ledger.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH',
+      subject: 'pkg@1.0.0',
+    }))
+    expect(internalEvidenceOf(observed).conflicts).toEqual([])
+  })
+
   it('deduplicates repeated evidence references', () => {
     const base = evidenceOf(parse('npm-3', npmLock))
     const input = {

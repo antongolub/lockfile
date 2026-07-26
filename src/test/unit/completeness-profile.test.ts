@@ -8,6 +8,7 @@ import {
   parse,
   withEvidence,
 } from '../../main/ts/index.ts'
+import { internalEvidenceOf } from '../../main/ts/completeness/evidence.ts'
 import { getBunOverridesCanonical } from '../../main/ts/formats/bun-text.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -25,12 +26,53 @@ describe('completenessOf', () => {
       edgeKinds: 'partial',
       peerModel: 'declared',
       resolutionPolicy: 'outcome-only',
+      manifestKnowledge: 'faithful',
       packageMetadata: 'partial',
       artifacts: 'identified',
       layout: 'source-native-encoded',
       verification: 'graph-validated',
     })
     expect(result.structural.verification).toBe('graph-validated')
+  })
+
+  it('demotes manifest knowledge only for positive pnpm extension evidence', () => {
+    const clean = parse('pnpm-v9',
+      `lockfileVersion: '9.0'\n\n`
+      + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+      + `importers:\n\n  .: {}\n`,
+    )
+    const withPackageExtensions = parse('pnpm-v9',
+      `lockfileVersion: '9.0'\n\n`
+      + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+      + `packageExtensionsChecksum: sha256-positive=\n`
+      + `importers:\n\n  .: {}\n`,
+    )
+    const withPnpmfile = parse('pnpm-v9',
+      `lockfileVersion: '9.0'\n\n`
+      + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+      + `pnpmfileChecksum: sha256-hook=\n\n`
+      + `importers:\n\n  .: {}\n`,
+    )
+
+    expect(completenessOf(clean).profile.manifestKnowledge).toBe('faithful')
+    expect(completenessOf(withPackageExtensions).profile.manifestKnowledge)
+      .toBe('extended-fingerprinted')
+    expect(completenessOf(withPnpmfile).profile.manifestKnowledge)
+      .toBe('extended-fingerprinted')
+    expect(internalEvidenceOf(evidenceOf(withPackageExtensions)).observedManifestKnowledge)
+      .toEqual({
+        knowledge: 'extended-fingerprinted',
+        fingerprints: [
+          { source: 'packageExtensionsChecksum', value: 'sha256-positive=' },
+        ],
+      })
+    expect(internalEvidenceOf(evidenceOf(withPnpmfile)).observedManifestKnowledge)
+      .toEqual({
+        knowledge: 'extended-fingerprinted',
+        fingerprints: [
+          { source: 'pnpmfileChecksum', value: 'sha256-hook=' },
+        ],
+      })
   })
 
   it('upgrades observable pnpm-v9 graphs but retains opaque peer-set uncertainty', () => {

@@ -13,7 +13,7 @@ import {
   type YarnBerryFamilyStringifyOptions,
 } from './_yarn-berry-core.ts'
 
-// `__metadata.version: 10` — yarn 5 dev-branch / yarnpkg-berry master.
+// `__metadata.version: 10` — stable Yarn 4.17.1+.
 // The structural body currently matches v9; the bump is mechanical (`version:
 // N` only). Family config tracks v9's `quoted-protocol` range emit,
 // `cachekey-prefixed` checksum, and permitted `conditions:` block, but remains

@@ -45,6 +45,7 @@ import {
   hashAndNormalizeBytes as patchHashAndNormalizeBytes,
   sentinelHashOfLocator,
 } from '../recipe/patch.ts'
+import { yarnBerryBuiltinCompatIdentityOfResolution } from '../recipe/yarn-berry-builtin-compat.ts'
 import { ambiguousResolutionDiagnostic, emitDropped, emitIntegrityIncomplete, patchNormalizedDiagnostic, patchPreferredDiagnostic, recipePeerMetaIncomplete, resolutionPinUnresolvedDiagnostic, unknownResolutionDiagnostic } from '../recipe/diagnostics.ts'
 import { catalogResolve, distTagResolve, overrideTargetFor, patchPreferenceFor, semverResolve, type PatchSibling, type SemverCandidate } from '../recipe/descriptor-resolve.ts'
 import { readInstalledManifest, type InstalledManifestMeta } from '../complete/local-manifest.ts'
@@ -399,6 +400,40 @@ export function rememberSidecar(graph: Graph, sidecar: YarnBerryFamilySidecar): 
   sidecarByGraph.set(graph, sidecar)
 }
 
+/** Attach deterministic entry-key descriptors to target-compatibility nodes. */
+export function withYarnBerryEntryKeyDescriptors(
+  graph: Graph,
+  descriptors: ReadonlyMap<NodeId, readonly string[]>,
+): Graph {
+  if (descriptors.size === 0) return graph
+  const current = sidecarByGraph.get(graph) ?? EMPTY_SIDECAR
+  const entryKeyDescriptors = new Map(current.entryKeyDescriptors)
+  for (const [id, values] of descriptors) {
+    if (graph.getNode(id) === undefined || values.length === 0) continue
+    entryKeyDescriptors.set(id, [...new Set(values)].sort(cmpStr))
+  }
+  const sidecar = { ...current, entryKeyDescriptors }
+  rememberSidecar(graph, sidecar)
+  return withSidecarPropagation(graph, sidecar)
+}
+
+/** Attach exact effective condition scalars to target-compatibility nodes. */
+export function withYarnBerryConditions(
+  graph: Graph,
+  conditions: ReadonlyMap<NodeId, string>,
+): Graph {
+  if (conditions.size === 0) return graph
+  const current = sidecarByGraph.get(graph) ?? EMPTY_SIDECAR
+  const nextConditions = new Map(current.conditions)
+  for (const [id, scalar] of conditions) {
+    if (graph.getNode(id) === undefined || scalar === '') continue
+    nextConditions.set(id, scalar)
+  }
+  const sidecar = { ...current, conditions: nextConditions }
+  rememberSidecar(graph, sidecar)
+  return withSidecarPropagation(graph, sidecar)
+}
+
 export function rebindAdapterState(
   source: Graph,
   target: Graph,
@@ -515,6 +550,19 @@ export function rawConditionsScalarOfNode(graph: Graph, nodeId: string): string 
   return sidecarByGraph.get(graph)?.conditions?.get(nodeId)
 }
 
+/** The exact scalar the emitter projects for a node. The parsed sidecar remains
+ * verbatim-only; completion-added nodes derive their scalar from graph data
+ * without mutating that captured state. */
+export function effectiveConditionsOfNode(
+  graph: Graph,
+  node: Node,
+  payload: TarballPayload | undefined,
+): string | undefined {
+  return rawConditionsScalarOfNode(graph, node.id)
+    ?? scalarConditionsHintOfNode(node)
+    ?? composeConditionsFromPayload(payload)
+}
+
 /** Whether a berry entry is keyed only by npm-alias descriptors and has no
  * conditions. Yarn leaves these alias-only entries without their own checksum;
  * the resolved target locator is the checksum-bearing identity. Same-format
@@ -536,14 +584,18 @@ export function isBareYarnBerryNpmAliasNode(graph: Graph, nodeId: string): boole
 /** Read-only conditions feature query for completeness assessment. */
 export function yarnBerryConditionsFeatureOf(graph: Graph): YarnBerryConditionsFeatureQuery {
   const sidecar = sidecarByGraph.get(graph)
-  const conditions = sidecar?.conditions
-  const entries = conditions === undefined
-    ? undefined
-    : [...conditions.entries()].sort(([left], [right]) => left.localeCompare(right))
+  if (sidecar === undefined) return { available: false, present: false }
+
+  const entries = Array.from(graph.nodes(), node => [
+    node.id,
+    effectiveConditionsOfNode(graph, node, graph.tarballOf(node.id)),
+  ] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1] !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
   return {
-    available: sidecar !== undefined,
-    present: entries !== undefined && entries.length > 0,
-    ...(entries === undefined || entries.length === 0
+    available: true,
+    present: entries.length > 0,
+    ...(entries.length === 0
       ? {}
       : { fingerprint: createHash('sha256').update(JSON.stringify(entries)).digest('hex') }),
   }
@@ -1186,14 +1238,9 @@ function extractPatchFingerprint(
     return unresolvedPatch(nodeId, locator, 'patch locator has no source fragment')
   }
 
-  if (source.startsWith('~builtin<')) {
-    const yarnMajor = yarnMajorOfBuiltinPatch(resolution)
-    if (yarnMajor === undefined) {
-      return unresolvedPatch(nodeId, locator, 'builtin patch yarn-major is unavailable at parse time')
-    }
-    // Builtin patches hash a synthetic string (no on-disk source); builtin-patch byte
-    // normalization is inapplicable.
-    return { patch: sha512Hex(`${yarnMajor}:${source}`) }
+  const builtinCompat = yarnBerryBuiltinCompatIdentityOfResolution(resolution)
+  if (builtinCompat !== undefined) {
+    return unresolvedPatch(nodeId, builtinCompat.locator, 'builtin compatibility patch has no on-disk source')
   }
 
   if (workspaceRoot === undefined) {
@@ -1214,10 +1261,6 @@ function extractPatchFingerprint(
     : { patch }
 }
 
-function yarnMajorOfBuiltinPatch(_resolution: string): string | undefined {
-  return undefined
-}
-
 function unresolvedPatch(nodeId: string, locator: string, reason: string): { patch: string; diagnostic: Diagnostic } {
   return {
     patch: sentinelHashOfLocator(locator),
@@ -1228,10 +1271,6 @@ function unresolvedPatch(nodeId: string, locator: string, reason: string): { pat
       message: `${reason}; using sentinel for ${locator}`,
     },
   }
-}
-
-function sha512Hex(value: string | Uint8Array): string {
-  return createHash('sha512').update(value).digest('hex')
 }
 
 function collisionResolutions(
@@ -2316,9 +2355,7 @@ function entryOfNode(
   // scalar wins; a string node-field hint is the hand-built fallback. The syml
   // writer would quote it (spaces/`&`), so `stringifyFamily` post-unquotes the
   // `conditions:` lines to match yarn's bare emit (corrects ADR-0018 §A.v5).
-  const conditions = rawConditionsScalarOfNode(graph, node.id)
-    ?? scalarConditionsHintOfNode(node)
-    ?? composeConditionsFromPayload(payload)
+  const conditions = effectiveConditionsOfNode(graph, node, payload)
   if (conditions !== undefined) {
     if (config.conditionsAllowed) {
       entry['conditions'] = conditions

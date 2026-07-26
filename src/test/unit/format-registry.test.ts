@@ -28,6 +28,7 @@ const EXPECTED_FORMATS = [
   'npm-1',
   'npm-2',
   'npm-3',
+  'npm-4',
   'pnpm-v5',
   'pnpm-v6',
   'pnpm-v9',
@@ -55,6 +56,7 @@ const EXPECTED_DETECTION_ORDER = [
   'pnpm-v6',
   'pnpm-v5',
   'yarn-classic',
+  'npm-4',
   'npm-3',
   'npm-2',
   'npm-1',
@@ -122,6 +124,7 @@ describe('typed format registry — adapter state dispatch', () => {
     const npmFlat = parseFormat('npm-3', inputFor('npm-3'))
     expect(hasFormatAdapterState('npm-2', npmFlat)).toBe(true)
     expect(hasFormatAdapterState('npm-3', npmFlat)).toBe(true)
+    expect(hasFormatAdapterState('npm-4', npmFlat)).toBe(true)
 
     const pnpmFlat = parseFormat('pnpm-v6', inputFor('pnpm-v6'))
     expect(hasFormatAdapterState('pnpm-v6', pnpmFlat)).toBe(true)

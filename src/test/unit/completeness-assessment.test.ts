@@ -22,6 +22,7 @@ const fixture = (file: string): string =>
 describe('targetProfileOf', () => {
   it('derives managers and keeps load-bearing unknown versions ambiguous', () => {
     expect(targetProfileOf({ format: 'npm-3' }).manager).toBe('npm')
+    expect(targetProfileOf({ format: 'npm-4' }).manager).toBe('npm')
     expect(targetProfileOf({ format: 'yarn-berry-v9' }).manager).toBe('yarn')
     expect(targetProfileOf({ format: 'pnpm-v9' }).manager).toBe('pnpm')
     expect(targetProfileOf({ format: 'bun-text' }).manager).toBe('bun')
@@ -43,6 +44,14 @@ describe('targetProfileOf', () => {
       format: 'npm-2',
       managerVersion: '8.3.0',
     }).capabilities.overridesConfigLocation).toBe('manifest')
+    expect(targetProfileOf({
+      format: 'npm-4',
+      managerVersion: '12.0.1',
+    }).capabilities.patches).toBe(true)
+    expect(() => targetProfileOf({
+      format: 'npm-4',
+      managerVersion: '11.18.0',
+    })).toThrowError('incompatible with npm-4')
     expect(targetProfileOf({
       format: 'pnpm-v9',
       managerVersion: '11.0.0',
@@ -216,6 +225,24 @@ describe('sidecar feature attribution', () => {
 })
 
 describe('assessConversion', () => {
+  it('reports extended manifest knowledge without turning it into a failed requirement', () => {
+    const graph = parse('pnpm-v9',
+      `lockfileVersion: '9.0'\n\n`
+      + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+      + `packageExtensionsChecksum: sha256-positive=\n\n`
+      + `importers:\n\n  .: {}\n`,
+    )
+    const assessment = assessConversion(graph, {
+      contract: 'snapshot',
+      target: { format: 'lockgraph' },
+    })
+
+    expect(assessment.completeness.profile.manifestKnowledge)
+      .toBe('extended-fingerprinted')
+    expect(assessment.requirements.some(requirement =>
+      requirement.dimension === 'manifestKnowledge')).toBe(false)
+  })
+
   it('requires an output probe before reaching satisfied', () => {
     const graph = parse('npm-3', fixture('npm-3.lock'))
     const options = { contract: 'snapshot' as const, target: { format: 'npm-3' as const } }

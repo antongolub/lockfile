@@ -1,8 +1,8 @@
-// _npm-core.ts — npm-flat-family (npm-2 / npm-3) shared core.
+// _npm-core.ts — npm-flat-family (npm-2 / npm-3 / npm-4) shared core.
 //
 // Scope: the install-path-keyed `packages` block layout (npm
-// lockfileVersion 2 + 3). Per-version thin entries (`npm-2.ts`,
-// `npm-3.ts`) thread an `NpmFamilyConfig` through the shared parse /
+// lockfileVersion 2 + 3 + 4). Per-version thin entries (`npm-2.ts`,
+// `npm-3.ts`, `npm-4.ts`) thread an `NpmFamilyConfig` through the shared parse /
 // stringify / enrich / optimize implementations. The core itself
 // contains NO per-version branches except those routed via the
 // `topLevelShape` / `diagnosticPrefix` config fields and the optional
@@ -56,6 +56,7 @@ import {
   invalidIntegrityDiagnostic,
   unknownResolutionDiagnostic,
 } from '../recipe/diagnostics.ts'
+import { patchNormalizedDiagnostic } from '../recipe/diagnostics.ts'
 import {
   isYarnBerryLocator,
   parse as parseResolutionRecipe,
@@ -111,8 +112,10 @@ interface NpmParseContext {
   edgeDeclaredNames: Map<string, string>
   workspaceByPath: Map<string, string>
   pathToId: Map<string, string>
+  patchByPath: Map<string, string>
   idToEntry: Map<string, NpmEntry>
   linkNameByPath: Map<string, string>
+  options: NpmFamilyParseOptions
 }
 
 // === SIDECAR ================================================================
@@ -168,10 +171,10 @@ export function checkFamily(input: string, config: NpmFamilyConfig): boolean {
 /** Parses the configured npm layout while preserving adapter sidecar state. */
 export function parseFamily(
   input: string,
-  _options: NpmFamilyParseOptions,
+  options: NpmFamilyParseOptions,
   config: NpmFamilyConfig,
 ): Graph {
-  const context = createNpmParseContext(input, config)
+  const context = createNpmParseContext(input, options, config)
   addNpmRootNode(context)
 
   indexNpmWorkspaceLinkNames(context)
@@ -184,7 +187,11 @@ export function parseFamily(
 
   const rootMeta = captureNpmRootMeta(context)
   emitNpmParseDiagnostics(context)
-  return sealNpmParseContext(context, rootMeta)
+  const graph = sealNpmParseContext(context, rootMeta)
+  if (options.onDiagnostic !== undefined) {
+    for (const diagnostic of graph.diagnostics()) options.onDiagnostic(diagnostic)
+  }
+  return graph
 }
 
 /** Serializes a graph through the configured npm layout. */
@@ -209,7 +216,7 @@ export function stringifyFamily(
   const packages: Record<string, unknown> = {}
 
   if (rootNode !== undefined) {
-    packages[''] = buildRootEntry(graph, rootNode, rootMeta, sidecar, emitDiagnostic)
+    packages[''] = buildRootEntry(graph, rootNode, rootMeta, sidecar, config, emitDiagnostic)
   } else if (rootMeta !== undefined) {
     packages[''] = buildSyntheticRootEntry(rootMeta)
   } else {
@@ -242,7 +249,7 @@ export function stringifyFamily(
 
   const workspaceMembers: Node[] = []
   for (const node of graph.nodes()) {
-    reportPatchDrop(config, node, warnedPatches, emitDiagnostic)
+    reportPatchDrop(graph, sidecar, config, node, warnedPatches, emitDiagnostic)
     reportPeerContextFlatten(config, node, warnedPeerVirt, emitDiagnostic)
     if (rootNode !== undefined && node.id === rootNode.id) continue
     if (node.workspacePath !== undefined && node.workspacePath !== '') {
@@ -250,7 +257,7 @@ export function stringifyFamily(
     }
   }
   for (const node of workspaceMembers) {
-    packages[node.workspacePath!] = buildWorkspaceMemberEntry(graph, node, sidecar, emitDiagnostic)
+    packages[node.workspacePath!] = buildWorkspaceMemberEntry(graph, node, sidecar, config, emitDiagnostic)
     // WS-LINK (ADR-0027 §4): emit the top-level node_modules/<name> symlink for a
     // workspace member UNLESS it is `extraneous` — npm omits the link for a member
     // present on disk but absent from the install graph (an extraneous member would
@@ -421,7 +428,11 @@ export function nameFromInstallPath(config: NpmFamilyConfig, path: string, entry
 
 // === Handshake ==============================================================
 
-function createNpmParseContext(input: string, config: NpmFamilyConfig): NpmParseContext {
+function createNpmParseContext(
+  input: string,
+  options: NpmFamilyParseOptions,
+  config: NpmFamilyConfig,
+): NpmParseContext {
   const lf = parseJson(input, config)
   if (lf.lockfileVersion !== config.lockfileVersion) {
     throw new LockfileError({
@@ -464,8 +475,10 @@ function createNpmParseContext(input: string, config: NpmFamilyConfig): NpmParse
     edgeDeclaredNames: new Map(),
     workspaceByPath: new Map(),
     pathToId: new Map(),
+    patchByPath: new Map(),
     idToEntry: new Map(),
     linkNameByPath: new Map(),
+    options,
   }
 }
 
@@ -584,7 +597,16 @@ function addWorkspaceMemberNodes(context: NpmParseContext): void {
 }
 
 function addInstalledPackageNodes(context: NpmParseContext): void {
-  const { builder, config, diagnostics, idToEntry, packages, pathToId } = context
+  const {
+    builder,
+    config,
+    diagnostics,
+    idToEntry,
+    options,
+    packages,
+    patchByPath,
+    pathToId,
+  } = context
   // Pass 1b: node_modules/... entries. Workspace-member paths must already be
   // indexed because link resolution below reads `pathToId`.
   for (const [path, entry] of Object.entries(packages)) {
@@ -622,8 +644,24 @@ function addInstalledPackageNodes(context: NpmParseContext): void {
     // ADR-0032 — fold the `+src=` non-registry discriminator into the NodeId so a
     // git `is@6.3.1` cannot collapse onto a registry `is@6.3.1`.
     const source = sourceDiscriminatorOfNpmEntry(entry)
-    const id = serializeNodeId(tailName, version, [], undefined, source)
+    const resolvedPatch = config.hooks?.resolvePatch?.({
+      path,
+      name: tailName,
+      version,
+      source,
+      entry,
+      options,
+    })
+    const patch = resolvedPatch?.patch
+    const id = serializeNodeId(tailName, version, [], patch, source)
+    if (resolvedPatch?.diagnostic !== undefined) {
+      diagnostics.push(resolvedPatch.diagnostic)
+    }
+    if (resolvedPatch?.normalised === true) {
+      diagnostics.push(patchNormalizedDiagnostic(id))
+    }
     pathToId.set(path, id)
+    if (patch !== undefined) patchByPath.set(path, patch)
 
     const existing = idToEntry.get(id)
     if (existing === undefined) {
@@ -634,11 +672,15 @@ function addInstalledPackageNodes(context: NpmParseContext): void {
         version,
         peerContext: [],
       }
+      if (patch !== undefined) node.patch = patch
       // ADR-0032 — carry the slot on the Node so the seal re-derives the id.
       if (source !== undefined) node.source = source
       builder.addNode(node)
       if (entry.integrity !== undefined || hasTarballPayload(entry)) {
-        builder.setTarball({ name: tailName, version, source }, tarballPayloadOf(entry, id, diagnostics))
+        builder.setTarball(
+          { name: tailName, version, patch, source },
+          tarballPayloadOf(entry, id, diagnostics),
+        )
       }
     }
   }
@@ -652,6 +694,7 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     edgeDeclaredNames,
     edgeRanges,
     nodeSidecar,
+    patchByPath,
     packages,
     pathToId,
     workspaceByPath,
@@ -677,6 +720,13 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     // URL for legacy-mirror emit). Core stays version-neutral — it does
     // not know what the hook is for.
     config.hooks?.captureEntry?.(srcId, entry)
+    config.hooks?.captureNodeSidecar?.({
+      path,
+      srcId,
+      patch: patchByPath.get(path),
+      entry,
+      nodeSidecar: nodeSide,
+    })
 
     const isRoot = path === ''
     const isWorkspaceMember = workspaceByPath.has(path)
@@ -712,6 +762,7 @@ function captureNpmRootMeta(context: NpmParseContext): NpmRootMeta {
     version: lf.version ?? rootEntry.version,
     requires: lf.requires,
   }
+  context.config.hooks?.captureRootMeta?.({ lf, rootEntry, rootMeta })
   if (rootEntry.workspaces !== undefined) rootMeta.workspaces = rootEntry.workspaces.slice()
   if (rootEntry.bundleDependencies !== undefined) {
     rootMeta.bundleDependencies = Array.isArray(rootEntry.bundleDependencies)
@@ -774,6 +825,7 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
     packages,
     rootId,
     workspaceByPath,
+    options,
   } = context
   try {
     const graph = builder.seal()
@@ -785,7 +837,7 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
       nodes: nodeSidecar,
       workspaceByPath,
     })
-    config.hooks?.afterParse?.({ graph, lf, packages, rootId })
+    config.hooks?.afterParse?.({ graph, lf, packages, rootId, options })
     return graph
   } catch (error) {
     if (error instanceof GraphError) {
@@ -1144,7 +1196,7 @@ function deriveInstallPathsForStringify(
   // ordering, the fallback assigned `node_modules/<name>` by node-ID sort
   // and any root-direct edge to a non-lexicographically-first version then
   // collided at root (e.g. a root-direct `pkg@0.0.10` vs a deeper
-  // `pkg@1.0.0`). Node-flat sources (npm-2 / npm-3) carry sidecar
+  // `pkg@1.0.0`). Node-flat sources (npm-2 / npm-3 / npm-4) carry sidecar
   // install paths that have already filled every position above, so this
   // BFS is a no-op for them.
   // ADR-0026 replay vs generate. When every resolved node carries a
@@ -1207,6 +1259,7 @@ function buildRootEntry(
   rootNode: Node,
   rootMeta: NpmRootMeta | undefined,
   sidecar: NpmSidecar | undefined,
+  config: NpmFamilyConfig,
   emitDiagnostic: (d: Diagnostic) => void = () => undefined,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {}
@@ -1222,6 +1275,13 @@ function buildRootEntry(
   else if (rootMeta?.optionalDependencies !== undefined) body.optionalDependencies = sortRecord(rootMeta.optionalDependencies)
   if (rootMeta?.workspaces !== undefined) body.workspaces = rootMeta.workspaces
   if (rootMeta?.bundleDependencies !== undefined) body.bundleDependencies = rootMeta.bundleDependencies
+  config.hooks?.enrichPackageEntry?.({
+    graph,
+    node: rootNode,
+    nodeSidecar: sidecar?.nodes.get(rootNode.id),
+    body,
+    kind: 'root',
+  })
   return body
 }
 
@@ -1229,6 +1289,7 @@ function buildWorkspaceMemberEntry(
   graph: Graph,
   node: Node,
   sidecar: NpmSidecar | undefined,
+  config: NpmFamilyConfig,
   emitDiagnostic: (d: Diagnostic) => void = () => undefined,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
@@ -1242,6 +1303,13 @@ function buildWorkspaceMemberEntry(
   if (Object.keys(blocks.peer).length > 0) body.peerDependencies = blocks.peer
   else if (nodeSide?.peerDependencies !== undefined) body.peerDependencies = sortRecord(nodeSide.peerDependencies)
   if (Object.keys(blocks.optional).length > 0) body.optionalDependencies = blocks.optional
+  config.hooks?.enrichPackageEntry?.({
+    graph,
+    node,
+    nodeSidecar: nodeSide,
+    body,
+    kind: 'workspace',
+  })
   return body
 }
 
@@ -1308,6 +1376,13 @@ function buildNodeModulesEntry(
   if (tarball?.libc !== undefined) body.libc = tarball.libc
   if (tarball?.peerDependenciesMeta !== undefined) body.peerDependenciesMeta = tarball.peerDependenciesMeta
   if (tarball?.hasInstallScript !== undefined) body.hasInstallScript = tarball.hasInstallScript
+  config.hooks?.enrichPackageEntry?.({
+    graph,
+    node,
+    nodeSidecar: nodeSide,
+    body,
+    kind: 'installed',
+  })
 
   return body
 }
@@ -1342,17 +1417,20 @@ function reportPeerContextFlatten(
 }
 
 function reportPatchDrop(
+  graph: Graph,
+  sidecar: NpmSidecar | undefined,
   config: NpmFamilyConfig,
   node: Node,
   warned: Set<string>,
   emitDiagnostic: (diagnostic: Diagnostic) => void,
 ): void {
   if (node.patch === undefined || warned.has(node.id)) return
+  if (config.hooks?.canEmitPatch?.(graph, node, sidecar) === true) return
   warned.add(node.id)
   patchEmitDropped(
     node.id,
     'patch',
-    `npm-${config.lockfileVersion} has no patch: protocol; ${JSON.stringify(node.patch)} dropped`,
+    `npm-${config.lockfileVersion} cannot faithfully emit ${JSON.stringify(node.patch)} from the available native adapter state; patch dropped`,
     emitDiagnostic,
   )
 }

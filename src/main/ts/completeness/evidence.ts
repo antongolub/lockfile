@@ -18,12 +18,14 @@ import type {
   EvidenceInput,
   EvidenceLedger,
   EvidenceRef,
+  ManifestKnowledge,
   PackageManifestEvidence,
   PmConfigEvidence,
   RepositoryManifestEvidence,
   TargetManager,
   TargetOracleEvidence,
 } from './types.ts'
+import { manifestExtensionDependencyMismatchDiagnostic } from './diagnostics.ts'
 
 // === CONSTANTS ==============================================================
 
@@ -47,6 +49,7 @@ const formats = new Set<FormatId>([
   'npm-1',
   'npm-2',
   'npm-3',
+  'npm-4',
   'pnpm-v5',
   'pnpm-v6',
   'pnpm-v9',
@@ -95,6 +98,13 @@ export interface InternalEvidenceState {
     present: boolean
     overrides: readonly OverrideConstraint[]
   }>
+  readonly observedManifestKnowledge?: Readonly<{
+    knowledge: Exclude<ManifestKnowledge, 'faithful'>
+    fingerprints: readonly Readonly<{
+      source: string
+      value: string
+    }>[]
+  }>
   readonly pmConfigs: readonly PmConfigEvidence[]
   readonly packageManifests: ReadonlyMap<TarballKey, Readonly<{
     authority: PackageManifestEvidence['authority']
@@ -116,6 +126,16 @@ export type EnrichmentDerivationPhase =
       after: Graph
       added: readonly NodeId[]
       wired: readonly EdgeTriple[]
+    }>
+  | Readonly<{
+      kind: 'target-compatibility'
+      before: Graph
+      after: Graph
+      added: readonly NodeId[]
+      wired: readonly EdgeTriple[]
+      unwired: readonly EdgeTriple[]
+      rooted: readonly NodeId[]
+      unrooted: readonly NodeId[]
     }>
   | Readonly<{
       kind: 'metadata'
@@ -165,15 +185,44 @@ export function packageResolutionFactsEqual(
   left: PackumentVersion,
   right: PackumentVersion,
 ): boolean {
+  return left.name === right.name
+    && left.version === right.version
+    && packageDependencyFactsEqual(left, right)
+}
+
+export function packageDependencyFactsEqual(
+  left: PackumentVersion,
+  right: PackumentVersion,
+): boolean {
   const project = (manifest: PackumentVersion): unknown => ({
-    name: manifest.name,
-    version: manifest.version,
     dependencies: manifest.dependencies,
     optionalDependencies: manifest.optionalDependencies,
     peerDependencies: manifest.peerDependencies,
     peerDependenciesMeta: manifest.peerDependenciesMeta,
   })
   return equalValue(project(left), project(right))
+}
+
+function packageManifestFactsWithoutExtensions(manifest: PackumentVersion): unknown {
+  const {
+    dependencies: _dependencies,
+    optionalDependencies: _optionalDependencies,
+    peerDependencies: _peerDependencies,
+    peerDependenciesMeta: _peerDependenciesMeta,
+    ...facts
+  } = manifest
+  return facts
+}
+
+function onlyManifestExtensionFactsDiffer(
+  left: PackumentVersion,
+  right: PackumentVersion,
+): boolean {
+  return !equalValue(left, right)
+    && equalValue(
+      packageManifestFactsWithoutExtensions(left),
+      packageManifestFactsWithoutExtensions(right),
+    )
 }
 
 export function evidenceOf(graph: Graph): EvidenceContext {
@@ -208,7 +257,11 @@ export function withEvidence(base: EvidenceContext, input: EvidenceInput | reado
         break
       case 'package-manifests':
         packageManifests = mergePackageManifests(
-          packageManifests, item, conflicts, diagnostics,
+          packageManifests,
+          item,
+          baseState.observedManifestKnowledge?.knowledge ?? 'faithful',
+          conflicts,
+          diagnostics,
         )
         break
       case 'target-oracle':
@@ -226,6 +279,7 @@ export function withEvidence(base: EvidenceContext, input: EvidenceInput | reado
     anchorSnapshot: baseState.anchorSnapshot,
     source: baseState.source,
     observedPolicyCarrier: baseState.observedPolicyCarrier,
+    observedManifestKnowledge: baseState.observedManifestKnowledge,
     repositoryManifests,
     pmConfigs,
     packageManifests,
@@ -311,6 +365,7 @@ export function attachParsedEvidence(
   format: FormatId,
   manifests?: Readonly<Record<string, Manifest>>,
   observedPolicyCarrier?: readonly OverrideConstraint[] | null,
+  observedManifestKnowledge?: InternalEvidenceState['observedManifestKnowledge'],
 ): void {
   const source = Object.freeze({ format, manager: targetManagerOf(format) })
   let context = createContext({
@@ -323,6 +378,12 @@ export function attachParsedEvidence(
         coverage: 'complete' as const,
         presence: observedPolicyCarrier === null ? 'absent' as const : 'present' as const,
       }]),
+      ...(observedManifestKnowledge?.fingerprints.map(fingerprint => ({
+        kind: 'lockfile' as const,
+        subject: 'manifest-extensions',
+        source: fingerprint.source,
+        presence: 'present' as const,
+      })) ?? []),
     ],
     diagnostics: [],
   }, Object.freeze({
@@ -336,6 +397,9 @@ export function attachParsedEvidence(
         present: observedPolicyCarrier !== null,
         overrides: cloneAndFreeze(observedPolicyCarrier ?? []),
       }),
+    observedManifestKnowledge: observedManifestKnowledge === undefined
+      ? undefined
+      : cloneAndFreeze(observedManifestKnowledge),
   }))
   if (manifests !== undefined) {
     context = withEvidence(context, {
@@ -875,6 +939,41 @@ function assertPhaseReceipt(phase: EnrichmentDerivationPhase): void {
     }
     return
   }
+  if (phase.kind === 'target-compatibility') {
+    if (delta.removedNodes.length > 0 || delta.changedNodes.length > 0
+      || delta.removedTarballs.length > 0 || delta.changedTarballs.length > 0
+      || delta.layout) {
+      invariant('target-compatibility receipt contains an unreceipted delta')
+    }
+    const expectedNodes = [...new Set(phase.added)].sort()
+    if (!equalValue(delta.addedNodes, expectedNodes)) {
+      invariant('target-compatibility node receipt is incomplete')
+    }
+    const expectedAddedEdges = [...new Set(phase.wired.map(tripleKey))].sort()
+    const actualAddedEdges = [...new Set(delta.addedEdges.map(edgeTripleOf))].sort()
+    if (!equalValue(actualAddedEdges, expectedAddedEdges)) {
+      invariant('target-compatibility added-edge receipt is incomplete')
+    }
+    const expectedRemovedEdges = [...new Set(phase.unwired.map(tripleKey))].sort()
+    const actualRemovedEdges = [...new Set(delta.removedEdges.map(edgeTripleOf))].sort()
+    if (!equalValue(actualRemovedEdges, expectedRemovedEdges)) {
+      invariant('target-compatibility removed-edge receipt is incomplete')
+    }
+    if (!equalValue(delta.addedRoots, [...new Set(phase.rooted)].sort())) {
+      invariant('target-compatibility added-root receipt is incomplete')
+    }
+    if (!equalValue(delta.removedRoots, [...new Set(phase.unrooted)].sort())) {
+      invariant('target-compatibility removed-root receipt is incomplete')
+    }
+    const addedNodeKeys = new Set(phase.added.map(id => {
+      const node = phase.after.getNode(id)
+      return node === undefined ? undefined : toTarballKey(node)
+    }).filter((key): key is TarballKey => key !== undefined))
+    if (delta.addedTarballs.some(key => !addedNodeKeys.has(key))) {
+      invariant('target-compatibility tarball receipt is incomplete')
+    }
+    return
+  }
   assertOnlyTarballsChanged(delta, phase.kind)
   if (delta.removedTarballs.length > 0) {
     invariant(`${phase.kind} receipt removes a tarball payload`)
@@ -1091,6 +1190,7 @@ function mergePmConfig(
 function mergePackageManifests(
   current: InternalEvidenceState['packageManifests'],
   input: PackageManifestEvidence,
+  manifestKnowledge: ManifestKnowledge,
   conflicts: EvidenceConflictRecord[],
   diagnostics: Diagnostic[],
 ): InternalEvidenceState['packageManifests'] {
@@ -1100,15 +1200,20 @@ function mergePackageManifests(
     const frozen = cloneAndFreeze(manifest)
     if (existing !== undefined && !equalValue(existing.manifest, frozen)) {
       const sources = [existing.authority, input.authority]
-      if (!packageResolutionFactsEqual(existing.manifest, frozen)) {
-        addConflict(conflicts, diagnostics, { dimension: 'edgeKinds', subject: key, sources })
-        addConflict(conflicts, diagnostics, { dimension: 'peerModel', subject: key, sources })
+      if (manifestKnowledge !== 'faithful'
+        && onlyManifestExtensionFactsDiffer(existing.manifest, frozen)) {
+        diagnostics.push(manifestExtensionDependencyMismatchDiagnostic(key, sources))
+      } else {
+        if (!packageResolutionFactsEqual(existing.manifest, frozen)) {
+          addConflict(conflicts, diagnostics, { dimension: 'edgeKinds', subject: key, sources })
+          addConflict(conflicts, diagnostics, { dimension: 'peerModel', subject: key, sources })
+        }
+        if (existing.manifest.name !== frozen.name || existing.manifest.version !== frozen.version) {
+          addConflict(conflicts, diagnostics, { dimension: 'resolvedGraph', subject: key, sources })
+          addConflict(conflicts, diagnostics, { dimension: 'artifacts', subject: key, sources })
+        }
+        addConflict(conflicts, diagnostics, { dimension: 'packageMetadata', subject: key, sources })
       }
-      if (existing.manifest.name !== frozen.name || existing.manifest.version !== frozen.version) {
-        addConflict(conflicts, diagnostics, { dimension: 'resolvedGraph', subject: key, sources })
-        addConflict(conflicts, diagnostics, { dimension: 'artifacts', subject: key, sources })
-      }
-      addConflict(conflicts, diagnostics, { dimension: 'packageMetadata', subject: key, sources })
     }
     if (existing === undefined || manifestAuthorityRank[input.authority] > manifestAuthorityRank[existing.authority]) {
       next.set(key, Object.freeze({ authority: input.authority, manifest: frozen }))

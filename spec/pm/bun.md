@@ -445,6 +445,9 @@ on-disk encoding lives in those format specs.
   text emits, `1` in current) are specified in
   [`bun-text.md`](../formats/bun-text.md) — **not duplicated here**.
   [bun.com/docs/pm/lockfile, bun.com/blog/bun-lock-text-lockfile]
+  This project currently accepts only v1: released early v0 text locks fail
+  closed, while an unreleased Rust-rewrite v2 remains queued until a released
+  producer and frozen oracle exist.
 - **`bun.lockb`** (binary, original; default **<1.2**) is a **detect-and-reject**
   input for this project — never parsed. Migrate with
   `bun install --save-text-lockfile --frozen-lockfile --lockfile-only` then

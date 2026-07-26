@@ -43,7 +43,7 @@ a point release will close.
 
 | Format | `detect` | `parse` | `stringify` |
 |--------|:-:|:-:|:-:|
-| `npm-1` · `npm-2` · `npm-3`        | ✓ | ✓ | ✓ |
+| `npm-1` · `npm-2` · `npm-3` · `npm-4` | ✓ | ✓ | ✓ |
 | `yarn-classic`                    | ✓ | ✓ | ✓ |
 | `yarn-berry-v4` … `yarn-berry-v10`| ✓ | ✓ | ✓ |
 | `pnpm-v5` · `pnpm-v6` · `pnpm-v9`  | ✓ | ✓ | ✓ |
@@ -73,6 +73,9 @@ emitting a lock it cannot prove. All are point-release targets.
 - **pnpm catalogs and build-trust policy** are preserved in same-format round trips;
   cross-family conversions that would need external workspace evidence fail closed on
   the unsupported loss.
+- **Bun text schema coverage is v1-only.** Released early
+  `lockfileVersion: 0` files currently fail closed; an unreleased Rust-rewrite
+  v2 is queued behind a released producer and frozen oracle.
 
 ## Concept
 
@@ -352,7 +355,7 @@ packument already in hand (`engines`), `10` needs one full-manifest fetch (`lice
 | Modifiers | `lockgraph/modify` | the individual `Primitive` functions behind `modify` (audit-fix, override-pin, license-filter) |
 | Complete | `lockgraph/complete` | `completeTransitives` — registry-backed tree completion that wires the transitive deps a modify introduced, with optional node-local `constraints` (`engines`, `license`) for engine/license-aware version selection |
 | Optimize | `lockgraph/optimize` | `optimize` (reachability orphan GC), `pruneOrphans` (reference-count orphan GC), `registryPackages` (the graph's registry deps as a `{name: versions[]}` audit input) |
-| Enrich | `lockgraph/enrich` | `refurbish` — monotone field-fill (e.g. recomputes a yarn-berry zip `checksum` from a tarball source so a patched lock installs without `yarn install`) |
+| Enrich | `lockgraph/enrich` | `enrich` — target-aware completion facade, including order-sensitive target-PM overlays; `refurbish` — checksum/metadata field-fill primitive only. Calling `completeTransitives` + `refurbish` directly does not materialize Berry target-compatibility entries; strict output reports `COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED` and directs callers to `enrich()` |
 | Registry | `lockgraph/registry` | `frozenRegistry`, `liveRegistry` (+ `.fromConfig`, `.audit`), `resolveRegistry`, `npmCache`, `pnpmCache`, `yarnBerryCache` |
 | Per-format | `lockgraph/formats/<id>` | a single adapter directly (test surface; not a primary user API) |
 

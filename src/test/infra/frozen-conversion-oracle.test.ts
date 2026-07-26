@@ -1,9 +1,8 @@
 import semver from 'semver'
-import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { certifyFrozen, convert, prepareFrozen } from '../../main/ts/index.ts'
 import {
   createNativeLock,
@@ -15,11 +14,16 @@ import {
   type FrozenOracleAdapter,
   type FrozenOracleFamily,
 } from '../helpers/frozen-oracle.ts'
+import {
+  startFrozenRegistry,
+  stopFrozenRegistry,
+  type FrozenRegistryProcess,
+} from '../helpers/frozen-registry-process.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const tarballPath = resolve(here, '../resources/fixtures/tarballs/ms-2.1.3.tgz')
 const registryScript = resolve(here, '../helpers/frozen-registry.mjs')
-let registry: ChildProcess | undefined
+let registry: FrozenRegistryProcess | undefined
 
 const adapterSelector = (() => {
   const raw = process.env.LOCKGRAPH_FROZEN_ORACLE_ADAPTERS
@@ -40,23 +44,15 @@ function adapterSelected(adapter: FrozenOracleAdapter): boolean {
 const fullMatrixIt = adapterSelector === undefined ? it : it.skip
 
 beforeAll(async () => {
-  registry = spawn(process.execPath, [registryScript, tarballPath], {
-    stdio: ['ignore', 'pipe', 'inherit'],
-  })
-  const port = await new Promise<string>((resolvePort, reject) => {
-    const timeout = setTimeout(() => reject(new Error('local frozen registry did not start')), 10_000)
-    registry!.once('error', reject)
-    registry!.stdout!.once('data', chunk => {
-      clearTimeout(timeout)
-      resolvePort(String(chunk).trim())
-    })
-  })
-  process.env.LOCKGRAPH_TEST_REGISTRY = `http://127.0.0.1:${port}/`
+  registry = await startFrozenRegistry(registryScript, [tarballPath])
+  if (registry.registry !== undefined) {
+    process.env.LOCKGRAPH_TEST_REGISTRY = registry.registry
+  }
 })
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.LOCKGRAPH_TEST_REGISTRY
-  registry?.kill('SIGTERM')
+  await stopFrozenRegistry(registry?.child)
 })
 
 function packageManager(adapter: FrozenOracleAdapter): string {
@@ -145,6 +141,12 @@ function nativeCandidate(adapter: FrozenOracleAdapter): {
 }
 
 describe('infra: frozen conversion native oracle', () => {
+  beforeEach(context => {
+    if (registry?.unavailableReason !== undefined) {
+      context.skip(registry.unavailableReason)
+    }
+  })
+
   fullMatrixIt('certifies the exact core candidate bundle after a real pinned native verdict', async () => {
     const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === 'pm-npm-9')!
     const files = createNativeLock(adapter, {
@@ -219,6 +221,59 @@ describe('infra: frozen conversion native oracle', () => {
     expect(oracle.receipt!.configDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
   }, 60_000)
 
+  fullMatrixIt('materializes external Yarn patch files for frozen verification', () => {
+    const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === 'pm-yarn-berry-v9')!
+    const patchPath = '.yarn/patches/ms.patch'
+    const patch = `diff --git a/index.js b/index.js
+--- a/index.js
++++ b/index.js
+@@ -1,5 +1,6 @@
+ /**
++ * Lockgraph frozen-oracle external patch marker.
+  * Helpers.
+  */
+${' '}
+ var s = 1000;
+`
+    const manifest = {
+      name: 'lockgraph-frozen-oracle-yarn-external-patch',
+      version: '1.0.0',
+      private: true,
+      packageManager: packageManager(adapter),
+      dependencies: { ms: '2.1.3' },
+      resolutions: {
+        'ms@npm:2.1.3': `patch:ms@npm%3A2.1.3#./${patchPath}`,
+      },
+    }
+    const files = createNativeLock(adapter, {
+      'package.json': `${JSON.stringify(manifest, null, 2)}\n`,
+      '.yarnrc.yml': 'nodeLinker: node-modules\nenableScripts: false\nunsafeHttpWhitelist:\n  - 127.0.0.1\n',
+      [patchPath]: patch,
+    })
+    const lockfile = String(files['yarn.lock'])
+    expect(lockfile).toContain(`#./${patchPath}`)
+    const projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify({
+      target: { format: adapter.format, managerVersion: adapter.version },
+      lockfile,
+      companions: [],
+    })).digest('hex')}`
+    const candidate: FrozenOracleCandidate = Object.freeze({
+      protocol: 'lockgraph-frozen-projection/v1',
+      target: Object.freeze({ format: adapter.format, managerVersion: adapter.version }),
+      projectionDigest,
+      lockfile,
+      companions: Object.freeze([]),
+    })
+
+    const oracle = runFrozenOracle(candidate, adapter, files)
+    expect(oracle.reason).toBeUndefined()
+    expect(oracle.receipt).toMatchObject({
+      target: candidate.target,
+      projectionDigest,
+      verification: 'frozen-verified',
+    })
+  }, 60_000)
+
   for (const adapter of FROZEN_ORACLE_MATRIX.filter(adapterSelected)) {
     const runnable = runnableFor(adapter)
     runnable.run(`${adapter.alias} accepts one exact byte-stable candidate${runnable.suffix}`, () => {
@@ -280,7 +335,10 @@ describe('infra: frozen conversion native oracle', () => {
     }, 60_000)
   }
 
-  fullMatrixIt('pins narrow family-specific generated-output allowlists in both directions', () => {
+})
+
+describe('infra: frozen conversion oracle policy', () => {
+  it('pins narrow family-specific generated-output allowlists in both directions', () => {
     const families: readonly FrozenOracleFamily[] = ['npm', 'yarn-classic', 'yarn-berry', 'pnpm', 'bun']
     for (const family of families) {
       expect(isFrozenOracleOutputAllowed(family, 'node_modules/.state')).toBe(true)

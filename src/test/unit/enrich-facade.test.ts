@@ -57,6 +57,18 @@ const CLASSIC =
   '  dependencies:\n' +
   '    bar "^1.0.0"\n'
 
+const PNPM_EXTENDED_MISSING_BAR =
+  `lockfileVersion: '9.0'\n\n`
+  + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+  + `packageExtensionsChecksum: sha256-positive=\n\n`
+  + `importers:\n\n`
+  + `  .:\n    dependencies:\n`
+  + `      foo:\n        specifier: 1.0.0\n        version: 1.0.0\n\n`
+  + `packages:\n\n`
+  + `  foo@1.0.0: {}\n\n`
+  + `snapshots:\n\n`
+  + `  foo@1.0.0:\n    dependencies:\n      bar: ^1.0.0\n`
+
 const emptyRootManifest: Record<string, Manifest> = {
   '': {
     name: 'root',
@@ -486,6 +498,77 @@ describe('target-aware enrich facade', () => {
         code: 'COMPLETENESS_EVIDENCE_CONFLICT',
         subject: 'bar@1.5.0',
       }))
+  })
+
+  it('keeps pnpm completion when a manifest-extension fingerprint explains dependency drift', async () => {
+    const input = parse('pnpm-v9', PNPM_EXTENDED_MISSING_BAR)
+    const authority = withEvidence(evidenceOf(input), {
+      kind: 'package-manifests',
+      authority: 'version-manifest',
+      manifests: {
+        'bar@1.5.0': {
+          name: 'bar',
+          version: '1.5.0',
+          dependencies: { nested: '1.0.0' },
+        },
+      },
+    })
+    attachEvidence(input, authority)
+    const registry = registryHarness({ conflictBar: true })
+    const result = await enrich(input, { registry: registry.adapter }, {
+      target: { format: 'npm-3' },
+      contract: 'snapshot',
+    })
+
+    expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH',
+      subject: 'bar@1.5.0',
+      data: expect.objectContaining({ dimension: 'manifestKnowledge' }),
+    }))
+    expect(result.diagnostics.map(item => item.code))
+      .not.toContain('COMPLETENESS_EVIDENCE_CONFLICT')
+    expect(completenessOf(result.graph).profile.manifestKnowledge)
+      .toBe('extended-fingerprinted')
+  })
+
+  it('keeps completion when exact registry evidence omits fingerprinted extension facts', async () => {
+    const registry = registryHarness({ manifests: true, manifestConflict: true })
+    const result = await enrich(
+      parse('pnpm-v9', PNPM_EXTENDED_MISSING_BAR),
+      { registry: registry.adapter },
+      { target: { format: 'npm-3' }, contract: 'project' },
+    )
+
+    expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH',
+      subject: 'bar@1.5.0',
+      data: expect.objectContaining({
+        sources: ['abbreviated-packument', 'version-manifest'],
+      }),
+    }))
+    expect(result.diagnostics.map(item => item.code))
+      .not.toContain('COMPLETENESS_EVIDENCE_CONFLICT')
+  })
+
+  it('still rolls back fingerprinted graphs on non-extension registry conflicts', async () => {
+    const registry = registryHarness({
+      manifests: true,
+      manifestConflict: true,
+      manifestMetadataConflict: true,
+    })
+    const result = await enrich(
+      parse('pnpm-v9', PNPM_EXTENDED_MISSING_BAR),
+      { registry: registry.adapter },
+      { target: { format: 'npm-3' }, contract: 'project' },
+    )
+
+    expect(result.graph.byName('bar')).toEqual([])
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_EVIDENCE_CONFLICT',
+      subject: 'bar@1.5.0',
+    }))
   })
 
   it('rolls back registry completion when exact and abbreviated metadata conflict', async () => {

@@ -95,7 +95,7 @@ Formats and the package-manager versions behind them:
 
 | Family | Format ids | PM versions | Lock file |
 | --- | --- | --- | --- |
-| npm | `npm-1`, `npm-2`, `npm-3` | npm 5–6 / 7–8 / 9+ (lockfileVersion 1/2/3) | `package-lock.json` |
+| npm | `npm-1`, `npm-2`, `npm-3`, `npm-4` | npm 5–6 / 7–8 / 9+ / 12+ feature-triggered (lockfileVersion 1/2/3/4) | `package-lock.json` |
 | yarn classic | `yarn-classic` | yarn 1.x | `yarn.lock` |
 | yarn berry | `yarn-berry-v4` … `yarn-berry-v10` | yarn 2/3/4 (`__metadata.version` 4–10) | `yarn.lock` |
 | pnpm | `pnpm-v5`, `pnpm-v6`, `pnpm-v9` | pnpm 3–7 / 7–8 / 9+ | `pnpm-lock.yaml` |
@@ -107,21 +107,21 @@ Formats and the package-manager versions behind them:
 A target loses a feature exactly when it is `✗` for that target but present in the
 source. `~` = representable only with `manifests`, or in a degraded form.
 
-| Feature | npm-1 | npm-2/3 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text |
-| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| Project root in lock | ✗ | ✓ (`""`) | ✗ (rootless) | ✓ (`root@workspace:.`) | ✓ (`importers`) | ✓ (`importers['.']`) | ✓ (`workspaces[""]`) |
-| Workspaces (members) | ✗ | ✓ | ~ (needs manifests) | ✓ | ✓ | ✓ | ✓ |
-| `workspace:` protocol | ✗ | ~ (`*` + `link`) | ✗ | ✓ | ✓ | ✓ | ✓ |
-| Peer virtualization | ✗ | ✗ | ✗ | ✓ (`virtual:`) | ✓ (key suffix) | ✓ (snapshot key) | ✗ |
-| `dev` / `peer` edge distinction | ~ (flags) | ✓ | ~ (needs manifests) | ✓ | ✓ | ~ (from reachability) | ✓ |
-| `optional` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `peerDependenciesMeta` | ✗ | ✓ | ✗ | ✓ | ✓ | ✓ | ~ (declarative) |
-| Overrides / resolutions block | ✗ | ✗ (manifest-only) | ✗ (rewrites entry key) | ✗ (manifest-only) | ✓ (`overrides:`) | ✓ | ✓ (npm-shaped) |
-| `patch:` protocol | ✗ | ✗ | ✗ | ✓ (per-node) | ✓ | ✓ | ~ (top-level map only) |
-| `conditions` (os/cpu/libc gate) | ✗ | ✗ | ✗ | ✓ (v5+) | ✗ | ✗ | ✗ |
-| `catalog:` protocol | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (9.5+) | ✗ |
-| Integrity form | tarball SRI | tarball SRI | tarball SRI | **berry-zip** checksum | tarball SRI | tarball SRI | tarball SRI |
-| Bundled deps | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Feature | npm-1 | npm-2/3 | npm-4 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Project root in lock | ✗ | ✓ (`""`) | ✓ (`""`) | ✗ (rootless) | ✓ (`root@workspace:.`) | ✓ (`importers`) | ✓ (`importers['.']`) | ✓ (`workspaces[""]`) |
+| Workspaces (members) | ✗ | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ✓ | ✓ |
+| `workspace:` protocol | ✗ | ~ (`*` + `link`) | ~ (`*` + `link`) | ✗ | ✓ | ✓ | ✓ | ✓ |
+| Peer virtualization | ✗ | ✗ | ✗ | ✗ | ✓ (`virtual:`) | ✓ (key suffix) | ✓ (snapshot key) | ✗ |
+| `dev` / `peer` edge distinction | ~ (flags) | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ~ (from reachability) | ✓ |
+| `optional` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `peerDependenciesMeta` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ~ (declarative) |
+| Overrides / resolutions block | ✗ | ✗ (manifest-only) | ✗ (manifest-only) | ✗ (rewrites entry key) | ✗ (manifest-only) | ✓ (`overrides:`) | ✓ | ✓ (npm-shaped) |
+| Native patch carrier | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✓ (per-node) | ✓ | ✓ | ~ (top-level map only) |
+| `conditions` (os/cpu/libc gate) | ✗ | ✗ | ✗ | ✗ | ✓ (v5+) | ✗ | ✗ | ✗ |
+| `catalog:` protocol | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (9.5+) | ✗ |
+| Integrity form | tarball SRI | tarball SRI | tarball SRI + raw patch SRI | tarball SRI | **berry-zip** checksum | tarball SRI | tarball SRI | tarball SRI |
+| Bundled deps | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
 Notes: npm-1 predates workspaces and the `packages` block, so it also has no
 `peerDependenciesMeta` / `hasInstallScript` / `engines`-`os`-`cpu` / overrides.
@@ -137,16 +137,16 @@ Organised by feature axis. "Direction" is the family boundary that loses it;
 | --- | --- | --- | --- |
 | **Integrity — berry-zip ↔ tarball SRI** | berry → npm / yarn-classic / pnpm / bun (and back) | `RECIPE_INTEGRITY_INCOMPLETE` | Only from an authoritative target checksum or by obtaining artifact bytes and **recomputing** the target's hash. Never fabricated; mutable install may refill it, but immutable/frozen install can reject the omission. |
 | **Peer virtualization** | berry / pnpm → npm / yarn-classic / bun | `YARN_CLASSIC_PEER_VIRT_FLATTENED` / `NPM_V1_PEER_VIRT_FLATTENED` / `BUN_TEXT_PEER_VIRT_FLATTENED` (per target adapter) | No — flat targets model one instance per (name, version); peer-context forks collapse. |
-| **`patch:` protocol** | berry / pnpm → npm / yarn-classic / bun | `RECIPE_FEATURE_DROPPED` (`feature='patch'`) | No — no patch protocol in the target; the patched copy becomes the base package. |
+| **Patch recipe** | berry / pnpm → npm-1/2/3, yarn-classic, bun; or → npm-4 without matching native carrier | `RECIPE_FEATURE_DROPPED` (`feature='patch'`) | npm-4 can replay its own native carrier, but cannot derive npm's raw patch SRI/path from a foreign canonical identity. |
 | **`conditions` (os/cpu/libc)** | berry v5+ → any non-berry (and berry → v4) | **— none (silent loss)** | Re-derivable on a completion mint from `os`/`cpu`/`libc` (needs the **full** manifest — corgi omits `libc`). |
 | **`workspace:` protocol** | berry / pnpm / bun → npm / yarn-classic | `RECIPE_WORKSPACE_COLLAPSED` (also `_RESOLVED` / `_UNRESOLVED`) | npm keeps members via `packages/<path>` + `link`; yarn-classic keeps them only via manifests (see below). |
 | **Overrides / resolutions block** | pnpm / bun (lock carriers) → npm / yarn-classic / yarn-berry (manifest-only) | `INTEROP_OVERRIDE_NOT_PROJECTED` | The resolved *graph* still reflects the pin; the re-emittable overrides *block* is lost. npm & yarn read the policy from the root manifest, never the lock (npm `package.json.overrides`, yarn `resolutions`) — so the declaration is owed to a companion manifest patch (project-level API), never synthesized into a lock the manager ignores. |
 | **`catalog:` protocol** | pnpm-v9 → anything | **— none (silent)**; missing target → `RECIPE_RESOLUTION_UNKNOWN` | No equivalent elsewhere; a `catalog:` ref binds to the resolved entry the lock already carries. |
 | **`dev` / `peer` classification** | any → yarn-classic **without manifests** | `YARN_CLASSIC_NO_MANIFESTS`; peer edges also `YARN_CLASSIC_PEER_DROPPED` | `dev` is recoverable with `manifests[<path>]`; **`peer` is not** — a `yarn.lock` cannot record it and yarn-classic manifest synthesis reads only `dependencies`. |
 | **Bundled deps** | npm → yarn / pnpm / bun | **— none (silent)** | Carried as a `bundled` edge kind in the graph but not re-emitted by non-npm targets. |
-| **`peerDependenciesMeta`** | npm-2/3 / berry / pnpm → npm-1 / yarn-classic | `RECIPE_PEER_META_INCOMPLETE` | Re-derivable from the member `package.json` (manifest metadata npm re-adds on install). |
-| **Legacy `dependencies` mirror / workspaces** | npm-2/3 → npm-1 | `NPM_V1_WORKSPACES_UNSAFE`, `NPM_V1_PEER_DROPPED`, `NPM_V1_PEER_VIRT_FLATTENED` | No — npm-1 predates workspaces; members are omitted, peer edges dropped, peer context flattened. |
-| **Resolution URL** (canonical berry locator) | berry → npm-1/2/3 / bun / pnpm | **— none (silent)**; non-recomposable locator → `RECIPE_RESOLUTION_UNKNOWN` | The registry tarball URL is recomposed from `(name, version)`; a non-registry locator that cannot be recomposed drops. |
+| **`peerDependenciesMeta`** | npm-2/3/4 / berry / pnpm → npm-1 / yarn-classic | `RECIPE_PEER_META_INCOMPLETE` | Re-derivable from the member `package.json` (manifest metadata npm re-adds on install). |
+| **Legacy `dependencies` mirror / workspaces** | npm-2/3/4 → npm-1 | `NPM_V1_WORKSPACES_UNSAFE`, `NPM_V1_PEER_DROPPED`, `NPM_V1_PEER_VIRT_FLATTENED` | No — npm-1 predates workspaces; members are omitted, peer edges dropped, peer context flattened. |
+| **Resolution URL** (canonical berry locator) | berry → npm-1/2/3/4 / bun / pnpm | **— none (silent)**; non-recomposable locator → `RECIPE_RESOLUTION_UNKNOWN` | The registry tarball URL is recomposed from `(name, version)`; a non-registry locator that cannot be recomposed drops. |
 | **Multi-descriptor entry-key set** | yarn-classic → berry, berry → yarn-classic | **— none (silent)** | Cosmetic: the merged descriptor set narrows; resolution is unaffected. |
 
 > The codes above are the runtime `onDiagnostic` codes `convert()` actually emits.
@@ -286,7 +286,8 @@ version receipts, so the authority boundary must remain explicit:
 > pinned binaries; third-party `frozen-verified` assessments are only as reliable
 > as their receipt producer or an external signed-attestation system.
 
-The calibrated CI oracle matrix covers npm 6–12 across `npm-1`/`npm-2`/`npm-3`,
+The calibrated CI oracle matrix covers npm 6–12 across
+`npm-1`/`npm-2`/`npm-3` and npm 12's feature-triggered `npm-4`,
 Yarn 1.22.22 and 2.4.3, and pnpm 6–10 across `pnpm-v5`/`pnpm-v6`/`pnpm-v9`, subject
 to each binary's Node runtime range. Bun and later Berry generations have no
 bundled calibrated runner yet. External runners may attest another

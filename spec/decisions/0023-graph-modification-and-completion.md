@@ -1007,6 +1007,19 @@ amendment):
 5. **Converge** — compare graph hash to previous iteration; if
    unchanged, exit.
 
+**Target-PM compatibility overlay amendment (ADR-0039).** Target-aware
+enrichment may surround the generic completion step with a scoped immutable
+registry view and a separately receipted post-completion materialisation:
+
+```text
+registry-view overlay → completeTransitives → materialisation overlay
+  → refurbish → optimize → strict projection
+```
+
+This does not amend §4.2: completion remains monotone-additive and
+`inputs.patch` remains `undefined`. A compatibility materialiser is a distinct
+enrichment phase, not completion and not the user-intent `applyPatch` modifier.
+
 The convergence guarantee (ADR-0008 §"Convergence requirements")
 holds because:
 

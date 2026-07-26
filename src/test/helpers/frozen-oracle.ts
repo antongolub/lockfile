@@ -29,7 +29,7 @@ export interface FrozenOracleAdapter {
   readonly alias: string
   readonly binName: 'npm' | 'yarn' | 'pnpm' | 'bun'
   readonly runtime?: 'node' | 'native'
-  readonly nativeLockfileVersion?: 1 | 2 | 3
+  readonly nativeLockfileVersion?: 1 | 2 | 3 | 4
   readonly nativeYarnLockfileVersion?: 1 | 4 | 5 | 6 | 7 | 8 | 9
   readonly nativePnpmLockfileVersion?: '5.3' | '5.4' | '6.0' | '9.0'
   readonly nativeBunLockfileVersion?: 1
@@ -46,6 +46,8 @@ export interface FrozenOracleCandidate extends FrozenVerificationSubject {
   readonly lockfile: string
   readonly companions: readonly CompanionSetOperation[]
 }
+
+export type FrozenOracleProjectFiles = Readonly<Record<string, string | Uint8Array>>
 
 export const FROZEN_ORACLE_MATRIX: readonly FrozenOracleAdapter[] = Object.freeze([
   {
@@ -78,6 +80,8 @@ export const FROZEN_ORACLE_MATRIX: readonly FrozenOracleAdapter[] = Object.freez
     version: '12.0.1',
     alias: 'pm-npm-12',
     binName: 'npm',
+    // npm 12 defaults to v3; patch/extension triggers use the dedicated npm-4
+    // oracle. This field calibrates native creation and never steers frozen argv.
     nativeLockfileVersion: 3,
     nodeRange: '^22.22.2 || ^24.15.0 || >=26.0.0',
   },
@@ -145,6 +149,7 @@ const LOCK_PATH: Readonly<Partial<Record<FormatId, string>>> = Object.freeze({
   'npm-1': 'package-lock.json',
   'npm-2': 'package-lock.json',
   'npm-3': 'package-lock.json',
+  'npm-4': 'package-lock.json',
   'yarn-classic': 'yarn.lock',
   'yarn-berry-v4': 'yarn.lock',
   'yarn-berry-v5': 'yarn.lock',
@@ -327,6 +332,35 @@ function run(
   })
 }
 
+function commandFailureDetail(
+  result: ReturnType<typeof spawnSync>,
+  oracleRoot: string,
+): string | undefined {
+  const stderr = typeof result.stderr === 'string' ? result.stderr : ''
+  const stdout = typeof result.stdout === 'string' ? result.stdout : ''
+  const output = stderr.trim().length > 0 ? stderr : stdout
+  if (output.trim().length === 0) return undefined
+  const sanitized = output
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, '')
+    .replaceAll(dirname(oracleRoot), '<oracle>')
+    .replaceAll(process.cwd(), '<workspace>')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/giu, '$1<redacted>@')
+    .replace(/^npm error A complete log of this run can be found in:.*$/gimu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (sanitized.length === 0) return undefined
+  return sanitized.length <= 1_000 ? sanitized : `${sanitized.slice(0, 997)}...`
+}
+
+function materializeProjectFiles(root: string, files: FrozenOracleProjectFiles): void {
+  for (const [path, bytes] of Object.entries(files)) {
+    const target = resolveInside(root, path)
+    mkdirSync(dirname(target), { recursive: true })
+    writeFileSync(target, bytes)
+    chmodSync(target, 0o644)
+  }
+}
+
 function jsonPointerSet(document: unknown, pointer: string, value: unknown): unknown {
   if (pointer === '') return value
   if (!pointer.startsWith('/')) throw new TypeError(`invalid companion JSON pointer: ${pointer}`)
@@ -438,7 +472,7 @@ function unknownOutput(
 export function runFrozenOracle(
   candidate: FrozenOracleCandidate,
   adapter: FrozenOracleAdapter,
-  files: Readonly<Record<string, string | Uint8Array>>,
+  projectFiles: FrozenOracleProjectFiles,
 ): FrozenOracleResult {
   const skipReason = frozenOracleSkipReason(adapter)
   if (skipReason !== undefined) return { reason: `oracle skipped: ${skipReason}` }
@@ -451,12 +485,7 @@ export function runFrozenOracle(
   const root = resolve(base, 'project')
   mkdirSync(root)
   try {
-    for (const [path, bytes] of Object.entries(files)) {
-      const target = resolveInside(root, path)
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, bytes)
-      chmodSync(target, 0o644)
-    }
+    materializeProjectFiles(root, projectFiles)
     const lock = resolveInside(root, lockPath)
     mkdirSync(dirname(lock), { recursive: true })
     writeFileSync(lock, candidate.lockfile)
@@ -479,7 +508,11 @@ export function runFrozenOracle(
     const executed = run(adapter, binary, argv, root, env)
     if (executed.error !== undefined) return { reason: executed.error.message }
     if (executed.status !== 0 || executed.signal !== null) {
-      return { reason: `frozen command rejected candidate (status=${String(executed.status)}, signal=${String(executed.signal)})` }
+      const detail = commandFailureDetail(executed, root)
+      return {
+        reason: `frozen command rejected candidate (status=${String(executed.status)}, signal=${String(executed.signal)})`
+          + (detail === undefined ? '' : `: ${detail}`),
+      }
     }
 
     const after = snapshotTree(root)
@@ -526,7 +559,7 @@ export function runFrozenOracle(
 
 export function createNativeLock(
   adapter: FrozenOracleAdapter,
-  files: Readonly<Record<string, string | Uint8Array>>,
+  projectFiles: FrozenOracleProjectFiles,
 ): Readonly<Record<string, string | Uint8Array>> {
   const lockPath = LOCK_PATH[adapter.format]
   if (lockPath === undefined) throw new Error('target has no calibrated lock path')
@@ -534,11 +567,7 @@ export function createNativeLock(
   const root = resolve(base, 'project')
   mkdirSync(root)
   try {
-    for (const [path, bytes] of Object.entries(files)) {
-      const target = resolveInside(root, path)
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, bytes)
-    }
+    materializeProjectFiles(root, projectFiles)
     const binary = resolveBin(adapter)
     const env = isolatedEnvironment(base, adapter.family)
     const versionRun = run(adapter, binary, ['--version'], root, env)
@@ -550,8 +579,8 @@ export function createNativeLock(
       throw new Error(`native lock creation failed (status=${String(created.status)}, signal=${String(created.signal)}): ${String(created.stdout)}\n${String(created.stderr)}\n${created.error?.message ?? ''}`)
     }
     const result: Record<string, string | Uint8Array> = {}
-    for (const path of Object.keys(files)) {
-      result[path] = typeof files[path] === 'string'
+    for (const path of Object.keys(projectFiles)) {
+      result[path] = typeof projectFiles[path] === 'string'
         ? readFileSync(resolveInside(root, path), 'utf8')
         : readFileSync(resolveInside(root, path))
     }

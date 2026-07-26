@@ -1,8 +1,8 @@
 # `yarn-berry-v10` — yarn berry `yarn.lock` (`__metadata.version: 10`)
 
-> Status: preview (adapter + round-trip tested; frozen certification contract available; format from yarn 5 dev branch, unreleased upstream — schema may still shift before GA).
-> Updated: 2026-07-14
-> Provenance: **Source-only** (reverse-engineered from yarnpkg/berry dev branch).
+> Status: stable schema target (adapter + round-trip tested; frozen certification contract available; emitted by stable Yarn 4.17.1).
+> Updated: 2026-07-26
+> Provenance: **Source-only** (Yarn 4.17.1 producer source).
 > Frozen certification: `prepareFrozen` / `certifyFrozen`; this schema has no bundled calibrated producer, so certification requires an external native-PM oracle receipt from the exact target manager version.
 
 The completeness contract — stringify, modify, enrich, optimize —
@@ -21,16 +21,16 @@ single on-disk delta from v9 (`__metadata.version: 10`).
 
 | PM | semver range | Default? | How to opt in |
 |----|--------------|:--------:|---------------|
-| yarn | yarn 5 (dev branch / unreleased) | ✓ | bumped in yarnpkg/berry master ahead of yarn 5 GA |
+| yarn | `>=4.17.1` | ✓ | stable Yarn 4.17.1 bumped the marker to 10 |
 
-Spotted in real-world canary against yarnpkg/berry's own self-hosted
-lockfile and prettier (both consume yarn from upstream dev tags).
+Originally spotted in yarnpkg/berry's self-hosted lockfile and prettier;
+stable Yarn 4.17.1 now pins the producer boundary.
 
 ### Readers — PM semvers that *install* from this format
 
 | PM | semver range | Notes |
 |----|--------------|-------|
-| yarn | yarn 5+ | older berry refuses; the schema-version handshake is strict |
+| yarn | `>=4.17.1` | older berry refuses; the schema-version handshake is strict |
 
 ## File
 
@@ -38,9 +38,8 @@ Same as [yarn-berry-v4](./yarn-berry-v4.md#file).
 
 ## Sources
 
-- yarn 5 dev-branch `Project.ts` — `LOCKFILE_VERSION = 10` constant.
-  Pin a permalink against the yarnpkg/berry master commit that bumps
-  the constant once the yarn 5 release tag exists.
+- [`Project.ts` at yarn 4.17.1](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.17.1/packages/yarnpkg-core/sources/Project.ts)
+  — stable `LOCKFILE_VERSION = 10` constant.
 - [`Project.ts` at yarn 4.14.1 (v9 baseline)](https://github.com/yarnpkg/berry/blob/@yarnpkg/cli/4.14.1/packages/yarnpkg-core/sources/Project.ts)
   for diff anchor.
 
@@ -64,9 +63,9 @@ from v9 is the `__metadata.version: 10` field.
 
 ## Schema sketch
 
-Identical to v9. The bump is mechanical (a `version: N` field) ahead
-of yarn 5 GA. If yarn 5 ships a structural change, the family config
-forks here without re-pointing v10 to share v9's identity.
+Identical to v9 in the supported corpus. The bump is mechanical (a
+`version: N` field). The family config remains separately owned so a future
+v10 structural delta cannot alter v9 identity.
 
 ## Capabilities
 
@@ -74,14 +73,11 @@ Inherits v9.
 
 ## Quirks
 
-- Brand-new (yarn 5 dev-branch, not yet GA) — most of the ecosystem
-  still writes v9. Treat as forward-compat target rather than canonical
-  input.
+- Brand-new in stable Yarn 4.17.1 — much of the ecosystem still writes v9.
 - The bump itself is mechanical; historical evidence (yarn 4 → 6
   introduced cacheKey, yarn 4 → 8 added `compressionLevel`) suggests
-  v10 may also pair with at least one structural change as yarn 5
-  matures. Verify against yarn 5 release-tag `Project.ts` when GA
-  ships.
+  v10 could still pair with a structural change in a later producer. Keep the
+  version-specific family config isolated.
 - Real-world canary first observed at: yarnpkg/berry repo self-host,
   prettier upstream.
 - **Conditional-checksum policy — `conditions ∩ optionalBuilds`, version-independent.**
@@ -91,7 +87,7 @@ Inherits v9.
   required path, or a patch source (`fsevents` is always builtin-patched, so its base
   `npm:` locator is hashed even when every parent edge is optional), carries a checksum
   and enrich fills a fresh one; `@esbuild/*` (exclusively-optional, no patch) stays bare.
-  Verify against the yarn 5 GA `Project.ts` when it ships. See
+  Verify against each pinned native producer. See
   [`_common.md` §1.7.2](./_common.md#172-structural-checksum-gaps--entries-yarn-never-hashes).
 
 ## Degradation rules
@@ -100,18 +96,17 @@ Inherits v9.
 
 ## Fixtures
 
-> **TBD:** unproducible from the current matrix; gated on off-npm
-> delivery of a yarn 5+ producer into the fixture toolchain. When
-> unblocked, the canonical writer is yarn 5+. Synthetic fixtures derived
+> **TBD:** stable Yarn 4.17.1 is not yet bundled in the calibrated fixture
+> matrix. When wired, it is the canonical v10 writer. Synthetic fixtures derived
 > from v9 by bumping the `version: 10` marker (per
 > [yarn-berry-v7](./yarn-berry-v7.md) precedent) are admissible for
 > round-trip regression coverage until a producer is wired up.
 
 ## Open questions
 
-> **Deferred to yarn 5 GA.** What fields beyond `__metadata.version`
-> actually change in the v9 → v10 transition? Diff yarn 5 release
-> `Project.ts` against 4.14.x once a GA tag exists. The shared canonical
+> **Open native-corpus audit.** Stable 4.17.1 confirms the v10 marker; retain a
+> whole-lock corpus diff against 4.14.x to pin whether any field beyond
+> `__metadata.version` changed. The shared canonical
 > form in [`_common.md` §1](./_common.md#1-yarn-berry-emit-invariants-version-invariant)
-> is *our* canonical form; byte-identity to yarn 5 output is a bonus, not
+> is *our* canonical form; byte-identity to stable Yarn output is a bonus, not
 > a contract.
