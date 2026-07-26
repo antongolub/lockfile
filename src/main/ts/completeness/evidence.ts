@@ -118,6 +118,16 @@ export type EnrichmentDerivationPhase =
       wired: readonly EdgeTriple[]
     }>
   | Readonly<{
+      kind: 'target-compatibility'
+      before: Graph
+      after: Graph
+      added: readonly NodeId[]
+      wired: readonly EdgeTriple[]
+      unwired: readonly EdgeTriple[]
+      rooted: readonly NodeId[]
+      unrooted: readonly NodeId[]
+    }>
+  | Readonly<{
       kind: 'metadata'
       before: Graph
       after: Graph
@@ -872,6 +882,41 @@ function assertPhaseReceipt(phase: EnrichmentDerivationPhase): void {
     // case absence must remain absence: an empty tarball record is not evidence.
     if (delta.addedTarballs.some(key => !addedNodeKeys.has(key))) {
       invariant('completion tarball receipt is incomplete')
+    }
+    return
+  }
+  if (phase.kind === 'target-compatibility') {
+    if (delta.removedNodes.length > 0 || delta.changedNodes.length > 0
+      || delta.removedTarballs.length > 0 || delta.changedTarballs.length > 0
+      || delta.layout) {
+      invariant('target-compatibility receipt contains an unreceipted delta')
+    }
+    const expectedNodes = [...new Set(phase.added)].sort()
+    if (!equalValue(delta.addedNodes, expectedNodes)) {
+      invariant('target-compatibility node receipt is incomplete')
+    }
+    const expectedAddedEdges = [...new Set(phase.wired.map(tripleKey))].sort()
+    const actualAddedEdges = [...new Set(delta.addedEdges.map(edgeTripleOf))].sort()
+    if (!equalValue(actualAddedEdges, expectedAddedEdges)) {
+      invariant('target-compatibility added-edge receipt is incomplete')
+    }
+    const expectedRemovedEdges = [...new Set(phase.unwired.map(tripleKey))].sort()
+    const actualRemovedEdges = [...new Set(delta.removedEdges.map(edgeTripleOf))].sort()
+    if (!equalValue(actualRemovedEdges, expectedRemovedEdges)) {
+      invariant('target-compatibility removed-edge receipt is incomplete')
+    }
+    if (!equalValue(delta.addedRoots, [...new Set(phase.rooted)].sort())) {
+      invariant('target-compatibility added-root receipt is incomplete')
+    }
+    if (!equalValue(delta.removedRoots, [...new Set(phase.unrooted)].sort())) {
+      invariant('target-compatibility removed-root receipt is incomplete')
+    }
+    const addedNodeKeys = new Set(phase.added.map(id => {
+      const node = phase.after.getNode(id)
+      return node === undefined ? undefined : toTarballKey(node)
+    }).filter((key): key is TarballKey => key !== undefined))
+    if (delta.addedTarballs.some(key => !addedNodeKeys.has(key))) {
+      invariant('target-compatibility tarball receipt is incomplete')
     }
     return
   }

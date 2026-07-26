@@ -63,6 +63,10 @@ import {
 } from './diagnostics.ts'
 import { hydrateMetadata } from './hydrate-metadata.ts'
 import { berryCacheKeyFor, refurbish, type TarballSource } from './refurbish.ts'
+import {
+  materializeYarnBerryPluginCompat,
+  yarnBerryPluginCompatRegistry,
+} from './yarn-berry-plugin-compat.ts'
 
 // === ENRICHMENT CONTRACT ====================================================
 
@@ -465,7 +469,10 @@ export async function enrich(
   }
   if (policyDiagnostic !== undefined) working = landDiagnostics(working, [policyDiagnostic])
 
-  const memoized = sources.registry === undefined ? undefined : memoizeRegistry(sources.registry)
+  const registry = sources.registry === undefined
+    ? undefined
+    : yarnBerryPluginCompatRegistry(sources.registry, options.target)
+  const memoized = registry === undefined ? undefined : memoizeRegistry(registry)
   let completionAccepted = false
   let completionDiagnostics: readonly Diagnostic[] = []
   let completionPhase: Extract<EnrichmentDerivationPhase, { kind: 'completion' }> | undefined
@@ -529,6 +536,24 @@ export async function enrich(
   }
 
   if (completionAccepted) diagnostics.push(...completionDiagnostics)
+
+  if (completionAccepted) {
+    const before = working
+    const materialized = materializeYarnBerryPluginCompat(before, options.target)
+    if (materialized.graph !== before) {
+      phases.push({
+        kind: 'target-compatibility',
+        before,
+        after: materialized.graph,
+        added: materialized.added,
+        wired: materialized.wired,
+        unwired: materialized.unwired,
+        rooted: materialized.rooted,
+        unrooted: materialized.unrooted,
+      })
+      working = materialized.graph
+    }
+  }
 
   if (!hasPackageConflict(internalEvidenceOf(context))
     && (options.contract === 'project' || options.contract === 'frozen'

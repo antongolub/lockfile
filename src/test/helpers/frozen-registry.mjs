@@ -2,23 +2,41 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 
-const tarball = readFileSync(process.argv[2])
-const sha1 = createHash('sha1').update(tarball).digest('hex')
-const integrity = `sha512-${createHash('sha512').update(tarball).digest('base64')}`
+const defaultTarball = readFileSync(process.argv[2])
+const fseventsTarball = process.argv[3] === undefined
+  ? defaultTarball
+  : readFileSync(process.argv[3])
+const fixtures = {
+  ms: { version: '2.1.3', extra: {}, tarball: defaultTarball },
+  fsevents: {
+    version: '2.3.3',
+    extra: {
+      os: ['darwin'],
+      scripts: { build: 'node-gyp rebuild' },
+    },
+    tarball: fseventsTarball,
+  },
+  'node-gyp': { version: '11.5.0', extra: {}, tarball: defaultTarball },
+}
 
 const server = createServer((request, response) => {
   const base = `http://127.0.0.1:${server.address().port}`
   const path = new URL(request.url, base).pathname
-  if (path === '/ms') {
+  const packageName = path.slice(1)
+  const fixture = fixtures[packageName]
+  if (fixture !== undefined) {
+    const sha1 = createHash('sha1').update(fixture.tarball).digest('hex')
+    const integrity = `sha512-${createHash('sha512').update(fixture.tarball).digest('base64')}`
     const body = Buffer.from(JSON.stringify({
-      name: 'ms',
-      'dist-tags': { latest: '2.1.3' },
+      name: packageName,
+      'dist-tags': { latest: fixture.version },
       versions: {
-        '2.1.3': {
-          name: 'ms',
-          version: '2.1.3',
+        [fixture.version]: {
+          name: packageName,
+          version: fixture.version,
+          ...fixture.extra,
           dist: {
-            tarball: `${base}/ms/-/ms-2.1.3.tgz`,
+            tarball: `${base}/${packageName}/-/${packageName}-${fixture.version}.tgz`,
             shasum: sha1,
             integrity,
           },
@@ -33,12 +51,14 @@ const server = createServer((request, response) => {
     else response.end()
     return
   }
-  if (path === '/ms/-/ms-2.1.3.tgz') {
+  const tarballMatch = /^\/(ms|fsevents|node-gyp)\/-\/[^/]+\.tgz$/.exec(path)
+  if (tarballMatch !== null) {
+    const body = fixtures[tarballMatch[1]].tarball
     response.writeHead(200, {
       'content-type': 'application/octet-stream',
-      'content-length': String(tarball.length),
+      'content-length': String(body.length),
     })
-    if (request.method !== 'HEAD') response.end(tarball)
+    if (request.method !== 'HEAD') response.end(body)
     else response.end()
     return
   }
