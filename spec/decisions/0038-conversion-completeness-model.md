@@ -407,6 +407,14 @@ Adding the explicit axis changes the serialized assessment for every measured
 fixture, including clean locks whose value is `faithful`. The deterministic
 measurement baseline is therefore intentionally re-pinned as follows:
 
+The axis is hashed into the assessment payload, but the measurement report
+does not surface that payload or the literal axis value. It exposes only the
+derived `crossFormatAssessment.assessmentDigest` and
+`crossFormatAssessment.digest`; those are the only measured values that change
+per fixture before the enclosing result digest is recomputed. Parse,
+stringify, same-format round-trip, mutation, enrichment, and graph digests
+remain unchanged.
+
 | Fixture | Previous result digest | ManifestKnowledge result digest |
 | --- | --- | --- |
 | `npm-small` | `sha256:99497ab1983d558a8bb5b012dcbddaf0781c02dea83f9af386c0b640bacd8230` | `sha256:fe947e93301b771b13cf5795fdc1ab418f079ab87f0571b420ec87d81246dfe4` |

@@ -209,26 +209,43 @@ The stable state requires all of:
   generated lockfile.
 
 The deterministic eight-fixture measurement baseline is also part of this
-increment. Seven fixture result digests remain unchanged. `berry-large`
-(`parcel-bundler-parcel-v2-5948485/yarn.lock`, Yarn Berry v8 → npm v3) is
-intentionally re-pinned in two observable steps:
+increment. Before `ManifestKnowledge` joined the assessment payload, widening
+builtin recognition and then applying the source-derived-edge overlay moved
+`berry-large` from
+`sha256:d51d36cc43c87ab91948e259bb2ce5ae7fadccd1cb34f5f2af9d781aad40b5b9`
+through
+`sha256:cff719203af4ec918822d15fd2fa76e639b8a9a14ae47885cc804798b6eae562`
+to
+`sha256:bb0280e9b5cd0f21aa5f05f966e5d04ec37d6fd36b8fd84a0036aa17c2455155`.
+The intermediate step reflects the six `resolve` and four `typescript`
+builtin entries reporting the intrinsic no-on-disk-source diagnostic instead
+of a fabricated missing workspace/file diagnostic. The final pre-axis step
+reflects exact injected-edge removal during non-Berry enrichment assessment.
+Same-format bytes and the parse graph digest remain unchanged.
 
-- widening recognition beyond the earlier fsevents-only fix changes
-  `sha256:d51d36cc43c87ab91948e259bb2ce5ae7fadccd1cb34f5f2af9d781aad40b5b9`
-  to
-  `sha256:cff719203af4ec918822d15fd2fa76e639b8a9a14ae47885cc804798b6eae562`;
-  the fixture's six `resolve` and four `typescript` builtin entries now report
-  the intrinsic no-on-disk-source diagnostic instead of a fabricated missing
-  workspace/file diagnostic;
-- applying the source-derived-edge overlay then changes that intermediate to
-  `sha256:bb0280e9b5cd0f21aa5f05f966e5d04ec37d6fd36b8fd84a0036aa17c2455155`.
+Adding `ManifestKnowledge` to the serialized assessment then intentionally
+re-pins all eight result digests:
 
-The source overlay removes exact injected edges during its non-Berry
-enrichment assessment; same-format bytes and the parse graph digest remain
-unchanged. The generalized parse recognizer likewise preserves the locator
-sentinel and graph identity for all builtin marker/spelling combinations.
-Fresh `npm run measure:verify` runs on the complete current tree reproduce all
-eight fixture/result digests successfully.
+| Fixture | Current result digest |
+| --- | --- |
+| `npm-small` | `sha256:fe947e93301b771b13cf5795fdc1ab418f079ab87f0571b420ec87d81246dfe4` |
+| `npm-large` | `sha256:3abb2ffc307c3ded4cf4f8899a5efc9741e5eff5fbd9687983a0bb35c4d0e723` |
+| `pnpm-small` | `sha256:9bde016290063faabfd64c2c60513dc4b3b8a0c199d29238e9866cf27ab881a4` |
+| `pnpm-large` | `sha256:54025b1660b21a1854eccb83a2e65364b30ffc8532592aeeaf17ca667e53ec12` |
+| `berry-small` | `sha256:d43f45bc93868ed37d36e9decbe1f90c0fefd0c7483a5aacd31b956af8ee2daa` |
+| `berry-large` | `sha256:885667c22f76c15b87b256f2380dca017c95bc290cb38497d52985ec1811eafd` |
+| `lockgraph-small` | `sha256:f93befaddda0d97a996790ce450210024687715edbb9c44b1b07dd578a57c1f7` |
+| `lockgraph-large` | `sha256:56d8f149ff67a4c21924beae20e45aaa28fe7a2c2ae2aaef524044ec85002038` |
+
+A structural comparison against `71995cf` found no added or removed measured
+keys and exactly two changed values per fixture:
+`crossFormatAssessment.assessmentDigest` and
+`crossFormatAssessment.digest`. Parse, stringify, same-format round-trip,
+mutation, enrichment, and graph digests are unchanged. The measurement report
+does not emit the assessment body or the literal axis value; it emits only
+these derived digests, so searching the report for `ManifestKnowledge` cannot
+explain the re-pin. Fresh `npm run measure:verify` runs on the complete current
+tree reproduce all eight fixture/result digests successfully.
 
 ## Consequences
 
