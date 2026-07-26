@@ -1,3 +1,8 @@
+## [0.3.0](https://github.com/lockgraph/lockgraph/compare/v0.2.0...v0.3.0) (2026-07-26)
+
+### Features
+* feat: provide support for npm lockfiles v4 (#20) ([d48f280](https://github.com/lockgraph/lockgraph/commit/d48f2802f469017fb296ac5a026c73686d7ac761))
+
 ## [0.2.0](https://github.com/lockgraph/lockgraph/compare/v0.1.3...v0.2.0) (2026-07-20)
 
 ### Fixes & improvements
