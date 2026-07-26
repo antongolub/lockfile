@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import {
+  LockfileError,
+  parse,
+  stringify,
+} from '../../main/ts/index.ts'
+import { stringifyProjected } from '../../main/ts/api/format-api.ts'
+import { completeTransitives } from '../../main/ts/complete/tree-complete.ts'
 import { serializeNodeId } from '../../main/ts/graph.ts'
 import type { Packument, PackumentVersion, RegistryAdapter } from '../../main/ts/registry/types.ts'
 import {
@@ -7,6 +14,7 @@ import {
   supportsYarnBerryPluginCompat,
   yarnBerryPluginCompatRegistry,
 } from '../../main/ts/enrich/yarn-berry-plugin-compat.ts'
+import { refurbish } from '../../main/ts/enrich/refurbish.ts'
 import {
   yarnBerryBuiltinCompatIdentityOfResolution,
   yarnBerryFseventsCompatResolution,
@@ -442,5 +450,132 @@ describe('Yarn Berry plugin-compat materializer', () => {
     expect(result.graph.out('fsevents@2.3.3').some(edge => edge.dst === 'node-gyp@11.5.0')).toBe(true)
     expect(result.graph.out(patchId).some(edge => edge.dst === 'node-gyp@11.5.0')).toBe(true)
     expect(stringifyV8(result.graph).match(/  conditions: os=darwin/g)?.length).toBe(2)
+  })
+
+  it('names the skipped target overlay after direct completion and refurbishment', async () => {
+    const source = parse(
+      'yarn-berry-v8',
+      '__metadata:\n' +
+      '  version: 8\n' +
+      '  cacheKey: 10c0\n\n' +
+      '"app@workspace:.":\n' +
+      '  version: 0.0.0-use.local\n' +
+      '  resolution: "app@workspace:."\n' +
+      '  dependencies:\n' +
+      '    native-host: "npm:1.0.0"\n' +
+      '  languageName: unknown\n' +
+      '  linkType: soft\n\n' +
+      '"native-host@npm:1.0.0":\n' +
+      '  version: 1.0.0\n' +
+      '  resolution: "native-host@npm:1.0.0"\n' +
+      `  checksum: 10c0/${'b'.repeat(128)}\n` +
+      '  languageName: node\n' +
+      '  linkType: hard\n',
+    )
+    const nativeHost: PackumentVersion = {
+      name: 'native-host',
+      version: '1.0.0',
+      optionalDependencies: { fsevents: 'npm:2.3.3' },
+    }
+    const fsevents: PackumentVersion = {
+      name: 'fsevents',
+      version: '2.3.3',
+      os: ['darwin'],
+      tarball: 'https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz',
+    }
+    const packs: Record<string, Packument> = {
+      'native-host': {
+        name: 'native-host',
+        distTags: { latest: '1.0.0' },
+        versions: { '1.0.0': nativeHost },
+      },
+      fsevents: {
+        name: 'fsevents',
+        distTags: { latest: '2.3.3' },
+        versions: { '2.3.3': fsevents },
+      },
+    }
+    const registry: RegistryAdapter = {
+      async packument(name) {
+        return packs[name]
+      },
+      async resolve(name, range) {
+        const packument = packs[name]
+        if (packument === undefined) return undefined
+        return packument.versions[range.replace(/^npm:/, '')]
+          ?? Object.values(packument.versions)[0]
+      },
+    }
+
+    const completed = await completeTransitives(source, registry)
+    expect(completed.added).toEqual(['fsevents@2.3.3'])
+    expect(completed.graph.out('fsevents@2.3.3')).toEqual([])
+
+    const refurbished = await refurbish(
+      completed.graph,
+      'yarn-berry-v8',
+      {
+        async tarball() {
+          return undefined
+        },
+        async berryChecksum(name) {
+          return name === 'fsevents' ? 'c'.repeat(128) : undefined
+        },
+      },
+      { cacheKey: '10c0' },
+    )
+    const identity = yarnBerryBuiltinCompatIdentityOfResolution(
+      yarnBerryFseventsCompatResolution(),
+    )!
+    const patchId = serializeNodeId('fsevents', '2.3.3', [], identity.patch)
+    expect(refurbished.graph.getNode(patchId)).toBeUndefined()
+
+    const projected = stringifyProjected('yarn-berry-v8', refurbished.graph)
+    expect(projected.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED',
+      subject: 'fsevents@2.3.3',
+      data: expect.objectContaining({
+        feature: 'target-compatibility-overlay',
+        derivedSibling: patchId,
+        api: 'enrich',
+      }),
+    }))
+    expect(projected.diagnostics.some(diagnostic =>
+      diagnostic.code === 'COMPLETENESS_OUTPUT_GRAPH_MISMATCH')).toBe(false)
+    expect(projected.losses).toContainEqual(expect.objectContaining({
+      class: 'enrichable',
+      feature: 'target-compatibility-overlay',
+      diagnostic: expect.objectContaining({
+        code: 'COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED',
+      }),
+    }))
+
+    let error: unknown
+    try {
+      stringify('yarn-berry-v8', refurbished.graph)
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(LockfileError)
+    expect((error as LockfileError).code).toBe('ENRICH_REQUIRED')
+    expect((error as Error).message).toContain('use enrich()')
+
+    const profiled = stringifyProjected('yarn-berry-v8', refurbished.graph, {
+      targetVersion: '4.13.0',
+    })
+    expect(profiled.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED',
+      message: expect.stringContaining('target-compatibility overlay did not run'),
+      data: expect.objectContaining({ managerVersion: '4.13.0' }),
+    }))
+
+    const unprofiled = stringifyProjected('yarn-berry-v8', refurbished.graph, {
+      targetVersion: '4.12.0',
+    })
+    expect(unprofiled.diagnostics.some(diagnostic =>
+      diagnostic.code === 'COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED')).toBe(false)
+    expect(unprofiled.diagnostics.some(diagnostic =>
+      diagnostic.code === 'COMPLETENESS_OUTPUT_GRAPH_MISMATCH')).toBe(false)
+    expect(unprofiled.losses).toEqual([])
   })
 })

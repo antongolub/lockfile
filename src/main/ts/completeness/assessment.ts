@@ -63,6 +63,7 @@ const nonRegistryTargets = new Set<TargetProfile['format']>([
   'npm-1',
   'npm-2',
   'npm-3',
+  'npm-4',
   'yarn-classic',
   'yarn-berry-v4',
   'yarn-berry-v5',

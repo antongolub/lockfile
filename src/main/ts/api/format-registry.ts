@@ -24,6 +24,7 @@ import * as bunText from '../formats/bun-text.ts'
 import * as npm1 from '../formats/npm-1.ts'
 import * as npm2 from '../formats/npm-2.ts'
 import * as npm3 from '../formats/npm-3.ts'
+import * as npm4 from '../formats/npm-4.ts'
 import * as pnpmV5 from '../formats/pnpm-v5.ts'
 import * as pnpmV6 from '../formats/pnpm-v6.ts'
 import * as pnpmV9 from '../formats/pnpm-v9.ts'
@@ -85,7 +86,7 @@ const npmFlatAdapter = (
   adapter: Pick<typeof npm2, 'check' | 'parse' | 'stringify'>,
 ): FormatAdapter => ({
   check: adapter.check,
-  parse: input => adapter.parse(input),
+  parse: (input, context) => adapter.parse(input, { workspaceRoot: context.workspaceRoot }),
   stringify: (graph, context) => adapter.stringify(graph, {
     lineEnding: context.lineEnding,
     onDiagnostic: context.onDiagnostic,
@@ -161,6 +162,7 @@ const FORMAT_STATE_REGISTRY = {
   'npm-1': npm1,
   'npm-2': npm2StateAdapter,
   'npm-3': npmFlatStateAdapter,
+  'npm-4': npmFlatStateAdapter,
   'pnpm-v5': pnpmV5,
   'pnpm-v6': pnpmFlatStateAdapter,
   'pnpm-v9': pnpmFlatStateAdapter,
@@ -194,6 +196,7 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
   },
   'npm-2': npmFlatAdapter(npm2),
   'npm-3': npmFlatAdapter(npm3),
+  'npm-4': npmFlatAdapter(npm4),
   'pnpm-v5': {
     check: pnpmV5.check,
     parse: input => pnpmV5.parse(input),
@@ -243,6 +246,7 @@ export const DETECTION_ORDER = [
   'pnpm-v6',
   'pnpm-v5',
   'yarn-classic',
+  'npm-4',
   'npm-3',
   'npm-2',
   'npm-1',

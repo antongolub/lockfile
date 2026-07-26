@@ -2,6 +2,7 @@ import {
   newBuilder,
   serializeNodeId,
   toTarballKey,
+  type Diagnostic,
   type Edge,
   type EdgeTriple,
   type Graph,
@@ -116,6 +117,13 @@ interface PluginCompatCandidate {
   readonly patchDescriptors: readonly string[]
 }
 
+interface YarnBerryPluginCompatGap {
+  readonly base: NodeId
+  readonly derivedSibling: NodeId
+  readonly packageName: string
+  readonly version: string
+}
+
 export interface YarnBerryPluginCompatResult {
   readonly graph: Graph
   readonly added: readonly NodeId[]
@@ -139,6 +147,80 @@ function profilesForTarget(
       && pinned.format === target.format)
       ? profile.versions.map(version => Object.freeze({ profile, version }))
       : [])
+}
+
+/** Detect a missing known sibling without claiming synthesis authority.
+ *
+ * A pinned target uses only its exact profile. A raw format probe has no
+ * manager version, so it may use the format's pinned rows to fail closed on a
+ * known missing overlay; it never calls the materializer or broadens
+ * `supportsYarnBerryPluginCompat`.
+ */
+function gapsForTarget(
+  graph: Graph,
+  target: TargetRequest,
+): readonly YarnBerryPluginCompatGap[] {
+  const profiles = target.managerVersion === undefined
+    ? PLUGIN_COMPAT_PROFILES.flatMap(profile =>
+        profile.targets.some(pinned => pinned.format === target.format)
+          ? profile.versions.map(version => Object.freeze({ profile, version }))
+          : [])
+    : profilesForTarget(target)
+  const gaps = new Map<NodeId, YarnBerryPluginCompatGap>()
+  for (const entry of profiles) {
+    const baseId = serializeNodeId(entry.profile.name, entry.version, [])
+    const base = graph.getNode(baseId)
+    if (!isBareProfileNode(base, entry)) continue
+    const identity = yarnBerryBuiltinCompatIdentityOfResolution(
+      compatResolution(entry.profile, entry.version),
+    )
+    if (identity === undefined) continue
+    const derivedSibling = serializeNodeId(
+      entry.profile.name,
+      entry.version,
+      [],
+      identity.patch,
+    )
+    if (graph.getNode(derivedSibling) !== undefined) continue
+    const hasInstallConsumer = [...graph.in(base.id)].some(edge =>
+      INSTALL_KINDS.has(edge.kind)
+      && plainBerryDescriptor(edge, entry.profile.name) !== undefined)
+    if (!hasInstallConsumer) continue
+    gaps.set(derivedSibling, Object.freeze({
+      base: base.id,
+      derivedSibling,
+      packageName: entry.profile.name,
+      version: entry.version,
+    }))
+  }
+  return Object.freeze([...gaps.values()])
+}
+
+/**
+ * Report a known Berry target overlay gap caused by bypassing the target-aware
+ * enrichment facade. This is diagnostic-only and deliberately does not expose
+ * the order-sensitive materializer as public API.
+ */
+export function yarnBerryPluginCompatGapDiagnostics(
+  graph: Graph,
+  target: TargetRequest,
+): readonly Diagnostic[] {
+  return Object.freeze(gapsForTarget(graph, target).map(gap => Object.freeze({
+    code: 'COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED',
+    severity: 'error' as const,
+    subject: gap.base,
+    message: `Berry target-compatibility overlay did not run for ${gap.packageName}@${gap.version}; use enrich() with the pinned target after completion and before refurbish/stringify`,
+    data: Object.freeze({
+      feature: 'target-compatibility-overlay',
+      target: target.format,
+      ...(target.managerVersion === undefined
+        ? {}
+        : { managerVersion: target.managerVersion }),
+      base: gap.base,
+      derivedSibling: gap.derivedSibling,
+      api: 'enrich',
+    }),
+  })))
 }
 
 function compatPackumentVersion(

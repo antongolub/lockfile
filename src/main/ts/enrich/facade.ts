@@ -49,6 +49,7 @@ import * as bunText from '../formats/bun-text.ts'
 import * as npm1 from '../formats/npm-1.ts'
 import * as npm2 from '../formats/npm-2.ts'
 import * as npm3 from '../formats/npm-3.ts'
+import * as npm4 from '../formats/npm-4.ts'
 import * as pnpmV5 from '../formats/pnpm-v5.ts'
 import * as pnpmV6 from '../formats/pnpm-v6.ts'
 import * as pnpmV9 from '../formats/pnpm-v9.ts'
@@ -199,6 +200,7 @@ const SOURCE_ADAPTER_REGISTRY: Readonly<Record<FormatId, SourceAdapterContract>>
   },
   'npm-2': { enrich: graph => npm2.enrich(graph) },
   'npm-3': { enrich: graph => npm3.enrich(graph) },
+  'npm-4': { enrich: graph => npm4.enrich(graph) },
   'pnpm-v5': {
     enrich(graph, { manifests }) {
       const manifestOptions = manifests === undefined ? {} : { manifests }

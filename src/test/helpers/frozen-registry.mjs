@@ -155,8 +155,19 @@ const server = createServer((request, response) => {
   response.end(JSON.stringify({ error: 'not found' }))
 })
 
+server.once('error', error => {
+  process.stdout.write(`${JSON.stringify({
+    status: 'unavailable',
+    code: typeof error?.code === 'string' ? error.code : 'UNKNOWN',
+    message: error instanceof Error ? error.message : 'local frozen registry failed',
+  })}\n`)
+})
+
 server.listen(0, '127.0.0.1', () => {
-  process.stdout.write(`${server.address().port}\n`)
+  process.stdout.write(`${JSON.stringify({
+    status: 'ready',
+    port: server.address().port,
+  })}\n`)
 })
 
 for (const signal of ['SIGTERM', 'SIGINT']) {

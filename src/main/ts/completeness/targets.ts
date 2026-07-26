@@ -109,6 +109,11 @@ const npm3 = capabilities({
   ),
 })
 
+const npm4 = capabilities({
+  ...npm3,
+  patches: true,
+})
+
 const yarnClassic = capabilities({
   edgeKinds: edges('dep', 'optional'),
   workspaces: true,
@@ -248,6 +253,7 @@ function assertCompatible(format: FormatId, version: ManagerVersion | undefined)
     format === 'npm-1' ? major >= 5 && major <= 6
       : format === 'npm-2' ? major >= 7 && major <= 8
         : format === 'npm-3' ? major >= 9
+          : format === 'npm-4' ? major >= 12
           : format === 'yarn-classic' ? major === 1
             : format === 'pnpm-v5' ? major >= 3 && major <= 7
               : format === 'pnpm-v6' ? major === 8
@@ -329,6 +335,7 @@ function resolvedCapabilities(
     case 'npm-1': return { capabilities: npm1, ambiguous: [] }
     case 'npm-2': return npmV2(version)
     case 'npm-3': return { capabilities: npm3, ambiguous: [] }
+    case 'npm-4': return { capabilities: npm4, ambiguous: [] }
     case 'yarn-classic': return { capabilities: yarnClassic, ambiguous: [] }
     case 'yarn-berry-v4':
     case 'yarn-berry-v5':

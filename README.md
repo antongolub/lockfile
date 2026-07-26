@@ -352,7 +352,7 @@ packument already in hand (`engines`), `10` needs one full-manifest fetch (`lice
 | Modifiers | `lockgraph/modify` | the individual `Primitive` functions behind `modify` (audit-fix, override-pin, license-filter) |
 | Complete | `lockgraph/complete` | `completeTransitives` — registry-backed tree completion that wires the transitive deps a modify introduced, with optional node-local `constraints` (`engines`, `license`) for engine/license-aware version selection |
 | Optimize | `lockgraph/optimize` | `optimize` (reachability orphan GC), `pruneOrphans` (reference-count orphan GC), `registryPackages` (the graph's registry deps as a `{name: versions[]}` audit input) |
-| Enrich | `lockgraph/enrich` | `refurbish` — monotone field-fill (e.g. recomputes a yarn-berry zip `checksum` from a tarball source so a patched lock installs without `yarn install`) |
+| Enrich | `lockgraph/enrich` | `enrich` — target-aware completion facade, including order-sensitive target-PM overlays; `refurbish` — checksum/metadata field-fill primitive only. Calling `completeTransitives` + `refurbish` directly does not materialize Berry target-compatibility entries; strict output reports `COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED` and directs callers to `enrich()` |
 | Registry | `lockgraph/registry` | `frozenRegistry`, `liveRegistry` (+ `.fromConfig`, `.audit`), `resolveRegistry`, `npmCache`, `pnpmCache`, `yarnBerryCache` |
 | Per-format | `lockgraph/formats/<id>` | a single adapter directly (test surface; not a primary user API) |
 

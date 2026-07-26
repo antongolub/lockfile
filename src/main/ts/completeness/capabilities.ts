@@ -164,6 +164,7 @@ export function sourceCapabilitiesOf(
       return { floor: npm1, ambiguousDimensions: noAmbiguity() }
     case 'npm-2':
     case 'npm-3':
+    case 'npm-4':
       return { floor: npm23, ambiguousDimensions: noAmbiguity() }
     case 'yarn-classic':
       return { floor: yarnClassic, ambiguousDimensions: noAmbiguity() }

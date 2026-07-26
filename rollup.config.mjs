@@ -19,7 +19,7 @@ const external = (id) =>
 const SRC = 'src/main/ts'
 const adapters = [
   'bun-text',
-  'npm-1', 'npm-2', 'npm-3',
+  'npm-1', 'npm-2', 'npm-3', 'npm-4',
   'pnpm-v5', 'pnpm-v6', 'pnpm-v9',
   'yarn-berry-v4', 'yarn-berry-v5', 'yarn-berry-v6', 'yarn-berry-v7',
   'yarn-berry-v8', 'yarn-berry-v9', 'yarn-berry-v10',

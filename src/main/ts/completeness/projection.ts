@@ -399,6 +399,7 @@ function diagnosticLossClass(
     || code === 'RECIPE_PEER_META_INCOMPLETE'
     || code === 'CONVERT_WORKSPACE_MANIFEST_MISSING'
     || code === 'CONVERT_PATCH_BYTES_UNAVAILABLE'
+    || code === 'COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED'
     || code.endsWith('_NO_MANIFESTS')
     || code.endsWith('_UNRESOLVED_DEP')
     || code === 'PNPM_WORKSPACE_PEER_ATTR_MISSING'

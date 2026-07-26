@@ -192,6 +192,24 @@ The operation is atomic, deterministic, idempotent, and receipted as a
 `target-compatibility` derivation. It remains distinct from a user-requested
 `applyPatch` operation.
 
+### 4.1 Public orchestration boundary
+
+The `enrich()` facade is the public entry that owns this order-sensitive
+pipeline. The separately exported `completeTransitives` and `refurbish`
+functions remain useful primitives, but composing them directly bypasses both
+the target-scoped registry view and the post-completion materializer. Such a
+graph is correct as parsed and may contain a freshly completed registry base,
+yet it is incomplete for a profiled Berry target because the injected
+dependency and derived sibling were never created.
+
+Strict projection reports this state as
+`COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED` and directs the caller to
+`enrich()`. It does not run the overlay implicitly: materialization is valid
+only after accepted completion and before artifact refurbishment. For the same
+reason, the order-sensitive `materializeYarnBerryPluginCompat` implementation
+remains internal rather than becoming a public primitive that callers could
+invoke in the wrong phase.
+
 ## 5. Parse recognition versus emit synthesis
 
 Parse-side recognition and emit-side synthesis have different authority

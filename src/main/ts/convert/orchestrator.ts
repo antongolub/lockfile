@@ -64,6 +64,9 @@ import {
 } from '../formats/_pnpm-flat-core.ts'
 import { enrich as enrichGraph, type EnrichSources } from '../enrich/facade.ts'
 import {
+  yarnBerryPluginCompatGapDiagnostics,
+} from '../enrich/yarn-berry-plugin-compat.ts'
+import {
   materializeOverrides,
   prepareConvertInput,
   structuralEqual,
@@ -403,6 +406,7 @@ function outputProbe(
   sourceEvidence: StringifyAssessedOptions['evidence'],
   diagnostics: Diagnostic[],
   workspaceNames?: ReadonlyMap<string, string>,
+  targetVersion?: string,
 ): OutputProbeResult {
   if (!check(target, output)) {
     diagnostics.push(assessedDiagnostic(
@@ -446,8 +450,13 @@ function outputProbe(
     comparisonOverrides,
     workspaceNames,
   )
+  const overlayGaps = yarnBerryPluginCompatGapDiagnostics(graph, {
+    format: target,
+    ...(targetVersion === undefined ? {} : { managerVersion: targetVersion }),
+  })
+  diagnostics.push(...overlayGaps)
   if (sourceSnapshot !== targetSnapshot) {
-    diagnostics.push(assessedDiagnostic(
+    if (overlayGaps.length === 0) diagnostics.push(assessedDiagnostic(
       'COMPLETENESS_OUTPUT_GRAPH_MISMATCH',
       'target output does not preserve the canonical graph',
       { target },
@@ -834,6 +843,7 @@ function stringifyAssessedRuntime(
       options.evidence,
       diagnostics,
       companions?.pnpmWorkspaceNames,
+      options.target.managerVersion,
     )
   } catch (error) {
     diagnostics.push(assessedDiagnostic(

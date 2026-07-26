@@ -25,6 +25,7 @@ import {
   attachParsedMutationLineage,
 } from './mutation-lineage.ts'
 import { getFlatSidecar } from '../formats/_npm-core.ts'
+import { npm4ManifestExtensionFeatureOf } from '../formats/npm-4.ts'
 import {
   getPnpmOverridesCanonical,
   pnpmManifestExtensionFeatureOf,
@@ -56,6 +57,9 @@ import { governingOverrideFor } from '../recipe/descriptor-resolve.ts'
 import type { Integrity } from '../recipe/integrity.ts'
 import type { ResolutionCanonical } from '../recipe/resolution.ts'
 import {
+  yarnBerryPluginCompatGapDiagnostics,
+} from '../enrich/yarn-berry-plugin-compat.ts'
+import {
   getManifestOverrides,
   mergeOverrides,
   rememberManifestOverrides,
@@ -85,8 +89,10 @@ function observedManifestKnowledge(
   format: FormatId,
   graph: Graph,
 ): InternalEvidenceState['observedManifestKnowledge'] {
-  if (format !== 'pnpm-v6' && format !== 'pnpm-v9') return undefined
-  const observed = pnpmManifestExtensionFeatureOf(graph)
+  if (format !== 'pnpm-v6' && format !== 'pnpm-v9' && format !== 'npm-4') return undefined
+  const observed = format === 'npm-4'
+    ? npm4ManifestExtensionFeatureOf(graph)
+    : pnpmManifestExtensionFeatureOf(graph)
   if (!observed.available || observed.fingerprints.length === 0) return undefined
   return Object.freeze({
     knowledge: 'extended-fingerprinted',
@@ -155,6 +161,7 @@ export function stringifyProjected(
     format,
     options.overrides,
     options.pnpmWorkspaceNames,
+    options.targetVersion,
   )
   if (blockingProjectionLosses(losses).length === 0 && probeDiagnostics.length > 0) {
     const classified = projectionDiagnosticLosses(probeDiagnostics, format)
@@ -551,6 +558,7 @@ function projectionOutputDiagnostics(
   target: FormatId,
   overrides?: readonly OverrideConstraint[],
   workspaceNames?: ReadonlyMap<string, string>,
+  targetVersion?: string,
 ): readonly Diagnostic[] {
   const diagnostics: Diagnostic[] = []
   if (!checkFormat(target, output)) {
@@ -576,9 +584,14 @@ function projectionOutputDiagnostics(
   }
 
   const comparisonOverrides = target.startsWith('pnpm-') ? overrides : undefined
+  const overlayGaps = yarnBerryPluginCompatGapDiagnostics(graph, {
+    format: target,
+    ...(targetVersion === undefined ? {} : { managerVersion: targetVersion }),
+  })
+  diagnostics.push(...overlayGaps)
   if (canonicalProjectionGraphSnapshot(graph, target, 'project', comparisonOverrides, workspaceNames)
     !== canonicalProjectionGraphSnapshot(reparsed, target, 'project', comparisonOverrides, workspaceNames)) {
-    diagnostics.push(assessedDiagnostic(
+    if (overlayGaps.length === 0) diagnostics.push(assessedDiagnostic(
       'COMPLETENESS_OUTPUT_GRAPH_MISMATCH',
       'target output does not preserve the canonical graph',
       { target },

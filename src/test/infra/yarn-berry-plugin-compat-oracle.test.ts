@@ -1,11 +1,10 @@
-import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { newBuilder, type Graph } from '../../main/ts/graph.ts'
 import { enrich } from '../../main/ts/enrich/facade.ts'
 import type { Packument, PackumentVersion, RegistryAdapter } from '../../main/ts/registry/types.ts'
@@ -19,6 +18,11 @@ import {
   type FrozenOracleAdapter,
   type FrozenOracleCandidate,
 } from '../helpers/frozen-oracle.ts'
+import {
+  startFrozenRegistry,
+  stopFrozenRegistry,
+  type FrozenRegistryProcess,
+} from '../helpers/frozen-registry-process.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const tarballPath = resolve(here, '../resources/fixtures/tarballs/ms-2.1.3.tgz')
@@ -226,7 +230,7 @@ const dependencyFixtures = Object.freeze({
   }),
   'node-gyp': Object.freeze({ version: '11.5.0', range: 'npm:latest' }),
 })
-let registryProcess: ChildProcess | undefined
+let registryProcess: FrozenRegistryProcess | undefined
 let registryFixtureRoot: string | undefined
 
 interface BerryAdapter {
@@ -257,30 +261,27 @@ beforeAll(async () => {
   const fsevents232TarballPath = resolve(registryFixtureRoot, 'fsevents-2.3.2.tgz')
   writeFileSync(fsevents233TarballPath, fseventsTarballs.get('2.3.3')!)
   writeFileSync(fsevents232TarballPath, fseventsTarballs.get('2.3.2')!)
-  registryProcess = spawn(process.execPath, [
-    registryScript,
+  registryProcess = await startFrozenRegistry(registryScript, [
     tarballPath,
     fsevents233TarballPath,
     fsevents232TarballPath,
     resolveTarballPath,
     typescriptTarballPath,
-  ], {
-    stdio: ['ignore', 'pipe', 'inherit'],
-  })
-  const port = await new Promise<string>((resolvePort, reject) => {
-    const timeout = setTimeout(() => reject(new Error('local frozen registry did not start')), 10_000)
-    registryProcess!.once('error', reject)
-    registryProcess!.stdout!.once('data', chunk => {
-      clearTimeout(timeout)
-      resolvePort(String(chunk).trim())
-    })
-  })
-  process.env.LOCKGRAPH_TEST_REGISTRY = `http://127.0.0.1:${port}/`
+  ])
+  if (registryProcess.registry !== undefined) {
+    process.env.LOCKGRAPH_TEST_REGISTRY = registryProcess.registry
+  }
 })
 
-afterAll(() => {
+beforeEach(context => {
+  if (registryProcess?.unavailableReason !== undefined) {
+    context.skip(registryProcess.unavailableReason)
+  }
+})
+
+afterAll(async () => {
   delete process.env.LOCKGRAPH_TEST_REGISTRY
-  registryProcess?.kill('SIGTERM')
+  await stopFrozenRegistry(registryProcess?.child)
   if (registryFixtureRoot !== undefined) rmSync(registryFixtureRoot, { recursive: true, force: true })
 })
 
