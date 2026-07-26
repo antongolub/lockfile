@@ -1238,16 +1238,6 @@ function extractPatchFingerprint(
     return unresolvedPatch(nodeId, locator, 'patch locator has no source fragment')
   }
 
-  if (source.startsWith('~builtin<')) {
-    const yarnMajor = yarnMajorOfBuiltinPatch(resolution)
-    if (yarnMajor === undefined) {
-      return unresolvedPatch(nodeId, locator, 'builtin patch yarn-major is unavailable at parse time')
-    }
-    // Builtin patches hash a synthetic string (no on-disk source); builtin-patch byte
-    // normalization is inapplicable.
-    return { patch: sha512Hex(`${yarnMajor}:${source}`) }
-  }
-
   const builtinCompat = yarnBerryBuiltinCompatIdentityOfResolution(resolution)
   if (builtinCompat !== undefined) {
     return unresolvedPatch(nodeId, builtinCompat.locator, 'builtin compatibility patch has no on-disk source')
@@ -1271,10 +1261,6 @@ function extractPatchFingerprint(
     : { patch }
 }
 
-function yarnMajorOfBuiltinPatch(_resolution: string): string | undefined {
-  return undefined
-}
-
 function unresolvedPatch(nodeId: string, locator: string, reason: string): { patch: string; diagnostic: Diagnostic } {
   return {
     patch: sentinelHashOfLocator(locator),
@@ -1285,10 +1271,6 @@ function unresolvedPatch(nodeId: string, locator: string, reason: string): { pat
       message: `${reason}; using sentinel for ${locator}`,
     },
   }
-}
-
-function sha512Hex(value: string | Uint8Array): string {
-  return createHash('sha512').update(value).digest('hex')
 }
 
 function collisionResolutions(

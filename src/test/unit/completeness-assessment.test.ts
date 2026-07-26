@@ -216,6 +216,24 @@ describe('sidecar feature attribution', () => {
 })
 
 describe('assessConversion', () => {
+  it('reports extended manifest knowledge without turning it into a failed requirement', () => {
+    const graph = parse('pnpm-v9',
+      `lockfileVersion: '9.0'\n\n`
+      + `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n`
+      + `packageExtensionsChecksum: sha256-positive=\n\n`
+      + `importers:\n\n  .: {}\n`,
+    )
+    const assessment = assessConversion(graph, {
+      contract: 'snapshot',
+      target: { format: 'lockgraph' },
+    })
+
+    expect(assessment.completeness.profile.manifestKnowledge)
+      .toBe('extended-fingerprinted')
+    expect(assessment.requirements.some(requirement =>
+      requirement.dimension === 'manifestKnowledge')).toBe(false)
+  })
+
   it('requires an output probe before reaching satisfied', () => {
     const graph = parse('npm-3', fixture('npm-3.lock'))
     const options = { contract: 'snapshot' as const, target: { format: 'npm-3' as const } }

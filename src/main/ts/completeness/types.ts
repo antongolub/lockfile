@@ -28,6 +28,15 @@ export type LayoutKnowledge =
 
 export type ArtifactKnowledge = 'none' | 'identified' | 'metadata' | 'bytes' | 'verified'
 
+/**
+ * Whether the dependency declarations represented by the graph are faithful
+ * to published package manifests or include package-manager config grafts.
+ */
+export type ManifestKnowledge =
+  | 'faithful'
+  | 'extended-unknown'
+  | 'extended-fingerprinted'
+
 export type Verification =
   | 'unverified'
   | 'graph-validated'
@@ -41,6 +50,7 @@ export interface CompletenessProfile {
   edgeKinds:        Knowledge
   peerModel:        PeerKnowledge
   resolutionPolicy: PolicyKnowledge
+  manifestKnowledge: ManifestKnowledge
   packageMetadata:  Knowledge
   artifacts:        ArtifactKnowledge
   layout:           LayoutKnowledge
@@ -192,6 +202,7 @@ export type CompletenessDiagnosticCode =
   | 'COMPLETENESS_EVIDENCE_CONFLICT'
   | 'COMPLETENESS_EVIDENCE_SCOPE_MISMATCH'
   | 'COMPLETENESS_FEATURE_UNMODELED'
+  | 'COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH'
   | 'COMPLETENESS_MANAGER_GENERATION_AMBIGUOUS'
   | 'COMPLETENESS_PACKAGE_METADATA_INCOMPLETE'
   | 'COMPLETENESS_PACKAGE_METADATA_MISMATCH'

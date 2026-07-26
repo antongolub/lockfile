@@ -84,6 +84,7 @@ export type {
   FrozenVerificationSubject,
   Knowledge,
   LayoutKnowledge,
+  ManifestKnowledge,
   ManifestCoverage,
   PackageManifestEvidence,
   PeerKnowledge,

@@ -25,13 +25,17 @@ import {
   attachParsedMutationLineage,
 } from './mutation-lineage.ts'
 import { getFlatSidecar } from '../formats/_npm-core.ts'
-import { getPnpmOverridesCanonical } from '../formats/_pnpm-flat-core.ts'
+import {
+  getPnpmOverridesCanonical,
+  pnpmManifestExtensionFeatureOf,
+} from '../formats/_pnpm-flat-core.ts'
 import { composeConditionsFromPayload } from '../formats/_yarn-berry-core.ts'
 import * as bunText from '../formats/bun-text.ts'
 import * as pnpmV5 from '../formats/pnpm-v5.ts'
 import * as yarnClassic from '../formats/yarn-classic.ts'
 import {
   attachParsedEvidence,
+  type InternalEvidenceState,
 } from '../completeness/evidence.ts'
 import { detectGraphFeatures } from '../completeness/features.ts'
 import { targetProfileOf } from '../completeness/targets.ts'
@@ -75,6 +79,19 @@ function observedPolicyCarrier(
   return format.startsWith('pnpm-') || format === 'bun-text'
     ? carrier ?? null
     : undefined
+}
+
+function observedManifestKnowledge(
+  format: FormatId,
+  graph: Graph,
+): InternalEvidenceState['observedManifestKnowledge'] {
+  if (format !== 'pnpm-v6' && format !== 'pnpm-v9') return undefined
+  const observed = pnpmManifestExtensionFeatureOf(graph)
+  if (!observed.available || observed.fingerprints.length === 0) return undefined
+  return Object.freeze({
+    knowledge: 'extended-fingerprinted',
+    fingerprints: observed.fingerprints,
+  })
 }
 
 export function diagnosticKey(diagnostic: Diagnostic): string {
@@ -202,6 +219,7 @@ export function parse(format: FormatId, input: string, options: ParseOptions = {
     format,
     options.manifests,
     observedPolicyCarrier(format, graph),
+    observedManifestKnowledge(format, graph),
   )
   attachParsedMutationLineage(graph, format, hasFormatAdapterState(format, graph))
   return graph

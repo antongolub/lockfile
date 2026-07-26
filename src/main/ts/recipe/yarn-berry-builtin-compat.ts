@@ -1,6 +1,8 @@
 import { sentinelHashOfLocator } from './patch.ts'
 
-const BUILTIN_COMPAT_SOURCE = 'optional!builtin<compat/fsevents>'
+const FSEVENTS_BUILTIN_COMPAT_SOURCE = 'optional!builtin<compat/fsevents>'
+const BUILTIN_COMPAT_SOURCE =
+  /^(?:optional!)?~?builtin<compat\/[A-Za-z0-9@/._-]+>$/
 
 export interface YarnBerryBuiltinCompatIdentity {
   readonly locator: string
@@ -29,7 +31,7 @@ export function yarnBerryBuiltinCompatIdentityOfResolution(
   const source = paramsAt < 0
     ? locator.slice(hashAt + 1)
     : locator.slice(hashAt + 1, paramsAt)
-  if (source !== BUILTIN_COMPAT_SOURCE) return undefined
+  if (!BUILTIN_COMPAT_SOURCE.test(source)) return undefined
 
   return Object.freeze({
     locator,
@@ -37,7 +39,11 @@ export function yarnBerryBuiltinCompatIdentityOfResolution(
   })
 }
 
-/** Exact Yarn 4.13/4.14 fsevents compatibility resolution pinned by ADR-0039. */
-export function yarnBerryFseventsCompatResolution(): string {
-  return 'fsevents@patch:fsevents@npm%3A2.3.3#optional!builtin<compat/fsevents>::version=2.3.3&hash=df0bf1'
+/** Exact Yarn fsevents compatibility resolution assembled from an ADR-0039 row. */
+export function yarnBerryFseventsCompatResolution(
+  version = '2.3.3',
+  locatorHash = 'df0bf1',
+  builtinSource = FSEVENTS_BUILTIN_COMPAT_SOURCE,
+): string {
+  return `fsevents@patch:fsevents@npm%3A${version}#${builtinSource}::version=${version}&hash=${locatorHash}`
 }

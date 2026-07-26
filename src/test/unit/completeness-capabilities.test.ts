@@ -31,6 +31,7 @@ describe('sourceCapabilitiesOf', () => {
         edgeKinds: expect.any(String),
         peerModel: expect.any(String),
         resolutionPolicy: expect.any(String),
+        manifestKnowledge: 'faithful',
         packageMetadata: expect.any(String),
         artifacts: expect.any(String),
         layout: expect.any(String),

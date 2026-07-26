@@ -18,12 +18,14 @@ import type {
   EvidenceInput,
   EvidenceLedger,
   EvidenceRef,
+  ManifestKnowledge,
   PackageManifestEvidence,
   PmConfigEvidence,
   RepositoryManifestEvidence,
   TargetManager,
   TargetOracleEvidence,
 } from './types.ts'
+import { manifestExtensionDependencyMismatchDiagnostic } from './diagnostics.ts'
 
 // === CONSTANTS ==============================================================
 
@@ -94,6 +96,13 @@ export interface InternalEvidenceState {
   readonly observedPolicyCarrier?: Readonly<{
     present: boolean
     overrides: readonly OverrideConstraint[]
+  }>
+  readonly observedManifestKnowledge?: Readonly<{
+    knowledge: Exclude<ManifestKnowledge, 'faithful'>
+    fingerprints: readonly Readonly<{
+      source: string
+      value: string
+    }>[]
   }>
   readonly pmConfigs: readonly PmConfigEvidence[]
   readonly packageManifests: ReadonlyMap<TarballKey, Readonly<{
@@ -175,15 +184,44 @@ export function packageResolutionFactsEqual(
   left: PackumentVersion,
   right: PackumentVersion,
 ): boolean {
+  return left.name === right.name
+    && left.version === right.version
+    && packageDependencyFactsEqual(left, right)
+}
+
+export function packageDependencyFactsEqual(
+  left: PackumentVersion,
+  right: PackumentVersion,
+): boolean {
   const project = (manifest: PackumentVersion): unknown => ({
-    name: manifest.name,
-    version: manifest.version,
     dependencies: manifest.dependencies,
     optionalDependencies: manifest.optionalDependencies,
     peerDependencies: manifest.peerDependencies,
     peerDependenciesMeta: manifest.peerDependenciesMeta,
   })
   return equalValue(project(left), project(right))
+}
+
+function packageManifestFactsWithoutExtensions(manifest: PackumentVersion): unknown {
+  const {
+    dependencies: _dependencies,
+    optionalDependencies: _optionalDependencies,
+    peerDependencies: _peerDependencies,
+    peerDependenciesMeta: _peerDependenciesMeta,
+    ...facts
+  } = manifest
+  return facts
+}
+
+function onlyManifestExtensionFactsDiffer(
+  left: PackumentVersion,
+  right: PackumentVersion,
+): boolean {
+  return !equalValue(left, right)
+    && equalValue(
+      packageManifestFactsWithoutExtensions(left),
+      packageManifestFactsWithoutExtensions(right),
+    )
 }
 
 export function evidenceOf(graph: Graph): EvidenceContext {
@@ -218,7 +256,11 @@ export function withEvidence(base: EvidenceContext, input: EvidenceInput | reado
         break
       case 'package-manifests':
         packageManifests = mergePackageManifests(
-          packageManifests, item, conflicts, diagnostics,
+          packageManifests,
+          item,
+          baseState.observedManifestKnowledge?.knowledge ?? 'faithful',
+          conflicts,
+          diagnostics,
         )
         break
       case 'target-oracle':
@@ -236,6 +278,7 @@ export function withEvidence(base: EvidenceContext, input: EvidenceInput | reado
     anchorSnapshot: baseState.anchorSnapshot,
     source: baseState.source,
     observedPolicyCarrier: baseState.observedPolicyCarrier,
+    observedManifestKnowledge: baseState.observedManifestKnowledge,
     repositoryManifests,
     pmConfigs,
     packageManifests,
@@ -321,6 +364,7 @@ export function attachParsedEvidence(
   format: FormatId,
   manifests?: Readonly<Record<string, Manifest>>,
   observedPolicyCarrier?: readonly OverrideConstraint[] | null,
+  observedManifestKnowledge?: InternalEvidenceState['observedManifestKnowledge'],
 ): void {
   const source = Object.freeze({ format, manager: targetManagerOf(format) })
   let context = createContext({
@@ -333,6 +377,12 @@ export function attachParsedEvidence(
         coverage: 'complete' as const,
         presence: observedPolicyCarrier === null ? 'absent' as const : 'present' as const,
       }]),
+      ...(observedManifestKnowledge?.fingerprints.map(fingerprint => ({
+        kind: 'lockfile' as const,
+        subject: 'manifest-extensions',
+        source: fingerprint.source,
+        presence: 'present' as const,
+      })) ?? []),
     ],
     diagnostics: [],
   }, Object.freeze({
@@ -346,6 +396,9 @@ export function attachParsedEvidence(
         present: observedPolicyCarrier !== null,
         overrides: cloneAndFreeze(observedPolicyCarrier ?? []),
       }),
+    observedManifestKnowledge: observedManifestKnowledge === undefined
+      ? undefined
+      : cloneAndFreeze(observedManifestKnowledge),
   }))
   if (manifests !== undefined) {
     context = withEvidence(context, {
@@ -1136,6 +1189,7 @@ function mergePmConfig(
 function mergePackageManifests(
   current: InternalEvidenceState['packageManifests'],
   input: PackageManifestEvidence,
+  manifestKnowledge: ManifestKnowledge,
   conflicts: EvidenceConflictRecord[],
   diagnostics: Diagnostic[],
 ): InternalEvidenceState['packageManifests'] {
@@ -1145,15 +1199,20 @@ function mergePackageManifests(
     const frozen = cloneAndFreeze(manifest)
     if (existing !== undefined && !equalValue(existing.manifest, frozen)) {
       const sources = [existing.authority, input.authority]
-      if (!packageResolutionFactsEqual(existing.manifest, frozen)) {
-        addConflict(conflicts, diagnostics, { dimension: 'edgeKinds', subject: key, sources })
-        addConflict(conflicts, diagnostics, { dimension: 'peerModel', subject: key, sources })
+      if (manifestKnowledge !== 'faithful'
+        && onlyManifestExtensionFactsDiffer(existing.manifest, frozen)) {
+        diagnostics.push(manifestExtensionDependencyMismatchDiagnostic(key, sources))
+      } else {
+        if (!packageResolutionFactsEqual(existing.manifest, frozen)) {
+          addConflict(conflicts, diagnostics, { dimension: 'edgeKinds', subject: key, sources })
+          addConflict(conflicts, diagnostics, { dimension: 'peerModel', subject: key, sources })
+        }
+        if (existing.manifest.name !== frozen.name || existing.manifest.version !== frozen.version) {
+          addConflict(conflicts, diagnostics, { dimension: 'resolvedGraph', subject: key, sources })
+          addConflict(conflicts, diagnostics, { dimension: 'artifacts', subject: key, sources })
+        }
+        addConflict(conflicts, diagnostics, { dimension: 'packageMetadata', subject: key, sources })
       }
-      if (existing.manifest.name !== frozen.name || existing.manifest.version !== frozen.version) {
-        addConflict(conflicts, diagnostics, { dimension: 'resolvedGraph', subject: key, sources })
-        addConflict(conflicts, diagnostics, { dimension: 'artifacts', subject: key, sources })
-      }
-      addConflict(conflicts, diagnostics, { dimension: 'packageMetadata', subject: key, sources })
     }
     if (existing === undefined || manifestAuthorityRank[input.authority] > manifestAuthorityRank[existing.authority]) {
       next.set(key, Object.freeze({ authority: input.authority, manifest: frozen }))

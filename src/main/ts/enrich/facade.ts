@@ -16,11 +16,14 @@ import {
   deriveEnrichedEvidence,
   evidenceOf,
   internalEvidenceOf,
-  packageResolutionFactsEqual,
+  packageDependencyFactsEqual,
   withEvidence,
   type EnrichmentDerivationPhase,
   type InternalEvidenceState,
 } from '../completeness/evidence.ts'
+import {
+  manifestExtensionDependencyMismatchDiagnostic,
+} from '../completeness/diagnostics.ts'
 import {
   completionPolicyAuthorityOf,
 } from '../completeness/profile.ts'
@@ -67,6 +70,7 @@ import {
   materializeYarnBerryPluginCompat,
   yarnBerryPluginCompatRegistry,
 } from './yarn-berry-plugin-compat.ts'
+import { projectYarnBerryDerivedDependencies } from './yarn-berry-derived-dependencies.ts'
 
 // === ENRICHMENT CONTRACT ====================================================
 
@@ -271,36 +275,52 @@ function packageConflictDiagnostic(
   }
 }
 
-function registryPackageFactsCompatible(
+type RegistryPackageConflictKind = 'dependency-set' | 'authoritative'
+
+function registryPackageConflictKind(
   abbreviated: PackumentVersion,
   exact: PackumentVersion,
-): boolean {
-  if (!packageResolutionFactsEqual(abbreviated, exact)) return false
+): RegistryPackageConflictKind | undefined {
+  if (abbreviated.name !== exact.name || abbreviated.version !== exact.version) {
+    return 'authoritative'
+  }
   if (abbreviated.tarball !== undefined && exact.tarball !== undefined
-    && abbreviated.tarball !== exact.tarball) return false
+    && abbreviated.tarball !== exact.tarball) return 'authoritative'
   if (abbreviated.integrity !== undefined && exact.integrity !== undefined
-    && !integrityEquivalent(abbreviated.integrity, exact.integrity)) return false
+    && !integrityEquivalent(abbreviated.integrity, exact.integrity)) return 'authoritative'
 
   const left = packageMetadataOfPayload(payloadOfPackumentVersion(abbreviated))
   const right = packageMetadataOfPayload(payloadOfPackumentVersion(exact))
   const leftShared: Partial<PackageMetadataPayload> = {}
   const rightShared: Partial<PackageMetadataPayload> = {}
   for (const field of PACKAGE_METADATA_FIELDS) {
+    if (field === 'peerDependencies' || field === 'peerDependenciesMeta') continue
     if (left[field] === undefined || right[field] === undefined) continue
     Object.assign(leftShared, { [field]: left[field] })
     Object.assign(rightShared, { [field]: right[field] })
   }
-  return packageMetadataEqual(
+  if (!packageMetadataEqual(
     leftShared as PackageMetadataPayload,
     rightShared as PackageMetadataPayload,
-  )
+  )) return 'authoritative'
+  return packageDependencyFactsEqual(abbreviated, exact)
+    ? undefined
+    : 'dependency-set'
+}
+
+function hasManifestExtensions(state: InternalEvidenceState): boolean {
+  return state.observedManifestKnowledge?.knowledge !== undefined
 }
 
 async function resolutionConflicts(
   graph: Graph,
   registry: MemoizedRegistry,
   state: InternalEvidenceState,
-): Promise<Diagnostic[]> {
+): Promise<Readonly<{
+  conflicts: readonly Diagnostic[]
+  diagnostics: readonly Diagnostic[]
+}>> {
+  const conflicts: Diagnostic[] = []
   const diagnostics: Diagnostic[] = []
   const seen = new Set<TarballKey>()
   for (const node of graph.nodes()) {
@@ -311,24 +331,33 @@ async function resolutionConflicts(
     const evidence = state.packageManifests.get(key)
     const pack = await registry.packuments.get(node.name)
     const candidate = pack?.versions[node.version]
-    if (evidence !== undefined && candidate !== undefined
-      && !registryPackageFactsCompatible(candidate, evidence.manifest)) {
-      diagnostics.push(packageConflictDiagnostic(key))
+    if (evidence === undefined || candidate === undefined) continue
+    const kind = registryPackageConflictKind(candidate, evidence.manifest)
+    if (kind === 'dependency-set' && hasManifestExtensions(state)) {
+      diagnostics.push(manifestExtensionDependencyMismatchDiagnostic(
+        key,
+        ['abbreviated-packument', evidence.authority],
+      ))
+    } else if (kind !== undefined) {
+      conflicts.push(packageConflictDiagnostic(key))
     }
   }
-  return diagnostics
+  return { conflicts, diagnostics }
 }
 
 async function registryManifestEvidence(
   graph: Graph,
   registry: MemoizedRegistry,
+  state: InternalEvidenceState,
 ): Promise<Readonly<{
   evidence?: PackageManifestEvidence
   conflicts: readonly Diagnostic[]
+  diagnostics: readonly Diagnostic[]
 }>> {
-  if (!registry.hasManifest()) return { conflicts: [] }
+  if (!registry.hasManifest()) return { conflicts: [], diagnostics: [] }
   const manifests: Record<TarballKey, PackumentVersion> = Object.create(null) as Record<TarballKey, PackumentVersion>
   const conflicts: Diagnostic[] = []
+  const diagnostics: Diagnostic[] = []
   const subjects = new Map<TarballKey, Readonly<{ name: string; version: string }>>()
   for (const node of graph.nodes()) {
     if (node.workspacePath !== undefined || node.source !== undefined || node.patch !== undefined) continue
@@ -344,9 +373,17 @@ async function registryManifestEvidence(
     }
     const packument = await registry.packuments.get(subject.name)
     const abbreviated = packument?.versions[subject.version]
-    if (abbreviated !== undefined && !registryPackageFactsCompatible(abbreviated, manifest)) {
-      conflicts.push(packageConflictDiagnostic(key, ['abbreviated-packument', 'version-manifest']))
-      continue
+    if (abbreviated !== undefined) {
+      const kind = registryPackageConflictKind(abbreviated, manifest)
+      if (kind === 'dependency-set' && hasManifestExtensions(state)) {
+        diagnostics.push(manifestExtensionDependencyMismatchDiagnostic(
+          key,
+          ['abbreviated-packument', 'version-manifest'],
+        ))
+      } else if (kind !== undefined) {
+        conflicts.push(packageConflictDiagnostic(key, ['abbreviated-packument', 'version-manifest']))
+        continue
+      }
     }
     manifests[key] = manifest
   }
@@ -355,6 +392,7 @@ async function registryManifestEvidence(
       evidence: { kind: 'package-manifests' as const, authority: 'version-manifest' as const, manifests },
     }),
     conflicts,
+    diagnostics,
   }
 }
 
@@ -467,6 +505,27 @@ export async function enrich(
     working = adapted.graph
     stateSource = adapted.graph
   }
+  const sourceProjection = projectYarnBerryDerivedDependencies(
+    working,
+    sourceFormat,
+    options.target,
+  )
+  if (sourceProjection.graph !== working) {
+    phases.push({
+      kind: 'target-compatibility',
+      before: working,
+      after: sourceProjection.graph,
+      added: [],
+      wired: [],
+      unwired: sourceProjection.unwired,
+      rooted: [...sourceProjection.graph.roots()]
+        .filter(id => !working.roots().has(id)),
+      unrooted: [...working.roots()]
+        .filter(id => !sourceProjection.graph.roots().has(id)),
+    })
+    working = sourceProjection.graph
+    stateSource = sourceProjection.graph
+  }
   if (policyDiagnostic !== undefined) working = landDiagnostics(working, [policyDiagnostic])
 
   const registry = sources.registry === undefined
@@ -489,12 +548,14 @@ export async function enrich(
       const completed = await completeTransitives(working, memoized.adapter, {
         overrides: policy.overrides,
       })
-      const conflicts = await resolutionConflicts(
+      const conflictAssessment = await resolutionConflicts(
         completed.graph,
         memoized,
         internalEvidenceOf(context),
       )
-      if (conflicts.length === 0) {
+      diagnostics.push(...conflictAssessment.diagnostics)
+      evidenceDiagnostics.push(...conflictAssessment.diagnostics)
+      if (conflictAssessment.conflicts.length === 0) {
         completionPhase = {
           kind: 'completion',
           before: working,
@@ -507,15 +568,21 @@ export async function enrich(
         completionAccepted = true
         completionDiagnostics = completed.unresolved
       } else {
-        diagnostics.push(...conflicts)
-        evidenceDiagnostics.push(...conflicts)
-        working = landDiagnostics(working, conflicts)
+        diagnostics.push(...conflictAssessment.conflicts)
+        evidenceDiagnostics.push(...conflictAssessment.conflicts)
+        working = landDiagnostics(working, conflictAssessment.conflicts)
       }
     }
   }
 
   if (memoized !== undefined && (options.contract === 'project' || options.contract === 'frozen')) {
-    const observed = await registryManifestEvidence(working, memoized)
+    const observed = await registryManifestEvidence(
+      working,
+      memoized,
+      internalEvidenceOf(context),
+    )
+    diagnostics.push(...observed.diagnostics)
+    evidenceDiagnostics.push(...observed.diagnostics)
     if (observed.conflicts.length > 0) {
       diagnostics.push(...observed.conflicts)
       evidenceDiagnostics.push(...observed.conflicts)

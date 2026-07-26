@@ -45,6 +45,13 @@ follows.
 | [`bun.md`](./bun.md) | bun | flat-hoisted (or **isolated** ≥1.3) | installer: none · **runtime: bun's OWN resolver** | `bun.lockb` → `bun.lock` | `bun` (own) / `node` |
 | [`deno.md`](./deno.md) | deno *(frontier)* | **none by default** — URL / `jsr:` / `npm:` cache; `node_modules` opt-in | **REPLACED** — URL + import-map + specifier resolver | `deno.lock` | `deno` (own) |
 
+Cross-PM behavior that creates lock facts absent from registry metadata is
+specified in [`derived-entries.md`](./derived-entries.md). Its first
+native-probed family is Yarn builtin compatibility patches (`fsevents`,
+`resolve`, and `typescript`), including the distinction between manifest
+injection, source-side carry/drop, derived locators, conditions, and cache-zip
+checksums.
+
 ## The resolver-mutation spectrum (the headline)
 
 - **Stock Node resolution, reshaped layout** — npm, yarn-classic (flat hoist), **pnpm** (a symlink farm that Node's own `realpath` walks → each package sees only its declared deps, *no custom resolver*).
@@ -101,6 +108,7 @@ matrix, and the frozen-install tie-in are in the doc.
 ## Cross-references
 
 - **Remediation mechanics** (audit-fix, `--force`, the two models) live in [`audit-fix.md`](./audit-fix.md) — the cross-PM driver-feature doc.
+- **Package-manager-derived lock entries** and their target-overlay placement live in [`derived-entries.md`](./derived-entries.md).
 - **Lockfile encodings** live in [`spec/formats/`](../formats/) — these docs cite them for *what* is persisted, they don't re-document the byte grammar.
 - **Registry wire contracts** live in [`spec/registry/`](../registry/) — cited for *how* artefacts are fetched.
 - The end-to-end chain (runtime ↔ PM ↔ lockfile ↔ FS-projection ↔ registries) is the subject of the planned relationships doc.

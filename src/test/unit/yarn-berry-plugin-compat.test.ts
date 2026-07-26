@@ -16,19 +16,105 @@ import { enrich } from '../../main/ts/enrich/facade.ts'
 import { addEdge, addPackage, graphOf } from './_modify-test-utils.ts'
 
 const target = { format: 'yarn-berry-v8', managerVersion: '4.13.0' } as const
+const profileVersions = ['2.3.2', '2.3.3'] as const
+const familyProfiles = [
+  {
+    name: 'fsevents',
+    version: '2.3.2',
+    source: 'optional!builtin<compat/fsevents>',
+    hash: 'df0bf1',
+    checksum: undefined,
+  },
+  {
+    name: 'fsevents',
+    version: '2.3.3',
+    source: 'optional!builtin<compat/fsevents>',
+    hash: 'df0bf1',
+    checksum: undefined,
+  },
+  {
+    name: 'resolve',
+    version: '1.22.8',
+    source: 'optional!builtin<compat/resolve>',
+    hash: 'c3c19d',
+    checksum: '0446f024439cd2e50c6c8fa8ba77eaa8370b4180f401a96abf3d1ebc770ac51c1955e12764cde449fde3fff480a61f84388e3505ecdbab778f4bef5f8212c729',
+  },
+  {
+    name: 'typescript',
+    version: '5.6.2',
+    source: 'optional!builtin<compat/typescript>',
+    hash: '8c6c40',
+    checksum: '94eb47e130d3edd964b76da85975601dcb3604b0c848a36f63ac448d0104e93819d94c8bdf6b07c00120f2ce9c05256b8b6092d23cf5cf1c6fa911159e4d572f',
+  },
+] as const
 
-function seed() {
+function compatResolution(profile: typeof familyProfiles[number]): string {
+  return `${profile.name}@patch:${profile.name}@npm%3A${profile.version}#${profile.source}::version=${profile.version}&hash=${profile.hash}`
+}
+
+function seed(versions: readonly string[] = ['2.3.3']) {
   return graphOf(builder => {
     const root = addPackage(builder, { name: 'root', version: '1.0.0', workspacePath: '' })
-    const fsevents = addPackage(builder, {
-      name: 'fsevents',
-      version: '2.3.3',
-      os: ['darwin'],
-      integrity: 'sha512-ZnNldmVudHM=',
-    })
     const nodeGyp = addPackage(builder, { name: 'node-gyp', version: '11.5.0' })
-    addEdge(builder, root, fsevents, 'optional', 'npm:^2.3.3')
-    addEdge(builder, fsevents, nodeGyp, 'dep', 'npm:latest')
+    for (const version of versions) {
+      const consumer = versions.length === 1
+        ? root
+        : addPackage(builder, { name: `consumer-${version}`, version: '1.0.0' })
+      const fsevents = addPackage(builder, {
+        name: 'fsevents',
+        version,
+        os: ['darwin'],
+        integrity: 'sha512-ZnNldmVudHM=',
+      })
+      if (consumer !== root) addEdge(builder, root, consumer, 'dep', 'npm:1.0.0')
+      addEdge(builder, consumer, fsevents, 'optional', `npm:^${version}`)
+      addEdge(builder, fsevents, nodeGyp, 'dep', 'npm:latest')
+    }
+  })
+}
+
+function familySeed() {
+  return graphOf(builder => {
+    const root = addPackage(builder, { name: 'root', version: '1.0.0', workspacePath: '' })
+    const nodeGyp = addPackage(builder, { name: 'node-gyp', version: '11.5.0' })
+    const isCoreModule = addPackage(builder, { name: 'is-core-module', version: '2.13.1' })
+    const pathParse = addPackage(builder, { name: 'path-parse', version: '1.0.7' })
+    const preserveSymlinks = addPackage(builder, {
+      name: 'supports-preserve-symlinks-flag',
+      version: '1.0.0',
+    })
+    for (const profile of familyProfiles) {
+      const consumer = addPackage(builder, {
+        name: `consumer-${profile.name}-${profile.version}`,
+        version: '1.0.0',
+      })
+      const base = addPackage(builder, {
+        name: profile.name,
+        version: profile.version,
+        ...(profile.name === 'fsevents' ? { os: ['darwin'] } : {}),
+        ...(profile.name === 'resolve' ? { bin: { resolve: 'bin/resolve' } } : {}),
+        ...(profile.name === 'typescript' ? {
+          bin: { tsc: 'bin/tsc', tsserver: 'bin/tsserver' },
+        } : {}),
+        integrity: 'sha512-Y29tcGF0',
+      })
+      addEdge(
+        builder,
+        consumer,
+        base,
+        profile.name === 'fsevents' ? 'optional' : 'dep',
+        `npm:${profile.version}`,
+      )
+      addEdge(builder, root, consumer, 'dep', 'npm:1.0.0')
+      if (profile.name === 'fsevents') {
+        addEdge(builder, base, nodeGyp, 'dep', 'npm:latest')
+      }
+      if (profile.name === 'resolve') {
+        addEdge(builder, base, isCoreModule, 'dep', 'npm:^2.13.0')
+        addEdge(builder, base, pathParse, 'dep', 'npm:^1.0.7')
+        addEdge(builder, base, preserveSymlinks, 'dep', 'npm:^1.0.0')
+      }
+    }
   })
 }
 
@@ -53,37 +139,90 @@ describe('Yarn Berry plugin-compat profile', () => {
 })
 
 describe('Yarn Berry plugin-compat registry view', () => {
-  it('projects only fsevents@2.3.3 and keeps non-fsevents digest stable ×8', async () => {
-    const fsevents: PackumentVersion = {
+  it('projects both profile rows and keeps non-profile observations stable ×8', async () => {
+    const fsevents232: PackumentVersion = {
+      name: 'fsevents',
+      version: '2.3.2',
+      dependencies: { existing: '^1.0.0' },
+    }
+    const fsevents233: PackumentVersion = {
       name: 'fsevents',
       version: '2.3.3',
       dependencies: { existing: '^1.0.0' },
+    }
+    const fsevents231: PackumentVersion = { name: 'fsevents', version: '2.3.1' }
+    const fseventsPackument: Packument = {
+      name: 'fsevents',
+      distTags: { latest: '2.3.3' },
+      versions: {
+        '2.3.1': fsevents231,
+        '2.3.2': fsevents232,
+        '2.3.3': fsevents233,
+      },
     }
     const ordinary: Packument = {
       name: 'ordinary',
       distTags: { latest: '1.0.0' },
       versions: { '1.0.0': { name: 'ordinary', version: '1.0.0' } },
     }
+    const resolveVersion: PackumentVersion = {
+      name: 'resolve',
+      version: '1.22.8',
+      dependencies: { existing: '^1.0.0' },
+    }
+    const resolvePackument: Packument = {
+      name: 'resolve',
+      distTags: { latest: '1.22.8' },
+      versions: { '1.22.8': resolveVersion },
+    }
+    const typescriptVersion: PackumentVersion = {
+      name: 'typescript',
+      version: '5.6.2',
+    }
+    const typescriptPackument: Packument = {
+      name: 'typescript',
+      distTags: { latest: '5.6.2' },
+      versions: { '5.6.2': typescriptVersion },
+    }
     const adapter: RegistryAdapter = {
       async packument(name) {
-        if (name === 'fsevents') {
-          return { name, distTags: { latest: '2.3.3' }, versions: { '2.3.3': fsevents } }
-        }
+        if (name === 'fsevents') return fseventsPackument
+        if (name === 'resolve') return resolvePackument
+        if (name === 'typescript') return typescriptPackument
         return name === 'ordinary' ? ordinary : undefined
       },
-      async resolve(name) {
-        return name === 'fsevents' ? fsevents : ordinary.versions['1.0.0']
+      async resolve(name, range) {
+        if (name === 'resolve') return resolveVersion
+        if (name === 'typescript') return typescriptVersion
+        if (name !== 'fsevents') return ordinary.versions['1.0.0']
+        if (range.includes('2.3.1')) return fsevents231
+        if (range.includes('2.3.2')) return fsevents232
+        return fsevents233
       },
     }
     const view = yarnBerryPluginCompatRegistry(adapter, target)
-    const projected = await view.resolve('fsevents', '^2.3.3')
-    expect(projected?.dependencies).toEqual({
-      existing: '^1.0.0',
-      'node-gyp': 'npm:latest',
-    })
-    expect(fsevents.dependencies).toEqual({ existing: '^1.0.0' })
-    expect(Object.isFrozen(projected)).toBe(true)
-    expect(Object.isFrozen(projected?.dependencies)).toBe(true)
+    for (const version of profileVersions) {
+      const projected = await view.resolve('fsevents', version)
+      expect(projected?.dependencies).toEqual({
+        existing: '^1.0.0',
+        'node-gyp': 'npm:latest',
+      })
+      expect(Object.isFrozen(projected)).toBe(true)
+      expect(Object.isFrozen(projected?.dependencies)).toBe(true)
+    }
+    expect(fsevents232.dependencies).toEqual({ existing: '^1.0.0' })
+    expect(fsevents233.dependencies).toEqual({ existing: '^1.0.0' })
+    expect(await view.resolve('fsevents', '2.3.1')).toBe(fsevents231)
+    const projectedPackument = await view.packument('fsevents')
+    expect(projectedPackument?.versions['2.3.1']).toBe(fsevents231)
+    expect(projectedPackument?.versions['2.3.2']?.dependencies?.['node-gyp'])
+      .toBe('npm:latest')
+    expect(projectedPackument?.versions['2.3.3']?.dependencies?.['node-gyp'])
+      .toBe('npm:latest')
+    expect(await view.resolve('resolve', '1.22.8')).toBe(resolveVersion)
+    expect(await view.packument('resolve')).toBe(resolvePackument)
+    expect(await view.resolve('typescript', '5.6.2')).toBe(typescriptVersion)
+    expect(await view.packument('typescript')).toBe(typescriptPackument)
 
     const digest = (value: unknown): string =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -97,6 +236,88 @@ describe('Yarn Berry plugin-compat registry view', () => {
 })
 
 describe('Yarn Berry plugin-compat materializer', () => {
+  it('materializes the package-keyed family with row-owned injection and checksum policy', () => {
+    const graph = familySeed()
+    const result = materializeYarnBerryPluginCompat(graph, target)
+    const patchIds = familyProfiles.map(profile => {
+      const identity = yarnBerryBuiltinCompatIdentityOfResolution(
+        compatResolution(profile),
+      )!
+      return serializeNodeId(profile.name, profile.version, [], identity.patch)
+    })
+
+    expect(result.added).toEqual(patchIds)
+    for (const [index, profile] of familyProfiles.entries()) {
+      const baseId = `${profile.name}@${profile.version}`
+      const patchId = patchIds[index]!
+      const payload = result.graph.tarballOf(patchId)
+      expect(result.graph.in(baseId)).toEqual([])
+      expect(result.graph.in(patchId).map(edge => edge.src)).toEqual([
+        `consumer-${profile.name}-${profile.version}@1.0.0`,
+      ])
+      expect(result.graph.out(patchId).map(edge => edge.dst))
+        .toEqual(result.graph.out(baseId).map(edge => edge.dst))
+      expect(payload?.nativeResolution).toBe(compatResolution(profile))
+      if (profile.checksum === undefined) {
+        expect(payload?.integrity).toBeUndefined()
+        expect(payload?.berryChecksumCacheKey).toBeUndefined()
+      } else {
+        expect(payload?.integrity?.hashes).toEqual([{
+          algorithm: 'sha512',
+          digest: profile.checksum,
+          origin: 'berry-zip',
+        }])
+        expect(payload?.berryChecksumCacheKey).toBe('10c0')
+      }
+    }
+
+    expect(result.graph.out(patchIds[0]!).map(edge =>
+      result.graph.getNode(edge.dst)?.name)).toContain('node-gyp')
+    expect(result.graph.out(patchIds[2]!).map(edge =>
+      result.graph.getNode(edge.dst)?.name)).toEqual([
+      'is-core-module',
+      'path-parse',
+      'supports-preserve-symlinks-flag',
+    ])
+    expect(result.graph.out(patchIds[3]!)).toEqual([])
+    const lock = stringifyV8(result.graph)
+    expect(lock).toContain(`resolution: "${compatResolution(familyProfiles[2])}"`)
+    expect(lock).toContain(`checksum: 10c0/${familyProfiles[2].checksum}`)
+    expect(lock).toContain(`resolution: "${compatResolution(familyProfiles[3])}"`)
+    expect(lock).toContain(`checksum: 10c0/${familyProfiles[3].checksum}`)
+
+    const second = materializeYarnBerryPluginCompat(result.graph, target)
+    expect(second.graph).toBe(result.graph)
+    expect(second.added).toEqual([])
+  })
+
+  it('materializes every table row in one deterministic sealed graph', () => {
+    const graph = seed(profileVersions)
+    const result = materializeYarnBerryPluginCompat(graph, target)
+    const patchIds = profileVersions.map(version => {
+      const identity = yarnBerryBuiltinCompatIdentityOfResolution(
+        yarnBerryFseventsCompatResolution(version),
+      )!
+      return serializeNodeId('fsevents', version, [], identity.patch)
+    })
+
+    expect(result.added).toEqual(patchIds)
+    for (const [index, version] of profileVersions.entries()) {
+      const patchId = patchIds[index]!
+      expect(result.graph.getNode(patchId)?.patch).not.toBe('df0bf1')
+      expect(result.graph.in(`fsevents@${version}`)).toEqual([])
+      expect(result.graph.in(patchId).map(edge => result.graph.getNode(edge.src)?.name))
+        .toEqual([`consumer-${version}`])
+      expect(result.graph.out(patchId).map(edge => result.graph.getNode(edge.dst)?.name))
+        .toContain('node-gyp')
+      expect(result.graph.tarballOf(patchId)?.integrity).toBeUndefined()
+    }
+
+    const second = materializeYarnBerryPluginCompat(result.graph, target)
+    expect(second.graph).toBe(result.graph)
+    expect(second.added).toEqual([])
+  })
+
   it('creates the base/patch pair, rewires consumers, stays bare, and round-trips identity', () => {
     const graph = seed()
     const result = materializeYarnBerryPluginCompat(graph, target)
@@ -148,6 +369,13 @@ describe('Yarn Berry plugin-compat materializer', () => {
       })
       addEdge(builder, root, fsevents, 'optional', 'npm:^2.3.3')
     })
+    const result = materializeYarnBerryPluginCompat(graph, target)
+    expect(result.graph).toBe(graph)
+    expect(result.added).toEqual([])
+  })
+
+  it('fails closed for fsevents versions outside the table', () => {
+    const graph = seed(['2.3.1'])
     const result = materializeYarnBerryPluginCompat(graph, target)
     expect(result.graph).toBe(graph)
     expect(result.added).toEqual([])

@@ -526,6 +526,7 @@ function emptySourceCapabilities(): SourceCapabilityResult {
     edgeKinds: 'none',
     peerModel: 'none',
     resolutionPolicy: 'none',
+    manifestKnowledge: 'faithful',
     packageMetadata: 'none',
     artifacts: 'none',
     layout: 'none',

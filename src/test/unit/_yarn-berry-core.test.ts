@@ -312,26 +312,46 @@ describe('parse', () => {
     expect(out).toContain('lodash@patch:')
   })
 
-  it('assigns a sentinel patch + YARN_BERRY_PATCH_UNRESOLVED for a `~builtin<…>` patch (no on-disk source)', () => {
-    const input =
-      BERRY_V9_HEAD +
-      '"root@workspace:.":\n' +
-      '  version: 0.0.0-use.local\n' +
-      '  resolution: "root@workspace:."\n' +
-      '  dependencies:\n' +
-      '    typescript: "patch:typescript@npm%3A5.0.0#~builtin<compat/typescript>"\n' +
-      '  languageName: unknown\n' +
-      '  linkType: soft\n\n' +
-      '"typescript@patch:typescript@npm%3A5.0.0#~builtin<compat/typescript>::version=5.0.0&hash=abc123":\n' +
-      '  version: 5.0.0\n' +
-      '  resolution: "typescript@patch:typescript@npm%3A5.0.0#~builtin<compat/typescript>::version=5.0.0&hash=abc123"\n' +
-      '  languageName: node\n' +
-      '  linkType: hard\n'
-    const graph = parseV9(input)
-    expect(graph.diagnostics().map(d => d.code)).toContain('YARN_BERRY_PATCH_UNRESOLVED')
-    const ts = Array.from(graph.nodes()).find(n => n.name === 'typescript')
-    expect(ts!.patch).toBeDefined()
-  })
+  it.each([
+    ['builtin', 'npm%3A5.0.0'],
+    ['builtin', '5.0.0'],
+    ['~builtin', 'npm%3A5.0.0'],
+    ['~builtin', '5.0.0'],
+    ['optional!builtin', 'npm%3A5.0.0'],
+    ['optional!builtin', '5.0.0'],
+  ])(
+    'recognises %s syntax with %s inner locator as an intrinsic builtin patch',
+    (syntax, inner) => {
+      const source = `${syntax}<compat/typescript>`
+      const locator =
+        `typescript@patch:typescript@${inner}#${source}::version=5.0.0&hash=abc123`
+      const input =
+        BERRY_V9_HEAD +
+        '"root@workspace:.":\n' +
+        '  version: 0.0.0-use.local\n' +
+        '  resolution: "root@workspace:."\n' +
+        '  dependencies:\n' +
+        `    typescript: "patch:typescript@${inner}#${source}"\n` +
+        '  languageName: unknown\n' +
+        '  linkType: soft\n\n' +
+        `"${locator}":\n` +
+        '  version: 5.0.0\n' +
+        `  resolution: "${locator}"\n` +
+        '  languageName: node\n' +
+        '  linkType: hard\n'
+      const graph = parseV9(input, { workspaceRoot: '/definitely/not/a/repository' })
+      const diagnostics = graph.diagnostics()
+        .filter(diagnostic => diagnostic.code === 'YARN_BERRY_PATCH_UNRESOLVED')
+      expect(diagnostics).toHaveLength(1)
+      expect(diagnostics[0]?.message).toContain(
+        'builtin compatibility patch has no on-disk source',
+      )
+      expect(diagnostics[0]?.message).not.toContain('patch file is unavailable')
+      expect(diagnostics[0]?.message).not.toContain('workspaceRoot is unavailable')
+      const ts = Array.from(graph.nodes()).find(n => n.name === 'typescript')
+      expect(ts!.patch).toBeDefined()
+    },
+  )
 
   it('diagnoses UNRESOLVED_DEP for a bare `patch:` descriptor ambiguous across >=2 patch entries', () => {
     const input =

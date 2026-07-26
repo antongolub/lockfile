@@ -22,14 +22,20 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url))
 const tarballPath = resolve(here, '../resources/fixtures/tarballs/ms-2.1.3.tgz')
+const resolveTarballPath = resolve(
+  here,
+  '../resources/fixtures/tarballs/resolve-1.22.8.tgz',
+)
+const typescriptTarballPath = resolve(
+  here,
+  '../resources/fixtures/tarballs/typescript-5.6.2.tgz',
+)
 const registryScript = resolve(here, '../helpers/frozen-registry.mjs')
 const tarballBytes = readFileSync(tarballPath)
-const fseventsManifest = `${JSON.stringify({
-  name: 'fsevents',
-  version: '2.3.3',
-  main: 'fsevents.js',
-  os: ['darwin'],
-}, null, 2)}\n`
+const resolveTarballBytes = readFileSync(resolveTarballPath)
+const typescriptTarballBytes = readFileSync(typescriptTarballPath)
+const fseventsVersions = ['2.3.2', '2.3.3'] as const
+type FseventsVersion = typeof fseventsVersions[number]
 const fseventsSource = `/*
  ** © 2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller
  ** Licensed under MIT License.
@@ -138,11 +144,88 @@ function ustarFile(name: string, data: Buffer): Buffer {
   ])
 }
 
-const fseventsTarballBytes = gzipSync(Buffer.concat([
-  ustarFile('package/package.json', Buffer.from(fseventsManifest)),
-  ustarFile('package/fsevents.js', Buffer.from(fseventsSource)),
-  Buffer.alloc(1024),
-]))
+function fseventsTarball(version: FseventsVersion): Buffer {
+  const manifest = `${JSON.stringify({
+    name: 'fsevents',
+    version,
+    main: 'fsevents.js',
+    os: ['darwin'],
+  }, null, 2)}\n`
+  return gzipSync(Buffer.concat([
+    ustarFile('package/package.json', Buffer.from(manifest)),
+    ustarFile('package/fsevents.js', Buffer.from(fseventsSource)),
+    Buffer.alloc(1024),
+  ]))
+}
+
+const fseventsTarballs = new Map<FseventsVersion, Buffer>(
+  fseventsVersions.map(version => [version, fseventsTarball(version)]),
+)
+
+interface CompatOracleCase {
+  readonly name: string
+  readonly version: string
+  readonly source: string
+  readonly locatorHash: string
+  readonly rootKind: 'dep' | 'optional'
+  readonly tarball: Buffer
+  readonly manifest: Omit<PackumentVersion, 'name' | 'version'>
+  readonly patchChecksum?: string
+}
+
+const compatCases: readonly CompatOracleCase[] = Object.freeze([
+  ...fseventsVersions.map(version => Object.freeze({
+    name: 'fsevents',
+    version,
+    source: 'optional!builtin<compat/fsevents>',
+    locatorHash: 'df0bf1',
+    rootKind: 'optional' as const,
+    tarball: fseventsTarballs.get(version)!,
+    manifest: Object.freeze({ os: ['darwin'] }),
+  })),
+  Object.freeze({
+    name: 'resolve',
+    version: '1.22.8',
+    source: 'optional!builtin<compat/resolve>',
+    locatorHash: 'c3c19d',
+    rootKind: 'dep' as const,
+    tarball: resolveTarballBytes,
+    manifest: Object.freeze({
+      dependencies: Object.freeze({
+        'is-core-module': '^2.13.0',
+        'path-parse': '^1.0.7',
+        'supports-preserve-symlinks-flag': '^1.0.0',
+      }),
+      bin: Object.freeze({ resolve: 'bin/resolve' }),
+    }),
+    patchChecksum: '0446f024439cd2e50c6c8fa8ba77eaa8370b4180f401a96abf3d1ebc770ac51c1955e12764cde449fde3fff480a61f84388e3505ecdbab778f4bef5f8212c729',
+  }),
+  Object.freeze({
+    name: 'typescript',
+    version: '5.6.2',
+    source: 'optional!builtin<compat/typescript>',
+    locatorHash: '8c6c40',
+    rootKind: 'dep' as const,
+    tarball: typescriptTarballBytes,
+    manifest: Object.freeze({
+      bin: Object.freeze({
+        tsc: 'bin/tsc',
+        tsserver: 'bin/tsserver',
+      }),
+    }),
+    patchChecksum: '94eb47e130d3edd964b76da85975601dcb3604b0c848a36f63ac448d0104e93819d94c8bdf6b07c00120f2ce9c05256b8b6092d23cf5cf1c6fa911159e4d572f',
+  }),
+])
+
+const dependencyFixtures = Object.freeze({
+  'is-core-module': Object.freeze({ version: '2.13.1', range: '^2.13.0' }),
+  'path-parse': Object.freeze({ version: '1.0.7', range: '^1.0.7' }),
+  'supports-preserve-symlinks-flag': Object.freeze({
+    version: '1.0.0',
+    range: '^1.0.0',
+  }),
+  'node-gyp': Object.freeze({ version: '11.5.0', range: 'npm:latest' }),
+})
 let registryProcess: ChildProcess | undefined
 let registryFixtureRoot: string | undefined
 
@@ -170,9 +253,18 @@ const adapters: readonly BerryAdapter[] = [
 
 beforeAll(async () => {
   registryFixtureRoot = mkdtempSync(resolve(tmpdir(), 'lockgraph-fsevents-registry-'))
-  const fseventsTarballPath = resolve(registryFixtureRoot, 'fsevents-2.3.3.tgz')
-  writeFileSync(fseventsTarballPath, fseventsTarballBytes)
-  registryProcess = spawn(process.execPath, [registryScript, tarballPath, fseventsTarballPath], {
+  const fsevents233TarballPath = resolve(registryFixtureRoot, 'fsevents-2.3.3.tgz')
+  const fsevents232TarballPath = resolve(registryFixtureRoot, 'fsevents-2.3.2.tgz')
+  writeFileSync(fsevents233TarballPath, fseventsTarballs.get('2.3.3')!)
+  writeFileSync(fsevents232TarballPath, fseventsTarballs.get('2.3.2')!)
+  registryProcess = spawn(process.execPath, [
+    registryScript,
+    tarballPath,
+    fsevents233TarballPath,
+    fsevents232TarballPath,
+    resolveTarballPath,
+    typescriptTarballPath,
+  ], {
     stdio: ['ignore', 'pipe', 'inherit'],
   })
   const port = await new Promise<string>((resolvePort, reject) => {
@@ -192,14 +284,20 @@ afterAll(() => {
   if (registryFixtureRoot !== undefined) rmSync(registryFixtureRoot, { recursive: true, force: true })
 })
 
-function projectFiles(adapter: FrozenOracleAdapter): Readonly<Record<string, string>> {
+function projectFiles(
+  adapter: FrozenOracleAdapter,
+  profile: CompatOracleCase,
+): Readonly<Record<string, string>> {
+  const dependencyField = profile.rootKind === 'optional'
+    ? 'optionalDependencies'
+    : 'dependencies'
   return {
     'package.json': `${JSON.stringify({
-      name: 'lockgraph-fsevents-compat-oracle',
+      name: 'lockgraph-builtin-compat-oracle',
       version: '1.0.0',
       private: true,
       packageManager: `yarn@${adapter.version}`,
-      optionalDependencies: { fsevents: '2.3.3' },
+      [dependencyField]: { [profile.name]: profile.version },
     }, null, 2)}\n`,
     '.yarnrc.yml': [
       'nodeLinker: node-modules',
@@ -211,30 +309,30 @@ function projectFiles(adapter: FrozenOracleAdapter): Readonly<Record<string, str
   }
 }
 
-function sourceGraph(adapter: BerryAdapter): Graph {
+function sourceGraph(adapter: BerryAdapter, profile: CompatOracleCase): Graph {
   const builder = newBuilder()
   builder.addNode({
-    id: 'lockgraph-fsevents-compat-oracle@0.0.0-use.local',
-    name: 'lockgraph-fsevents-compat-oracle',
+    id: 'lockgraph-builtin-compat-oracle@0.0.0-use.local',
+    name: 'lockgraph-builtin-compat-oracle',
     version: '0.0.0-use.local',
     peerContext: [],
     workspacePath: '',
   })
   builder.addNode({
-    id: 'fsevents@2.3.3',
-    name: 'fsevents',
-    version: '2.3.3',
+    id: `${profile.name}@${profile.version}`,
+    name: profile.name,
+    version: profile.version,
     peerContext: [],
   })
   builder.addEdge(
-    'lockgraph-fsevents-compat-oracle@0.0.0-use.local',
-    'fsevents@2.3.3',
-    'optional',
-    { range: 'npm:2.3.3' },
+    'lockgraph-builtin-compat-oracle@0.0.0-use.local',
+    `${profile.name}@${profile.version}`,
+    profile.rootKind,
+    { range: `npm:${profile.version}` },
   )
   builder.setTarball(
-    { name: 'fsevents', version: '2.3.3' },
-    { os: ['darwin'] },
+    { name: profile.name, version: profile.version },
+    profile.manifest,
   )
   const lockfile = adapter.stringify(builder.seal()).replace(
     /^(__metadata:\n  version: \d+\n)/m,
@@ -243,53 +341,57 @@ function sourceGraph(adapter: BerryAdapter): Graph {
   return adapter.parse(lockfile)
 }
 
-function sources(): Readonly<{
+function sources(profile: CompatOracleCase): Readonly<{
   registry: RegistryAdapter
   artifacts: TarballSource
 }> {
-  const fsevents: PackumentVersion = {
-    name: 'fsevents',
-    version: '2.3.3',
-    os: ['darwin'],
+  const primary: PackumentVersion = {
+    name: profile.name,
+    version: profile.version,
+    ...profile.manifest,
   }
-  const nodeGyp: PackumentVersion = { name: 'node-gyp', version: '11.5.0' }
-  const packs: Record<string, Packument> = {
-    fsevents: {
-      name: 'fsevents',
-      distTags: { latest: '2.3.3' },
-      versions: { '2.3.3': fsevents },
-    },
-    'node-gyp': {
-      name: 'node-gyp',
-      distTags: { latest: '11.5.0' },
-      versions: { '11.5.0': nodeGyp },
-    },
+  const versions: Record<string, PackumentVersion> = {
+    [profile.name]: primary,
+    ...Object.fromEntries(Object.entries(dependencyFixtures).map(([name, fixture]) => [
+      name,
+      { name, version: fixture.version },
+    ])),
   }
+  const packs: Record<string, Packument> = Object.fromEntries(
+    Object.entries(versions).map(([name, value]) => [name, {
+      name,
+      distTags: { latest: value.version },
+      versions: { [value.version]: value },
+    }]),
+  )
   return {
     registry: {
       async packument(name) {
         return packs[name]
       },
       async resolve(name, range) {
-        if (name === 'node-gyp' && range === 'npm:latest') return nodeGyp
-        return undefined
+        const fixture = dependencyFixtures[name as keyof typeof dependencyFixtures]
+        return fixture !== undefined && fixture.range === range
+          ? versions[name]
+          : undefined
       },
     },
     artifacts: {
       async tarball(name, version) {
-        if (name === 'fsevents' && version === '2.3.3') return fseventsTarballBytes
-        if (name === 'node-gyp' && version === '11.5.0') return tarballBytes
+        if (name === profile.name && version === profile.version) return profile.tarball
+        const fixture = dependencyFixtures[name as keyof typeof dependencyFixtures]
+        if (fixture?.version === version) return tarballBytes
         return undefined
       },
     },
   }
 }
 
-function fseventsSubtree(lockfile: string): string {
+function packageSubtree(lockfile: string, packageName: string): string {
   const lines = lockfile.split('\n')
   const blocks: string[] = []
   for (let index = 0; index < lines.length; index++) {
-    if (!lines[index]!.startsWith('"fsevents@')) continue
+    if (!lines[index]!.startsWith(`"${packageName}@`)) continue
     const block = [lines[index]!]
     for (index++; index < lines.length && (lines[index] === '' || lines[index]!.startsWith('  ')); index++) {
       block.push(lines[index]!)
@@ -300,62 +402,82 @@ function fseventsSubtree(lockfile: string): string {
   return blocks.join('\n\n')
 }
 
-describe.sequential('infra: Yarn Berry fsevents plugin-compat oracle', () => {
+describe.sequential('infra: Yarn Berry builtin-compat family oracle', () => {
   for (const adapter of adapters) {
-    it(`${adapter.native.alias} matches the fresh native subtree and accepts --immutable unchanged`, async () => {
-      const files = projectFiles(adapter.native)
-      const native = createNativeLock(adapter.native, files)
-      const result = await enrich(sourceGraph(adapter), {
-        ...sources(),
-        manifests: {
-          '': {
-            name: 'lockgraph-fsevents-compat-oracle',
-            version: '1.0.0',
-            optionalDependencies: { fsevents: '2.3.3' },
-            overrides: [],
+    for (const profile of compatCases) {
+      it(`${adapter.native.alias} reproduces ${profile.name}@${profile.version} and accepts --immutable unchanged`, async () => {
+        const files = projectFiles(adapter.native, profile)
+        const native = createNativeLock(adapter.native, files)
+        const dependencyField = profile.rootKind === 'optional'
+          ? 'optionalDependencies'
+          : 'dependencies'
+        const result = await enrich(sourceGraph(adapter, profile), {
+          ...sources(profile),
+          manifests: {
+            '': {
+              name: 'lockgraph-builtin-compat-oracle',
+              version: '1.0.0',
+              [dependencyField]: { [profile.name]: profile.version },
+              overrides: [],
+            },
           },
-        },
-      }, {
-        target: {
-          format: adapter.native.format,
-          managerVersion: adapter.native.version,
-        },
-        contract: 'snapshot',
-        cacheKey: '10c0',
-      })
-      const lockfile = adapter.stringify(adapter.optimize(result.graph).graph)
-      const nativeLockfile = String(native['yarn.lock'])
+        }, {
+          target: {
+            format: adapter.native.format,
+            managerVersion: adapter.native.version,
+          },
+          contract: 'snapshot',
+          cacheKey: '10c0',
+        })
+        const lockfile = adapter.stringify(adapter.optimize(result.graph).graph)
+        const nativeLockfile = String(native['yarn.lock'])
+        const subtree = packageSubtree(lockfile, profile.name)
 
-      expect(fseventsSubtree(lockfile)).toBe(fseventsSubtree(nativeLockfile))
-      expect(lockfile).toBe(nativeLockfile)
-      expect(fseventsSubtree(lockfile)).toContain('node-gyp: "npm:latest"')
-      expect(fseventsSubtree(lockfile).match(/checksum:/g)?.length).toBe(1)
+        expect(subtree).toBe(packageSubtree(nativeLockfile, profile.name))
+        expect(lockfile).toBe(nativeLockfile)
+        expect(subtree).toContain(
+          `version=${profile.version}&hash=${profile.locatorHash}`,
+        )
+        expect(subtree.match(/checksum:/g)?.length).toBe(
+          profile.patchChecksum === undefined ? 1 : 2,
+        )
+        if (profile.name === 'fsevents') {
+          expect(subtree).toContain('node-gyp: "npm:latest"')
+        }
+        if (profile.name === 'resolve') {
+          expect(subtree).toContain('is-core-module: "npm:^2.13.0"')
+          expect(subtree).toContain(`checksum: 10c0/${profile.patchChecksum}`)
+        }
+        if (profile.name === 'typescript') {
+          expect(subtree).toContain(`checksum: 10c0/${profile.patchChecksum}`)
+        }
 
-      const projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify({
-        target: {
-          format: adapter.native.format,
-          managerVersion: adapter.native.version,
-        },
-        lockfile,
-        companions: [],
-      })).digest('hex')}`
-      const candidate: FrozenOracleCandidate = Object.freeze({
-        protocol: 'lockgraph-frozen-projection/v1',
-        target: Object.freeze({
-          format: adapter.native.format,
-          managerVersion: adapter.native.version,
-        }),
-        projectionDigest,
-        lockfile,
-        companions: Object.freeze([]),
-      })
-      const oracle = runFrozenOracle(candidate, adapter.native, files)
-      expect(oracle.reason).toBeUndefined()
-      expect(oracle.receipt).toMatchObject({
-        target: candidate.target,
-        projectionDigest,
-        verification: 'frozen-verified',
-      })
-    }, 60_000)
+        const projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify({
+          target: {
+            format: adapter.native.format,
+            managerVersion: adapter.native.version,
+          },
+          lockfile,
+          companions: [],
+        })).digest('hex')}`
+        const candidate: FrozenOracleCandidate = Object.freeze({
+          protocol: 'lockgraph-frozen-projection/v1',
+          target: Object.freeze({
+            format: adapter.native.format,
+            managerVersion: adapter.native.version,
+          }),
+          projectionDigest,
+          lockfile,
+          companions: Object.freeze([]),
+        })
+        const oracle = runFrozenOracle(candidate, adapter.native, files)
+        expect(oracle.reason).toBeUndefined()
+        expect(oracle.receipt).toMatchObject({
+          target: candidate.target,
+          projectionDigest,
+          verification: 'frozen-verified',
+        })
+      }, 60_000)
+    }
   }
 })
