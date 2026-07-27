@@ -235,6 +235,13 @@ export type PnpmLayoutProfileTag = PnpmLayoutProfile['profile']
 export type PnpmDiagnosticPrefix = 'PNPM_V9' | 'PNPM_V6'
 
 export interface PnpmNodeSidecar {
+  /** Verbatim v9 `snapshots` key. The Graph NodeId intentionally erases
+   *  pnpm-only labelled patch markers and canonicalises peer-suffix order, so
+   *  the native key is the same-PM round-trip source of truth. */
+  snapshotKey?: string
+  /** Verbatim resolved dependency slot values keyed
+   *  `${kind}\0${targetNodeId}\0${aliasSlot}`. */
+  resolvedDependencies?: Map<string, string>
   /** Declared peerDependencies (range record). */
   peerDependencies?: Record<string, string>
   /** Declared peerDependenciesMeta — the per-peer `{ optional: true }` markers
@@ -728,9 +735,10 @@ function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
       continue
     }
     addPackageNode(builder, sidecar, name, version, peerContext, nodeId, pkgEntry, diagnostics, resolvePatchForNode(patchDirectives, name, version, nodeId, diagnostics))
+    const nodeSidecar = sidecar.nodes.get(nodeId)
+    if (nodeSidecar !== undefined) nodeSidecar.snapshotKey = snapshotKey
     const snapEntry = snapshotsMap[snapshotKey]
     if (isPlainObject(snapEntry) && Array.isArray(snapEntry.transitivePeerDependencies)) {
-      const nodeSidecar = sidecar.nodes.get(nodeId)
       if (nodeSidecar !== undefined) {
         nodeSidecar.transitivePeerDependencies = (snapEntry.transitivePeerDependencies as string[]).slice()
       }
@@ -1154,6 +1162,22 @@ function addResolvedDependencyEdge(
   const attrs: { range: string; alias?: string } = { range: input.rawValue }
   if (target.aliasSlot !== undefined) attrs.alias = target.aliasSlot
   addParsedResolvedEdge(context.builder, input.srcId, target.targetId, input.kind, attrs)
+  const nodeSidecar = context.sidecar.nodes.get(input.srcId)
+  if (nodeSidecar !== undefined) {
+    nodeSidecar.resolvedDependencies ??= new Map<string, string>()
+    nodeSidecar.resolvedDependencies.set(
+      resolvedDependencySidecarKey(input.kind, target.targetId, target.aliasSlot),
+      input.rawValue,
+    )
+  }
+}
+
+function resolvedDependencySidecarKey(
+  kind: EdgeKind,
+  targetId: string,
+  aliasSlot: string | undefined,
+): string {
+  return `${kind}\0${targetId}\0${aliasSlot ?? ''}`
 }
 
 function resolveParsedDependencyTarget(
@@ -1822,7 +1846,8 @@ function writePnpmStringifySnapshots(context: PnpmStringifyContext): void {
   if (!shape.hasSnapshots) return
   const snapshots: YamlMap = {}
   for (const node of resolvedNodes) {
-    const snapshotKey = nodeIdToSnapshotKey(node, workspacePeerProjection)
+    const snapshotKey = sidecar?.nodes.get(node.id)?.snapshotKey
+      ?? nodeIdToSnapshotKey(node, workspacePeerProjection)
     snapshots[snapshotKey] = buildSnapshotEntry(graph, sidecar, workspacePeerProjection, node)
   }
   out.snapshots = sortRecord(snapshots) as YamlMap
@@ -2367,7 +2392,9 @@ function collectBoundOptionalPeers(context: PackageEntryContext, optionalPeers: 
   for (const edge of context.graph.out(context.representative.id)) {
     if (edge.kind !== 'peer' || edge.attrs?.optional !== true) continue
     const dst = context.graph.getNode(edge.dst)
-    if (dst !== undefined) optionalPeers.add(dst.name)
+    if (dst === undefined) continue
+    const native = context.projection.attribution.get(`${context.representative.id}\0${dst.id}`)
+    optionalPeers.add(native?.name ?? dst.name)
   }
 }
 
@@ -2446,7 +2473,15 @@ function buildSnapshotEntry(
     // resolveAliasedSnapshotTarget oracle resolves; a bare dep keeps its bare
     // version under `dst.name` (byte-unchanged).
     const seg = aliasedSnapshotSlotValue(edge, dst, projection)
-    block[seg.key] = seg.value
+    const nativeValue = sidecar?.nodes.get(node.id)?.resolvedDependencies?.get(
+      resolvedDependencySidecarKey(edge.kind, dst.id, edge.attrs?.alias),
+    )
+    // A rebind may retain the sidecar while a caller changes the modeled
+    // range. Replay only while the graph still carries the exact native value;
+    // otherwise the mutated edge is authoritative.
+    block[seg.key] = nativeValue !== undefined && edge.attrs?.range === nativeValue
+      ? nativeValue
+      : seg.value
   }
 
   for (const [kind, blockName] of [['dep', 'dependencies'], ['optional', 'optionalDependencies']] as const) {

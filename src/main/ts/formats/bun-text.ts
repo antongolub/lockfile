@@ -105,6 +105,7 @@ interface BunTextWorkspaceManifest {
 
 interface BunTextLockfile {
   lockfileVersion?: number
+  configVersion?: number
   workspaces?: Record<string, BunTextWorkspaceManifest>
   packages?: Record<string, unknown[]>
   trustedDependencies?: string[]
@@ -145,6 +146,7 @@ interface BunTextParseContext {
 }
 
 interface BunTextFidelity {
+  readonly configVersion: number | undefined
   readonly nativeOverrides: Record<string, unknown> | undefined
   readonly canonicalOverrides: OverrideConstraint[] | undefined
   readonly trustedDependencies: string[] | undefined
@@ -152,6 +154,15 @@ interface BunTextFidelity {
 }
 
 interface BunTextSidecar {
+  /** Native resolver generation. It affects Bun's interpretation of dehoisted
+   *  package tuples and therefore survives same-PM emit. */
+  configVersion?: number
+  /** Verbatim parsed `packages` structure. Bun may carry multiple scoped keys
+   *  that collapse onto one Graph NodeId while resolving dependencies
+   *  differently for each consumer. */
+  nativePackages?: Record<string, unknown[]>
+  /** True only while the graph is exactly the graph produced by parse. */
+  exactPackageReplay?: boolean
   rootId?: string
   rootManifest?: BunTextWorkspaceManifest
   workspaces: Map<string, BunTextWorkspaceSidecar>
@@ -359,6 +370,8 @@ function sealBunGraph(context: BunTextParseContext, fidelity: BunTextFidelity): 
   try {
     const graph = context.builder.seal()
     const sidecar: BunTextSidecar = {
+      nativePackages: context.packages,
+      exactPackageReplay: true,
       rootId: context.rootId,
       rootManifest: context.rootManifest,
       workspaces: context.workspaceSidecar,
@@ -404,7 +417,13 @@ function captureBunFidelity(lf: BunTextLockfile): BunTextFidelity {
           .filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
       )
     : undefined
-  return { nativeOverrides, canonicalOverrides, trustedDependencies, patchedDependencies }
+  return {
+    configVersion: typeof lf.configVersion === 'number' ? lf.configVersion : undefined,
+    nativeOverrides,
+    canonicalOverrides,
+    trustedDependencies,
+    patchedDependencies,
+  }
 }
 
 function registerDeclaredWorkspaces(context: BunTextParseContext): void {
@@ -621,9 +640,15 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
 
   // Build `packages` block: workspace members (1-elem tuples) then regular packages
   // (4-elem tuples), both sorted alphabetically by emit key.
-  const packagesBlock: Record<string, unknown[]> = {}
+  const replayNativePackages = sidecar?.exactPackageReplay === true
+    && sidecar.nativePackages !== undefined
+  const packagesBlock: Record<string, unknown[]> = replayNativePackages
+    ? { ...sidecar.nativePackages! }
+    : {}
   for (const member of [...memberNodes].sort((a, b) => cmpStr(a.name, b.name))) {
-    packagesBlock[member.name] = [`${member.name}@workspace:${member.workspacePath}`]
+    if (!replayNativePackages) {
+      packagesBlock[member.name] = [`${member.name}@workspace:${member.workspacePath}`]
+    }
   }
   // Sort: unpatched nodes first (patch === undefined) for any given
   // `<name>@<version>` tuple, so the dedup loop below keeps the cleaner shape
@@ -644,6 +669,7 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
     reportPatchDrop(node, warnedPatches, emitDiagnostic)
     reportPeerVirt(node, warnedPeerVirt, emitDiagnostic)
     reportResolutionDrop(graph, node, warnedResolutions, emitDiagnostic)
+    if (replayNativePackages) continue
 
     const nameVersion = `${node.name}@${node.version}`
     if (emittedNameVersion.has(nameVersion)) {
@@ -675,8 +701,9 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
 
   const out: Record<string, unknown> = {
     lockfileVersion: 1,
-    workspaces: workspacesBlock,
   }
+  if (sidecar?.configVersion !== undefined) out.configVersion = sidecar.configVersion
+  out.workspaces = workspacesBlock
   if (overridesBlock !== undefined && Object.keys(overridesBlock).length > 0) {
     out.overrides = overridesBlock
   }
@@ -758,7 +785,9 @@ export function enrich(
     }
   })
 
-  if (sidecar !== undefined) rememberSidecar(result.graph, sidecar)
+  if (sidecar !== undefined) {
+    rememberSidecar(result.graph, { ...sidecar, exactPackageReplay: false })
+  }
   return { graph: result.graph, diagnostics }
 }
 
@@ -1336,6 +1365,9 @@ function pruneSidecar(sidecar: BunTextSidecar, graph: Graph): BunTextSidecar {
     if (reachableIds.has(nodeId)) workspaceByPath.set(path, nodeId)
   }
   return {
+    configVersion: sidecar.configVersion,
+    nativePackages: sidecar.nativePackages,
+    exactPackageReplay: false,
     rootId: sidecar.rootId !== undefined && reachableIds.has(sidecar.rootId) ? sidecar.rootId : undefined,
     rootManifest: sidecar.rootManifest,
     workspaces: new Map(sidecar.workspaces),

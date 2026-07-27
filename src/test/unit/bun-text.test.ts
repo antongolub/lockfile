@@ -257,6 +257,33 @@ describe('bun-text — §A.4 Graph-level roundtrip', () => {
     expect(text).not.toMatch(/"lockfileVersion":\s*"1"/)
   })
 
+  it('preserves configVersion and dehoisted native package tuples that collapse onto one NodeId', () => {
+    const source = [
+      `{`,
+      `  "lockfileVersion": 1,`,
+      `  "configVersion": 1,`,
+      `  "workspaces": {"": {"name": "app", "dependencies": {"consumer": "1.0.0"}}},`,
+      `  "packages": {`,
+      `    "consumer": ["consumer@1.0.0", "", {"dependencies": {"leaf": "1.0.0"}}, ""],`,
+      `    "leaf": ["leaf@1.0.0", "", {}, ""],`,
+      `    "consumer/leaf": ["leaf@1.0.0", "", {"dependencies": {"nested": "2.0.0"}}, ""],`,
+      `    "nested": ["nested@2.0.0", "", {}, ""],`,
+      `  },`,
+      `}`,
+      ``,
+    ].join('\n')
+
+    const original = parse(source)
+    const emitted = stringify(original)
+    expect(emitted).toContain('"configVersion": 1')
+    expect(emitted).toContain('"consumer/leaf": ["leaf@1.0.0"')
+
+    const reparsed = parse(emitted)
+    expect(graphSnapshot(reparsed)).toEqual(graphSnapshot(original))
+    expectEmptyGraphDiff(original.diff(reparsed))
+    expect(stringify(reparsed)).toBe(emitted)
+  })
+
   it('emits packages entries as positional tuples (4-elem for regular, 1-elem for workspace-ref)', () => {
     const graph = parseFixtureGraph('workspaces-basic')
     const text = stringify(graph)

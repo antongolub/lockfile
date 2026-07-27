@@ -330,7 +330,7 @@ describe('pnpm-v9 — peer resolution (workspace-peer edge / dedup + patch-hash)
     expect(graph.out('host@1.0.0', 'dep').filter(e => e.dst === '@scope/x@3.0.0')).toHaveLength(1)
   })
 
-  it('#8b-C residue: a LABELLED `patch_hash=` segment is not mistaken for a peer (still dropped — ADR-0014)', () => {
+  it('#8b-C: a LABELLED `patch_hash=` segment is not mistaken for a peer and is replayed natively', () => {
     // `tool@1.0.0` is patched via a `patchedDependencies:` patch (labelled
     // `patch_hash=<64hex>`) and referenced as a peer by `plugin`. ADR-0030
     // does NOT touch the labelled-patch path: the segment is still dropped so
@@ -361,6 +361,13 @@ describe('pnpm-v9 — peer resolution (workspace-peer edge / dedup + patch-hash)
     expect(plugin!.peerContext).toEqual(['tool@1.0.0'])
     // The peer edge resolved to the patched node, satisfying the seal bijection.
     expect(graph.out('plugin@1.0.0(tool@1.0.0)', 'peer').map(e => e.dst)).toEqual(['tool@1.0.0'])
+
+    // The model deliberately erases the labelled marker, but the pnpm sidecar
+    // preserves both its snapshot-key spelling and resolved dependency value.
+    const out = stringify(graph)
+    expect(out).toContain(`plugin@1.0.0(tool@1.0.0(patch_hash=${hash})):`)
+    expect(out).toContain(`tool: 1.0.0(patch_hash=${hash})`)
+    expect(stringify(parse(out))).toBe(out)
   })
 
   it('#69 (ADR-0030): a BARE-HEX hashed peer-set token is KEPT as an opaque, non-edge-bearing peerContext discriminator (no longer dropped as a patch)', () => {

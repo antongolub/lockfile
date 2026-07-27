@@ -30,6 +30,7 @@ const WS_PEER =
   `  packages/host:\n    dependencies:\n      dep:\n        specifier: 1.0.0\n        version: 1.0.0(@scope/host@packages+host)\n\n` +
   `packages:\n\n` +
   `  dep@1.0.0:\n    resolution: {integrity: sha512-x}\n    peerDependencies:\n      '@scope/host': '*'\n\n` +
+  `    peerDependenciesMeta:\n      '@scope/host':\n        optional: true\n\n` +
   `snapshots:\n\n` +
   `  dep@1.0.0(@scope/host@packages+host):\n    dependencies:\n      '@scope/host': link:packages/host\n`
 
@@ -57,6 +58,13 @@ describe('workspace-peer round-trip', () => {
   it('is idempotent', () => {
     const once = stringifyV9(parseV9(WS_PEER))
     expect(stringifyV9(parseV9(once))).toBe(once)
+  })
+
+  it('attributes optional peer metadata to the published workspace name', () => {
+    const out = stringifyV9(parseV9(WS_PEER))
+    const packagesBlock = out.slice(out.indexOf('\npackages:'), out.indexOf('\nsnapshots:'))
+    expect(packagesBlock).toMatch(/peerDependenciesMeta:\s*\n\s+'@scope\/host':\s*\n\s+optional: true/)
+    expect(packagesBlock).not.toMatch(/peerDependenciesMeta:[\s\S]*?packages\/host:\s*\n\s+optional: true/)
   })
 })
 
