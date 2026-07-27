@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { version } from '../../main/ts/index.ts'
+import { parse } from '../../main/ts/index.ts'
 
 describe('smoke', () => {
-  it('toolchain works', () => {
-    expect(version).toBe('0.0.0')
+  it('resolves the public entry point', () => {
+    expect(parse).toBeTypeOf('function')
   })
 })

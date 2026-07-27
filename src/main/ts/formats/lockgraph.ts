@@ -15,8 +15,8 @@
 // changed-nodes) AND `tarballs()` iterates deep-equal, because the format stores
 // the canonical model's inputs verbatim and lets `Builder.seal()` re-derive the
 // secondary indices. A re-serialize of the reconstructed graph is byte-identical
-// to the first (the GRAPH section AND the F section are canonical); only META's
-// volatile `generatedAt` / `generator` lines vary.
+// to the first (the GRAPH section AND the F section are canonical); META is
+// non-identity provenance, and only its `generatedAt` line varies.
 //
 // DOCUMENT LAYOUT (see spec/formats/lockgraph.md for the normative grammar):
 //
@@ -101,8 +101,6 @@ import { LockfileError } from '../api/errors.ts'
 
 // === Format constants =======================================================
 
-export const version = '0.0.0'
-
 /** The format generation written in the magic line `@lockgraph <GENERATION>`.
  *  In preview it is a detection discriminant, NOT a stability contract. */
 const GENERATION = 1
@@ -112,7 +110,7 @@ const SCHEMA_MAJOR = 1
 const SCHEMA_MINOR = 0
 
 const MAGIC = '@lockgraph'
-const GENERATOR = `lockgraph@${version}`
+const GENERATOR = 'lockgraph'
 
 // The `-` sentinel for an ABSENT (undefined) value in a column. A bare dash is
 // the only one-char value a column never legitimately holds, so it discriminates

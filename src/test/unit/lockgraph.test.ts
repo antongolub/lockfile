@@ -3,7 +3,7 @@
 // The headline contract is GRAPH-IDENTITY: parse(serialize(g)) ≡ g, verified
 // via Graph.diff being empty on every axis (in BOTH directions), tarballs()
 // iterating byte-equal, and a re-serialize being byte-identical (modulo META's
-// volatile generatedAt/generator). Coverage:
+// non-identity provenance). Coverage:
 //
 //   §A  hand-built 3-node graph (peer-virt + integrity + edge attrs)
 //   §B  real yarn-berry-v8 fixtures → graph-identity round-trip
@@ -212,7 +212,7 @@ describe('lockgraph §D — META / regions', () => {
     expect(text).toMatch(/^@lockgraph 1\n/)
     expect(text).toMatch(/\nschema 1\.0\n/)
     expect(text).toContain(`generatedAt ${PINNED}`)
-    expect(text).toMatch(/\ngenerator lockgraph@/)
+    expect(text).toContain('\ngenerator lockgraph\n')
     // the three region headers, space-separated framing, in order
     expect(text).toMatch(/\nR \d+\n/)
     expect(text).toMatch(/\nN \d+\n/)
@@ -1582,7 +1582,7 @@ describe('parseSlots', () => {
 // Assemble a minimal well-formed lockgraph document body around the caller's
 // region lines, for targeted framing-error tests.
 const DOC = (...bodyLines: string[]): string =>
-  ['@lockgraph 1', 'schema 1.0', 'generatedAt ' + PINNED, 'generator lockgraph@0.0.0', ...bodyLines].join('\n') + '\n'
+  ['@lockgraph 1', 'schema 1.0', 'generatedAt ' + PINNED, 'generator lockgraph', ...bodyLines].join('\n') + '\n'
 
 describe('parse', () => {
   it('an unexpected end of input (document truncated before a region) is rejected', () => {

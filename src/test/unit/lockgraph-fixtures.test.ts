@@ -7,10 +7,10 @@
 //
 //   (a) DRIFT  — re-parse the SOURCE lock, re-serialize to lockgraph, and assert
 //                the committed fixture's BODY (the R/N/E/L regions) byte-equals
-//                the fresh BODY. META (`generatedAt` + `generator …@<version>`) is
-//                EXCLUDED from the comparison, so a clock or version bump never
-//                trips this. An intentional emit/format change makes it fail →
-//                regenerate.
+//                the fresh BODY. META (`generatedAt` + `generator`) is EXCLUDED
+//                from the comparison, so a clock or provenance-policy change
+//                never trips this. An intentional emit/format change makes it
+//                fail → regenerate.
 //   (b) ROUND-TRIP — `parse` the committed fixture bytes back to a graph and prove
 //                it is graph-identical across parse→stringify→parse (empty
 //                `Graph.diff` both directions, deep graphSnapshot equality, and a
@@ -57,9 +57,8 @@ const CORPUS: ReadonlyArray<{ source: string; format: FormatId; fixture: string 
 // Split a lockgraph document into the volatile META (the four lines before the
 // first region header) and the canonical BODY (the `R <n>` region header onward,
 // i.e. R/N/E and the optional trailing L line). META carries the `generatedAt`
-// and `generator lockgraph@<version>` lines and is the only
-// generatedAt/version-dependent part, so excluding it makes the guards immune to
-// a clock or a version bump.
+// and `generator` provenance lines, so excluding it makes the guards immune to a
+// clock change or a future provenance-policy change.
 function bodyOf(text: string): string {
   const normalised = text.replace(/\r\n/g, '\n')
   const m = normalised.match(/\nR \d+\n/)
@@ -131,7 +130,7 @@ describe('lockgraph — live example fixtures', () => {
         expect(graphSnapshot(g2)).toEqual(graphSnapshot(g))
 
         // the re-serialized doc's BODY is byte-stable vs the committed fixture
-        // (META may differ in generatedAt/version, which we exclude).
+        // (META may differ in generatedAt/generator, which we exclude).
         expect(bodyOf(reSerialized)).toBe(bodyOf(committed))
       })
     })

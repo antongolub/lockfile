@@ -226,7 +226,7 @@ Same-format bytes and the parse graph digest remain unchanged.
 Adding `ManifestKnowledge` to the serialized assessment then intentionally
 re-pins all eight result digests:
 
-| Fixture | Current result digest |
+| Fixture | Post-`ManifestKnowledge` result digest |
 | --- | --- |
 | `npm-small` | `sha256:fe947e93301b771b13cf5795fdc1ab418f079ab87f0571b420ec87d81246dfe4` |
 | `npm-large` | `sha256:3abb2ffc307c3ded4cf4f8899a5efc9741e5eff5fbd9687983a0bb35c4d0e723` |
@@ -246,6 +246,27 @@ does not emit the assessment body or the literal axis value; it emits only
 these derived digests, so searching the report for `ManifestKnowledge` cannot
 explain the re-pin. Fresh `npm run measure:verify` runs on the complete current
 tree reproduce all eight fixture/result digests successfully.
+
+### Measurement META-normalization correction (2026-07-27)
+
+Removing the false `lockgraph@0.0.0` generator version exposed a pre-existing
+measurement defect: `graphText()` normalized `generatedAt` but still hashed the
+non-identity `generator` provenance line into every `graphDigest`. The
+measurement oracle now normalizes both META lines before hashing, per the
+lockgraph determinism contract. This intentionally re-pins the baseline once;
+graph digests are henceforth independent of timestamp and producing-tool
+identity:
+
+| Fixture | Current result digest |
+| --- | --- |
+| `npm-small` | `sha256:407dc51c6813b0a259ac1173ce4da0624e385fad8e9c743ef6817ffe46384eb1` |
+| `npm-large` | `sha256:cad85f3a68f4a5d013ecf5c57e67845ccb8a93267b961c7db4ec72ea0de53faf` |
+| `pnpm-small` | `sha256:d38617b4f40d05e227e37afc038a19a4e0cf2decf995b392a3bd140420ec2fe4` |
+| `pnpm-large` | `sha256:0a51f58563c0dd081e21cfca68ca4a9d5afce6b837127c852e94913bccaf8f82` |
+| `berry-small` | `sha256:2fc3a320a7b9b9f4b5b3467c6b9ef0f45967bebb16b6361906f4f63a81e1381f` |
+| `berry-large` | `sha256:e62a8f15a512b0406d1779b191bdaf1ae4e396ecf31fcc950e5b328a27acc1d7` |
+| `lockgraph-small` | `sha256:6efb4f2b9e9357be76b71d1b2a4f044fb5785ff8e7734f2baa7d2158e162f658` |
+| `lockgraph-large` | `sha256:dd448aae41117b26fad6eb40506bd9b8e4d69645c89b1ea028fdac5165158f9d` |
 
 ## Consequences
 

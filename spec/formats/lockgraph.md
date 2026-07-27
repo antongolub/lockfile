@@ -62,7 +62,7 @@ For every Graph `g`, the reconstruction `g2 = parse(serialize(g))` satisfies:
   `integrity` member with its origin, every `F`-section facet, the recomposed
   `resolution` — is present and value-equal.
 - a re-serialization `serialize(g2)` is **byte-identical** to `serialize(g)`
-  except for META's volatile `generatedAt` / `generator` lines (the GRAPH
+  except for META's non-identity provenance (only `generatedAt` varies; the GRAPH
   section **and** the `F` section are canonical; see [§ Determinism](#determinism)).
   Note this *document* byte-stability is distinct from the per-payload
   comparison above: the document bytes are canonical because every field is
@@ -136,7 +136,7 @@ F   <n>       # fidelity — one row per distinct TarballKey, keyed by represent
 
 | Region | Section | Deterministic? | Role |
 |--------|---------|:--------------:|------|
-| META | — | no  | volatile provenance — magic, schema, `generatedAt`, generator. Nothing here is hashed. |
+| META | — | no  | non-identity provenance — magic, schema, `generatedAt`, generator. Nothing here is hashed. |
 | R    | GRAPH | yes | the registry/source table — all external origins in one place, content-sorted, referenced by index `r0`, `r1`, … |
 | N    | GRAPH | yes | one row per node instance; line `k` **is** node `k`. The root workspace is pinned at index 0 **when one exists**; a rootless graph leaves node 0 as the canonical-sort first node (see [§ N — nodes](#n--nodes)). |
 | E    | GRAPH | yes | one edge per row, sorted by `(src, dst, kind, alias)`. |
@@ -238,7 +238,7 @@ graph identity**:
 @lockgraph 1
 schema 1.0
 generatedAt <RFC-3339 UTC, second precision, 'Z'>
-generator lockgraph@<version>
+generator lockgraph
 ```
 
 - **`@lockgraph 1`** — the magic discriminant; MUST be the first token of the
@@ -250,8 +250,10 @@ generator lockgraph@<version>
   second precision and a trailing `Z` (e.g. `2026-06-09T12:00:00Z`).
   `stringify` defaults it to "now"; pass `{ generatedAt }` to pin it (makes the
   whole document byte-stable, useful for golden tests).
-- **`generator`** — the producing library id
-  (`lockgraph@<version>`). Provenance only.
+- **`generator`** — the producing tool identity (`lockgraph`), without a version.
+  The release pipeline builds before it assigns the release version and
+  deliberately does not rebuild in the release job, so a version stamp would be
+  stale and misleading. The bare identity is honest provenance.
 
 META is **pure provenance** — magic, `schema`, `generatedAt`, `generator`, and
 nothing else. Unknown or absent META lines are **ignored on parse** (they are
@@ -1360,7 +1362,7 @@ The body — **R / N / E / F** — is a **pure function of the graph**:
   snapshot-restore).
 
 The **only** thing that varies between two serializations of the same graph is
-META's `generatedAt` (and `generator`, if the producing version changed). Pin
+META's `generatedAt`; `generator` is the fixed producing-tool identity. Pin
 `generatedAt` to make the entire document byte-stable.
 
 ## Integrity & authenticity

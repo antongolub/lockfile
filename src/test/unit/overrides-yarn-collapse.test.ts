@@ -79,7 +79,7 @@ describe('overrides — bare yarn resolution collapses a completed descriptor (y
     // COMPLETENESS_OUTPUT_GRAPH_MISMATCH). The out-of-range binding also reconstructs
     // `overrideRange` on parse so the governed edge survives the strict self-check.
     const dump = [
-      '@lockgraph 1', 'schema 1.0', 'generator lockgraph@0.0.0',
+      '@lockgraph 1', 'schema 1.0', 'generator lockgraph',
       'R 1', 'npm\t-', 'N 2', 'new-dep\t2.0.0\tr0\t-', 'vuln\t2.0.0\tr0\t-',
       'E 1', '1\t0\tdep\t^1.0.0\tor=2.0.0', 'F 0',
     ].join('\n') + '\n'
@@ -108,7 +108,7 @@ describe('overrides — bare yarn resolution collapses a completed descriptor (y
 
   it('yarn-classic (--force out-of-range bump): does not invent override provenance', () => {
     const dump = [
-      '@lockgraph 1', 'schema 1.0', 'generator lockgraph@0.0.0',
+      '@lockgraph 1', 'schema 1.0', 'generator lockgraph',
       'R 1', 'npm\t-', 'N 2', 'consumer\t1.0.0\tr0\t-', 'vuln\t2.0.0\tr0\t-',
       'E 1', '0\t1\tdep\t^1.0.0', 'F 0',
     ].join('\n') + '\n'

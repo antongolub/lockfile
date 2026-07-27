@@ -1,8 +1,6 @@
 // Public surface — ADR-0014 §3.
 // Terminal facade only: internal modules import lower-level authorities directly.
 
-export const version = '0.0.0'
-
 export {
   LockfileError,
   type LockfileErrorCode,

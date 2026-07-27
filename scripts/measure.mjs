@@ -115,12 +115,14 @@ const stableJson = value => JSON.stringify(canonicalize(value))
 const sha256 = value => `sha256:${createHash('sha256').update(value).digest('hex')}`
 const bytesOf = value => Buffer.byteLength(value)
 
-function normalizeGeneratedAt(value) {
-  return value.replace(/^generatedAt .+$/m, `generatedAt ${PINNED_GENERATED_AT}`)
+function normalizeNonIdentityMeta(value) {
+  return value
+    .replace(/^generatedAt .+$/m, `generatedAt ${PINNED_GENERATED_AT}`)
+    .replace(/^generator .+$/m, 'generator <normalized>')
 }
 
 function graphText(graph) {
-  return normalizeGeneratedAt(stringify('lockgraph', graph, { strict: false }))
+  return normalizeNonIdentityMeta(stringify('lockgraph', graph, { strict: false }))
 }
 
 function graphSummary(graph) {
@@ -154,7 +156,7 @@ async function readFixtureInputs() {
 function roundTrip(fixture) {
   const first = stringify(fixture.format, parse(fixture.format, fixture.input), { strict: false })
   const reparsed = parse(fixture.format, first)
-  const output = normalizeGeneratedAt(stringify(fixture.format, reparsed, { strict: false }))
+  const output = normalizeNonIdentityMeta(stringify(fixture.format, reparsed, { strict: false }))
   return { output, graph: reparsed }
 }
 
@@ -162,7 +164,7 @@ async function fixtureResult(fixture) {
   const graph = parse(fixture.format, fixture.input)
   const parseResult = graphSummary(graph)
 
-  const sameFormatOutput = normalizeGeneratedAt(stringify(fixture.format, graph, { strict: false }))
+  const sameFormatOutput = normalizeNonIdentityMeta(stringify(fixture.format, graph, { strict: false }))
   const stringifyResult = {
     digest: sha256(sameFormatOutput),
     bytes: bytesOf(sameFormatOutput),
@@ -182,7 +184,7 @@ async function fixtureResult(fixture) {
   })
   const convertedOutput = converted.output === undefined
     ? undefined
-    : normalizeGeneratedAt(converted.output)
+    : normalizeNonIdentityMeta(converted.output)
   const conversionPayload = { assessment: converted.assessment, output: convertedOutput }
   const conversionResult = {
     digest: sha256(stableJson(conversionPayload)),
