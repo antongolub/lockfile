@@ -817,6 +817,15 @@ The byte-level grammar of `integrity` / `checksum` (and the per-schema
 
 ---
 
+## npm-4 interoperability boundary
+
+An npm-4 raw-SRI / path patch carrier is neither a classic lock entry nor a
+berry patch locator, and npm manifest-extension fingerprints / applied
+provenance have no yarn lockfile carrier. Conversion preserves representable
+effective graph edges, reports both carrier losses, and rejects in strict mode;
+it never fabricates yarn-native patch metadata. See the classic/berry format
+specs and [`formats/npm-4.md`](../formats/npm-4.md).
+
 ## Adapter mapping (this project)
 
 | Concern | Classic | Berry |

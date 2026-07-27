@@ -131,6 +131,11 @@ this is only how pnpm *carries* it.
 | Patches → npm-* / yarn-classic | **strip** |
 | Peer virtualization → npm-* / yarn-classic | **flatten** |
 
+For an npm-4 source, the native raw-SRI / path patch carrier is not a pnpm
+patch declaration, and npm manifest-extension fingerprints / applied provenance
+have no pnpm-v5 carrier. Non-strict conversion reports both losses (while
+retaining representable effective graph edges); strict projection rejects.
+
 ## Fixtures
 
 > **TBD:** no pnpm fixtures carried over yet; generated via the test bench.

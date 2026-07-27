@@ -627,6 +627,16 @@ correct store read is an integrity-addressed read by construction.
 
 ---
 
+## npm-4 interoperability boundary
+
+An npm-4 raw-SRI / path patch carrier is not a pnpm
+`patchedDependencies` declaration, and npm manifest-extension fingerprints /
+applied provenance have no pnpm lockfile carrier. Conversion preserves
+representable effective graph edges, reports both carrier losses, and rejects
+in strict mode; it never fabricates pnpm-native patch metadata. See the
+versioned pnpm format specs and
+[`formats/npm-4.md`](../formats/npm-4.md).
+
 ## Quirks
 
 - **Two peer-suffix encodings** for one identity: filesystem `_`/`+` (§2.4) vs

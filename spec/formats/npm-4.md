@@ -126,8 +126,9 @@ used to build the graph, not a portable reconstruction of the source
 |---------|--------|
 | Native npm-4 patch → same graph / npm-4 | replay exact `patched` carrier |
 | Foreign or mutated patch → npm-4 | **drop** with `RECIPE_FEATURE_DROPPED`; strict projection rejects |
-| npm-4 → npm-1/2/3 | **drop** patch; strict projection rejects |
-| Extension fingerprint / applied provenance → non-npm-4 | native evidence is not projected; effective graph edges remain |
+| Native npm-4 patch → any non-npm-4 format | the raw-SRI / path carrier is not a target-native patch declaration; non-strict conversion reports `PROJECTION_LOSS`, strict projection rejects |
+| Extension fingerprint / applied provenance → any non-npm-4 format | effective graph edges remain where representable, but the npm-native fingerprints and applied-provenance carrier are dropped with `PROJECTION_LOSS` (`manifest-extension-provenance`); strict projection rejects |
+| Declarative-extension graph → bun-text | bun-text does not encode the npm root workspace version; its flat dependency index also cannot preserve edges to both root `is-number@7` and nested `is-number@6` without source-native de-hoist keys. Non-strict conversion reports the root-identity and edge-target losses; strict projection rejects |
 
 ## Fixtures and oracle
 

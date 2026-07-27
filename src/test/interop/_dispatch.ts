@@ -10,6 +10,7 @@ import { parse as parseV10, stringify as stringifyV10 } from '../../main/ts/form
 import { parse as parseNpm1, stringify as stringifyNpm1 } from '../../main/ts/formats/npm-1.ts'
 import { parse as parseNpm2, stringify as stringifyNpm2 } from '../../main/ts/formats/npm-2.ts'
 import { parse as parseNpm3, stringify as stringifyNpm3 } from '../../main/ts/formats/npm-3.ts'
+import { parse as parseNpm4, stringify as stringifyNpm4 } from '../../main/ts/formats/npm-4.ts'
 import { parse as parsePnpmV5, stringify as stringifyPnpmV5 } from '../../main/ts/formats/pnpm-v5.ts'
 import { parse as parsePnpmV6, stringify as stringifyPnpmV6 } from '../../main/ts/formats/pnpm-v6.ts'
 import { parse as parsePnpmV9, stringify as stringifyPnpmV9 } from '../../main/ts/formats/pnpm-v9.ts'
@@ -52,6 +53,7 @@ const PARSERS: Record<FormatId, ((lockfile: string) => Graph) | undefined> = {
   'npm-1': parseNpm1,
   'npm-2': parseNpm2,
   'npm-3': parseNpm3,
+  'npm-4': parseNpm4,
   'pnpm-v5': parsePnpmV5,
   'pnpm-v6': parsePnpmV6,
   'pnpm-v9': parsePnpmV9,
@@ -70,6 +72,7 @@ const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
   'npm-1': { kind: 'classic', emit: stringifyNpm1 },
   'npm-2': { kind: 'classic', emit: stringifyNpm2 },
   'npm-3': { kind: 'classic', emit: stringifyNpm3 },
+  'npm-4': { kind: 'classic', emit: stringifyNpm4 },
   'pnpm-v5': { kind: 'classic', emit: stringifyPnpmV5 },
   'pnpm-v6': { kind: 'classic', emit: stringifyPnpmV6 },
   'pnpm-v9': { kind: 'classic', emit: stringifyPnpmV9 },

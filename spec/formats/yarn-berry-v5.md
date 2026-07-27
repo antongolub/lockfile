@@ -116,6 +116,11 @@ deltas on top of that shared contract are:
 
 Inherits v4.
 
+For an npm-4 source, the native raw-SRI / path patch carrier is not a
+yarn-berry patch locator, and npm manifest-extension fingerprints / applied
+provenance have no v5 carrier. Non-strict conversion reports both losses (while
+retaining representable effective graph edges); strict projection rejects.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

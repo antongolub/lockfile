@@ -14,6 +14,7 @@ export type FormatId =
   | 'npm-1'
   | 'npm-2'
   | 'npm-3'
+  | 'npm-4'
   | 'pnpm-v5'
   | 'pnpm-v6'
   | 'pnpm-v9'

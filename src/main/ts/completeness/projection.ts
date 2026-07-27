@@ -6,6 +6,7 @@ import type {
 } from '../api/errors.ts'
 import type { FormatId } from '../api/format-contract.ts'
 import { emitBerryChecksum, emitSri } from '../recipe/integrity.ts'
+import { evidenceOf, internalEvidenceOf } from './evidence.ts'
 import { detectGraphFeatures, type GraphFeature } from './features.ts'
 import { targetProfileOf } from './targets.ts'
 import type { TargetRequest } from './types.ts'
@@ -291,6 +292,83 @@ function integrityPreflight(
   return losses
 }
 
+function manifestExtensionProvenancePreflight(
+  graph: Graph,
+  target: ReturnType<typeof targetProfileOf>,
+): ProjectionLoss[] {
+  const state = internalEvidenceOf(evidenceOf(graph))
+  const observed = state.observedManifestKnowledge
+  if (state.source?.format !== 'npm-4'
+    || target.format === 'npm-4'
+    || observed === undefined
+    || observed.fingerprints.length === 0) return []
+
+  return [inherentFeature(
+    'manifest-extension-provenance',
+    target.format,
+    `target ${target.format} cannot preserve npm-4 manifest-extension fingerprints and applied provenance`,
+  )]
+}
+
+function npm4PatchCarrierPreflight(
+  graph: Graph,
+  target: ReturnType<typeof targetProfileOf>,
+): ProjectionLoss[] {
+  const state = internalEvidenceOf(evidenceOf(graph))
+  if (state.source?.format !== 'npm-4'
+    || target.format === 'npm-4'
+    || ![...graph.nodes()].some(node => node.patch !== undefined)) return []
+
+  return [inherentFeature(
+    'patch',
+    target.format,
+    `target ${target.format} cannot replay npm-4's native raw-SRI / path patch carrier`,
+  )]
+}
+
+function npm4BunGraphShapePreflight(
+  graph: Graph,
+  target: ReturnType<typeof targetProfileOf>,
+): ProjectionLoss[] {
+  const state = internalEvidenceOf(evidenceOf(graph))
+  if (state.source?.format !== 'npm-4' || target.format !== 'bun-text') return []
+
+  const losses: ProjectionLoss[] = []
+  const nodes = [...graph.nodes()]
+  const root = nodes.find(node => node.workspacePath === '')
+  if (root !== undefined && root.version !== '0.0.0') {
+    losses.push(inherentFeature(
+      'workspace-root-version',
+      target.format,
+      `target bun-text does not encode the npm-4 root workspace version ${root.version}`,
+    ))
+  }
+
+  const idsByName = new Map<string, Set<string>>()
+  for (const node of nodes) {
+    if (node.workspacePath !== undefined) continue
+    const ids = idsByName.get(node.name) ?? new Set<string>()
+    ids.add(node.id)
+    idsByName.set(node.name, ids)
+  }
+  for (const [name, ids] of idsByName) {
+    if (ids.size < 2) continue
+    const edgeTargets = new Set<string>()
+    for (const node of nodes) {
+      for (const edge of graph.out(node.id)) {
+        if (ids.has(edge.dst)) edgeTargets.add(edge.dst)
+      }
+    }
+    if (edgeTargets.size < 2) continue
+    losses.push(inherentFeature(
+      'bun-package-key-resolution',
+      target.format,
+      `target bun-text cannot preserve edges to multiple ${name} versions without source-native de-hoist keys`,
+    ))
+  }
+  return losses
+}
+
 export function projectionPreflightLosses(
   graph: Graph,
   request: TargetRequest,
@@ -353,6 +431,9 @@ export function projectionPreflightLosses(
   }
   losses.push(...metadataPreflight(graph, target, features))
   losses.push(...integrityPreflight(graph, target))
+  losses.push(...npm4PatchCarrierPreflight(graph, target))
+  losses.push(...manifestExtensionProvenancePreflight(graph, target))
+  losses.push(...npm4BunGraphShapePreflight(graph, target))
   return dedupeProjectionLosses(losses)
 }
 

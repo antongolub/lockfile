@@ -99,8 +99,14 @@ Formats and the package-manager versions behind them:
 | yarn classic | `yarn-classic` | yarn 1.x | `yarn.lock` |
 | yarn berry | `yarn-berry-v4` … `yarn-berry-v10` | yarn 2/3/4 (`__metadata.version` 4–10) | `yarn.lock` |
 | pnpm | `pnpm-v5`, `pnpm-v6`, `pnpm-v9` | pnpm 3–7 / 7–8 / 9+ | `pnpm-lock.yaml` |
-| bun | `bun-text` | bun 1.2+ (textual `bun.lock`; binary `bun.lockb` is detect-only) | `bun.lock` |
+| bun | `bun-text` | bun 1.2+ (textual `bun.lock`; binary `bun.lockb` is unsupported and must be migrated first) | `bun.lock` |
 | lockgraph | `lockgraph` | — (the L2 graph serialized; lossless round-trip) | — |
+
+The table above records parser/emitter support, not a claim that every
+cross-format pair is lossless. The interop contract matrix currently backs all
+28 non-v10 npm-4 incident pairs; their npm-native carrier losses are listed
+below and fail closed in strict mode. The 30 yarn-berry-v10 incident pairs are
+the next unclosed group and are not yet contract-covered.
 
 ## Expressiveness — what each family can represent
 
@@ -118,6 +124,7 @@ source. `~` = representable only with `manifests`, or in a degraded form.
 | `peerDependenciesMeta` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ~ (declarative) |
 | Overrides / resolutions block | ✗ | ✗ (manifest-only) | ✗ (manifest-only) | ✗ (rewrites entry key) | ✗ (manifest-only) | ✓ (`overrides:`) | ✓ | ✓ (npm-shaped) |
 | Native patch carrier | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✓ (per-node) | ✓ | ✓ | ~ (top-level map only) |
+| Manifest-extension fingerprint / applied provenance | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `conditions` (os/cpu/libc gate) | ✗ | ✗ | ✗ | ✗ | ✓ (v5+) | ✗ | ✗ | ✗ |
 | `catalog:` protocol | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (9.5+) | ✗ |
 | Integrity form | tarball SRI | tarball SRI | tarball SRI + raw patch SRI | tarball SRI | **berry-zip** checksum | tarball SRI | tarball SRI | tarball SRI |
@@ -138,6 +145,10 @@ Organised by feature axis. "Direction" is the family boundary that loses it;
 | **Integrity — berry-zip ↔ tarball SRI** | berry → npm / yarn-classic / pnpm / bun (and back) | `RECIPE_INTEGRITY_INCOMPLETE` | Only from an authoritative target checksum or by obtaining artifact bytes and **recomputing** the target's hash. Never fabricated; mutable install may refill it, but immutable/frozen install can reject the omission. |
 | **Peer virtualization** | berry / pnpm → npm / yarn-classic / bun | `YARN_CLASSIC_PEER_VIRT_FLATTENED` / `NPM_V1_PEER_VIRT_FLATTENED` / `BUN_TEXT_PEER_VIRT_FLATTENED` (per target adapter) | No — flat targets model one instance per (name, version); peer-context forks collapse. |
 | **Patch recipe** | berry / pnpm → npm-1/2/3, yarn-classic, bun; or → npm-4 without matching native carrier | `RECIPE_FEATURE_DROPPED` (`feature='patch'`) | npm-4 can replay its own native carrier, but cannot derive npm's raw patch SRI/path from a foreign canonical identity. |
+| **npm-4 native patch carrier** | npm-4 → any non-npm-4 target | `PROJECTION_LOSS` (`feature='patch'`) | No portable replay: the raw-SRI/path pair is npm-native. Effective package facts may remain, but strict projection rejects rather than claiming a target-native patch declaration. |
+| **npm-4 manifest-extension provenance** | npm-4 → any non-npm-4 target | `PROJECTION_LOSS` (`feature='manifest-extension-provenance'`) | No target carrier. Representable effective graph edges remain, but fingerprints and applied-provenance evidence are not fabricated. |
+| **Root workspace version** | npm-4 → bun-text | `PROJECTION_LOSS` (`feature='workspace-root-version'`) | bun-text does not encode npm's root version; the native fixture's root `@1.0.0` would reparse as `@0.0.0`. |
+| **Multiple versions behind one bun dependency name** | npm-4 → bun-text | `PROJECTION_LOSS` (`feature='bun-package-key-resolution'`) | Without source-native de-hoist keys, bun's flat dependency index cannot preserve edges simultaneously to root `is-number@7` and nested `is-number@6`; strict projection rejects. |
 | **`conditions` (os/cpu/libc)** | berry v5+ → any non-berry (and berry → v4) | **— none (silent loss)** | Re-derivable on a completion mint from `os`/`cpu`/`libc` (needs the **full** manifest — corgi omits `libc`). |
 | **`workspace:` protocol** | berry / pnpm / bun → npm / yarn-classic | `RECIPE_WORKSPACE_COLLAPSED` (also `_RESOLVED` / `_UNRESOLVED`) | npm keeps members via `packages/<path>` + `link`; yarn-classic keeps them only via manifests (see below). |
 | **Overrides / resolutions block** | pnpm / bun (lock carriers) → npm / yarn-classic / yarn-berry (manifest-only) | `INTEROP_OVERRIDE_NOT_PROJECTED` | The resolved *graph* still reflects the pin; the re-emittable overrides *block* is lost. npm & yarn read the policy from the root manifest, never the lock (npm `package.json.overrides`, yarn `resolutions`) — so the declaration is owed to a companion manifest patch (project-level API), never synthesized into a lock the manager ignores. |
@@ -154,8 +165,9 @@ Organised by feature axis. "Direction" is the family boundary that loses it;
 > (`src/test/interop/_matrix.ts`) are that suite's observation vocabulary — they
 > are synthesized by the harness to assert an expected loss, and never appear in
 > a real `onDiagnostic` stream. `RECIPE_FEATURE_DROPPED` fires only for
-> `feature='patch'`; the remaining feature losses are either an adapter-specific
-> code (above) or silent.
+> `feature='patch'`; classified cross-target boundaries use `PROJECTION_LOSS`
+> with the feature names shown above. Other remaining feature losses are either
+> an adapter-specific code or explicitly marked silent.
 
 **The two breaks that make a lock non-installable if mishandled** (both now
 handled, listed because they are the sharp edges):
@@ -345,6 +357,9 @@ Freeze-mode acceptance (`npm ci`, `yarn install --immutable`, `pnpm install
 manager version, platform, config, and materialized inputs proves that guarantee.
 Snapshot or project assessment can prove that all modeled prerequisites are
 present without generalizing an empirical result to another environment.
+The npm-4 carrier and bun-shape boundaries in the loss table are projection
+failures, not byte-identity exceptions: strict conversion withholds output;
+only `strict: false` emits the explicitly diagnosed best-effort bytes.
 
 For **npm and yarn**, the frozen unit is the lock **plus the root manifest**, not
 the lock alone: the override policy lives in `package.json` (`overrides` /
@@ -375,7 +390,7 @@ sources are supplied; it does not replace native frozen verification.
 
 | From ↓ \ To → | npm | yarn-classic | yarn-berry | pnpm | bun |
 | --- | --- | --- | --- | --- | --- |
-| **npm** | clean (v3↔v2; v→v1 drops workspaces/peerMeta) | needs manifests for dev/peer + workspaces | overrides are manifest-only (neither lock carries them); Berry integrity needs an artifact-backed checksum | clean | clean |
+| **npm** | v3↔v2 clean; v→v1 drops workspaces/peerMeta; npm-4 native carriers do not project downward | needs manifests for dev/peer + workspaces; npm-4 patch/provenance drops | overrides are manifest-only; Berry integrity needs an artifact-backed checksum; npm-4 patch/provenance drops | ordinary npm clean; npm-4 patch/provenance drops | ordinary npm clean; npm-4 additionally loses patch/provenance, root version, and multi-version edge targets |
 | **yarn-classic** | needs manifests (root + members + dev/peer) | — | preamble/workspace synthesized | needs manifests for dev/peer | resolved-URL forms may drop |
 | **yarn-berry** | drops peer-virt, patch, conditions; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions, workspace; needs manifests | clean (v-to-v; v→v4 drops conditions) | peer virtualization is re-encoded; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions |
 | **pnpm** | drops peer-virt, patch, catalog | drops peer-virt, patch, workspace; needs manifests | drops catalog; preamble synthesized | clean (v-to-v; v9↔v5/6 settings drop) | drops peer-virt, patch, catalog |

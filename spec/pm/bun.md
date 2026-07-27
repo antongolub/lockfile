@@ -545,6 +545,18 @@ Cross-ref [`registry/bun.md`](../registry/bun.md) +
 
 ---
 
+## npm-4 interoperability boundary
+
+An npm-4 raw-SRI / path patch carrier and manifest-extension fingerprints /
+applied provenance have no bun-text carrier. The native declarative-extension
+fixture additionally has root `is-number@7` and nested `is-number@6`, which
+bun's flat dependency index cannot address simultaneously without source-native
+de-hoist keys; bun-text also omits npm's root workspace version. Conversion
+reports every carrier, root-identity, and edge-target loss, rejects in strict
+mode, and never fabricates bun-native patch metadata. See
+[`formats/bun-text.md`](../formats/bun-text.md) and
+[`formats/npm-4.md`](../formats/npm-4.md).
+
 ## Sources
 
 Authoritative (bun.com/docs + oven-sh blog/source), fetched/searched 2026-06-16;

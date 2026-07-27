@@ -90,6 +90,11 @@ Compared to v5:
 
 Same as [pnpm-v5](./pnpm-v5.md#degradation-rules).
 
+For an npm-4 source, the native raw-SRI / path patch carrier is not a pnpm
+patch declaration, and npm manifest-extension fingerprints / applied provenance
+have no pnpm-v6 carrier. Non-strict conversion reports both losses (while
+retaining representable effective graph edges); strict projection rejects.
+
 ## Fixtures
 
 > **TBD:** generate.

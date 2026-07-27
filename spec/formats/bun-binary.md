@@ -1,8 +1,8 @@
 # `bun-binary` — bun `bun.lockb`
 
-> Status: deferred (frontier — permanent non-goal; detection-only, no parser/writer).
-> Updated: 2026-06-16
-> Provenance: Reverse-engineered (anatomy only, for detection).
+> Status: deferred (frontier — permanent non-goal; no parser/writer/detector).
+> Updated: 2026-07-27
+> Provenance: Reverse-engineered (anatomy only, for format distinction).
 
 > **Permanent non-goal** — read body. `deferred` here means
 > *acknowledged-and-not-pursued*, with no expectation of revisit.
@@ -11,19 +11,17 @@
 > `deferred` today, so the bare `deferred` value is used and its
 > permanence is stated in prose here.
 
-`lockgraph` does **not** parse `bun.lockb` and never will.
+`lockgraph` does **not** recognize or parse `bun.lockb` and never will.
 The format is undocumented, version-fragile, and obsoleted by bun's
 own move to text format in 1.2. The library's path for any bun
-input is [bun-text](./bun-text.md); the `bun-binary` adapter exists
-only as a **detection-and-diagnostic** stub: when a `bun.lockb` is
-passed to `parse()`, we identify it by magic bytes and emit a clear
-error directing the user to migrate first.
+input is [bun-text](./bun-text.md). There is no `bun-binary` format id
+or adapter; generic `detect()` returns `undefined` for the binary magic
+prefix, and callers must direct users to migrate first.
 
 The binary anatomy — a 54-byte header carrying the shebang + version
 string, a `FormatVersion` enum, and tagged sections after the header —
-is understood well enough for detection (see the byte-offset evidence
-under [Detection](#detection), which cites bun's own source). We do not
-extend that understanding to a parser.
+is documented here only to distinguish the unsupported artifact. We do
+not expose that knowledge through format detection or parsing.
 
 ## Compatibility
 
@@ -37,8 +35,7 @@ extend that understanding to a parser.
 ### Readers — PM semvers that *install* from this format
 
 bun's own binary reader behaviour is bun's concern, not the
-library's. We do not install from `bun.lockb` at any tier — the
-detection-and-throw path is the entire contract.
+library's. We do not install from or dispatch `bun.lockb` at any tier.
 
 ## File
 
@@ -61,13 +58,14 @@ detection-and-throw path is the entire contract.
   disk, not a parseable dump. That is the full verdict: no read-only
   binary-to-text dump exists, so migration is the sole path.
 
-## Detection
+## Recognition boundary
 
-Magic-byte sniff at byte 0 — the file begins with the literal
+The file begins with the literal
 shebang `#!/usr/bin/env bun\n` followed by the version string
 `bun-lockfile-format-v0\n`. The format-version u32 lives at byte 42
 ([`bun.lockb.zig`](https://github.com/oven-sh/bun/blob/main/src/install/lockfile/bun.lockb.zig#L14-L29)).
-Detection only needs the first 42 bytes; we do not unpack further.
+This is documentation, not an implemented detector: the public format registry
+contains no binary entry and `detect()` returns `undefined`.
 
 ## Capabilities
 
@@ -87,23 +85,18 @@ This produces `bun.lock` (text), which the [bun-text](./bun-text.md)
 adapter handles. The migration is bun-side; the library does not
 shell out.
 
-## Diagnostic
+## Error surface
 
-When `parse()` detects `bun.lockb` magic, it throws `LockfileError`
-with a `BUN_BINARY_NOT_SUPPORTED` code (or, as an interim, the
-existing `CAPABILITY_LACK` code with a format-specific message),
-including the migration command above as a hint. No partial parse
-is attempted.
+Because there is no binary format id or detector, automatic conversion fails
+at the ordinary unknown-format boundary (`FORMAT_DETECT_FAILED`). No partial
+parse is attempted. Applications that know the input filename is `bun.lockb`
+should present the migration command above before calling lockgraph.
 
 ## Fixtures
 
-None planned. A single byte-prefix sample (the first 54 bytes of any
-`bun.lockb`) suffices for the detection test; we do not need
-end-to-end binary fixtures.
+None planned. The binary format is outside the registered input surface.
 
 ## Open questions
 
-> **Open:** dedicated `BUN_BINARY_NOT_SUPPORTED` error code vs.
-> reusing `CAPABILITY_LACK`. The diagnostic message carries the
-> actual useful content (migration command); the code matters only
-> for programmatic dispatch. Revisit when the detector lands.
+> None. A detector is a permanent non-goal; applications may provide a
+> filename-aware migration message outside lockgraph.

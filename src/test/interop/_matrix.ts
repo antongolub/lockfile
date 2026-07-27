@@ -41,6 +41,7 @@ import {
   CROSS_FAMILY_YB9_NPM3_FIXTURES,
   CROSS_FAMILY_YB9_PNPM9_FIXTURES,
   NPM_SHARED_FIXTURES,
+  NPM4_MATRIX_FIXTURES,
   PNPM_SHARED_FIXTURES,
   PNPM_V6_V9_FIXTURES,
 } from './_fixtures.ts'
@@ -89,6 +90,7 @@ export type LossFeature =
   | 'cacheKey'
   | 'sentinel-collapsed'
   | 'multi-spec-collapsed'
+  | 'workspace-root-version'
   | 'edges'
   | 'edge-kinds'
   | 'tarballs'
@@ -466,7 +468,7 @@ function buildBerryToClassic(from: BerryFormat): ConversionContract {
 //     graph-lossless in both directions.
 type NpmFormat = Extract<FormatId, `npm-${number}`>
 const NPM_FORMATS: NpmFormat[] = ['npm-1', 'npm-2', 'npm-3']
-type OlderNpmFormat = Exclude<NpmFormat, 'npm-3'>
+type OlderNpmFormat = Extract<NpmFormat, 'npm-1' | 'npm-2'>
 const OLDER_NPM_FORMATS: OlderNpmFormat[] = ['npm-1', 'npm-2']
 
 // npm-1 corpus subset — co-located with the downgrade contract that consumes
@@ -2944,7 +2946,7 @@ const CROSS_FAMILY_CLASSIC_OLDER_NPM_CONTRACTS: ConversionContract[] = OLDER_NPM
 // current core preserves unknown __metadata extras across the whole berry
 // family. The interop contracts therefore pin observed passthrough behavior
 // instead of the dispatch brief's v8/v9-only assumption.
-const RAW_CONTRACTS: ConversionContract[] = [
+const PRE_NPM4_CONTRACTS: ConversionContract[] = [
   ...BERRY_BERRY_CONTRACTS,
   ...BERRY_FORMATS.map(buildClassicToBerry),
   ...BERRY_FORMATS.map(buildBerryToClassic),
@@ -2972,6 +2974,152 @@ const RAW_CONTRACTS: ConversionContract[] = [
   ...CROSS_FAMILY_PNPM9_OLDER_NPM_CONTRACTS,
   ...CROSS_FAMILY_BUN_OLDER_NPM_CONTRACTS,
   ...CROSS_FAMILY_CLASSIC_OLDER_NPM_CONTRACTS,
+]
+
+// === npm-4 incident-pair contracts (coverage closure) =======================
+//
+// npm-4 inherits npm-3's packages-only graph shape. The shared matrix has one
+// genuine feature-triggered npm-4 fixture (`simple`, packageExtensions), so the
+// graph contract for each incident pair is the already-probed npm-3 analogue.
+// yarn-berry-v7 uses v6 as its same-capability proxy; npm-4 <-> npm-3 uses the
+// npm-2 <-> npm-3 lossless graph contract as the proxy. Native npm-4 patch and
+// extension-provenance risks are exercised by the dedicated incident-pair
+// suite because those fixtures live outside the shared lockfile matrix.
+type Npm4OtherFormat = Exclude<FormatId, 'npm-4' | 'yarn-berry-v10'>
+
+const NPM4_OTHER_FORMATS: Npm4OtherFormat[] = [
+  'yarn-berry-v4',
+  'yarn-berry-v5',
+  'yarn-berry-v6',
+  'yarn-berry-v7',
+  'yarn-berry-v8',
+  'yarn-berry-v9',
+  'yarn-classic',
+  'npm-1',
+  'npm-2',
+  'npm-3',
+  'pnpm-v5',
+  'pnpm-v6',
+  'pnpm-v9',
+  'bun-text',
+]
+
+function npm4ProxyFormat(format: Npm4OtherFormat): Exclude<FormatId, 'npm-4' | 'yarn-berry-v10'> {
+  if (format === 'yarn-berry-v7') return 'yarn-berry-v6'
+  if (format === 'npm-3') return 'npm-2'
+  return format
+}
+
+function remapContractText(
+  value: string,
+  baseFrom: FormatId,
+  baseTo: FormatId,
+  from: FormatId,
+  to: FormatId,
+): string {
+  return value
+    .replaceAll(baseFrom, from)
+    .replaceAll(baseTo, to)
+}
+
+function remapContractCode(
+  value: string,
+  baseFrom: FormatId,
+  baseTo: FormatId,
+  from: FormatId,
+  to: FormatId,
+): string {
+  return value
+    .replaceAll(fromCode(baseFrom), fromCode(from))
+    .replaceAll(fromCode(baseTo), fromCode(to))
+}
+
+function cloneNpm4Contract(
+  baseFrom: FormatId,
+  baseTo: FormatId,
+  from: FormatId,
+  to: FormatId,
+): ConversionContract {
+  const base = PRE_NPM4_CONTRACTS.find(contract =>
+    contract.from === baseFrom && contract.to === baseTo)
+  if (base === undefined) {
+    throw new Error(`cloneNpm4Contract: missing proxy ${baseFrom} -> ${baseTo}`)
+  }
+
+  const preserved = [...base.preserved]
+  const lost = base.lost.map(entry => ({
+    ...entry,
+    diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+    rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+  }))
+  if (from === 'npm-4' && to === 'bun-text') {
+    for (const feature of ['nodes', 'edges', 'edge-kinds', 'workspace-membership'] as const) {
+      const index = preserved.indexOf(feature)
+      if (index !== -1) preserved.splice(index, 1)
+    }
+    lost.push(
+      {
+        feature: 'workspace-root-version',
+        diagnostic: 'INTEROP_NPM_4_TO_BUN_TEXT_WORKSPACE_ROOT_VERSION_DROPPED',
+        severity: 'warning',
+        rationale: 'The native npm-4 extension fixture carries root version 1.0.0, while bun-text does not encode a root workspace version and reparses the root as 0.0.0.',
+      },
+      {
+        feature: 'edges',
+        diagnostic: 'INTEROP_NPM_4_TO_BUN_TEXT_EDGES_DROPPED',
+        severity: 'warning',
+        rationale: 'The native fixture addresses root is-number@7 and nested is-number@6, but bun-text dependency references use one flat bare package key without source-native de-hoist keys, so the root edge is remapped to v6.',
+      },
+      {
+        feature: 'edge-kinds',
+        diagnostic: 'INTEROP_NPM_4_TO_BUN_TEXT_EDGE_KINDS_DROPPED',
+        severity: 'warning',
+        rationale: 'The remapped bun-text dependency edge cannot preserve the original typed edge triple.',
+      },
+      {
+        feature: 'workspace-metadata',
+        diagnostic: 'INTEROP_NPM_4_TO_BUN_TEXT_WORKSPACE_METADATA_DROPPED',
+        severity: 'info',
+        rationale: 'Feature-triggered npm-4 sources stamp root workspacePath bookkeeping that bun-text does not carry. The remaining package graph stays addressable by id, but source-format workspace metadata drops on reparse.',
+      },
+    )
+  }
+
+  return {
+    ...base,
+    from,
+    to,
+    preserved,
+    lost,
+    added: base.added.map(entry => ({
+      ...entry,
+      ...(entry.diagnostic === undefined ? {} : {
+        diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      }),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    passthrough: base.passthrough.map(entry => ({
+      ...entry,
+      diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    fixtureSubset: [...NPM4_MATRIX_FIXTURES],
+  }
+}
+
+const NPM4_INCIDENT_CONTRACTS: ConversionContract[] = NPM4_OTHER_FORMATS.flatMap(
+  other => {
+    const proxy = npm4ProxyFormat(other)
+    return [
+      cloneNpm4Contract('npm-3', proxy, 'npm-4', other),
+      cloneNpm4Contract(proxy, 'npm-3', other, 'npm-4'),
+    ]
+  },
+)
+
+const RAW_CONTRACTS: ConversionContract[] = [
+  ...PRE_NPM4_CONTRACTS,
+  ...NPM4_INCIDENT_CONTRACTS,
 ]
 
 // ADR-0031 — integrity is origin-scoped: a tarball SRI (npm / pnpm / bun /

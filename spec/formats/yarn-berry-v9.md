@@ -295,6 +295,11 @@ caller-supplied resolver; the default pipeline never fabricates one. This keeps
 the converter pure and CI-stable rather than introducing non-determinism or a
 supply-chain surface into a format conversion.
 
+For an npm-4 source, the native raw-SRI / path patch carrier is not a
+yarn-berry patch locator, and npm manifest-extension fingerprints / applied
+provenance have no v9 carrier. Non-strict conversion reports both losses (while
+retaining representable effective graph edges); strict projection rejects.
+
 ## Fixtures
 
 > **TBD:** no v9 fixtures yet — they are unproducible from the current

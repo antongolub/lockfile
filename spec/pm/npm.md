@@ -626,6 +626,21 @@ npm is the reference implementation of the **range-bump** remediation model.
 
 ---
 
+## Cross-format npm-4 boundary
+
+npm 12's native patch locks carry a raw-SRI / path pair, and manifest
+extensions carry fingerprints plus applied-provenance evidence. Those carriers
+are npm-4-specific: conversion to any other supported format reports the
+carrier loss, preserves effective graph edges where the target can express
+them, and rejects in strict mode. Inbound conversion to npm-4 likewise never
+fabricates either carrier. The declarative-extension fixture also exposes that
+bun-text neither carries npm's root workspace version nor preserves edges to
+both root `is-number@7` and nested `is-number@6` without source-native de-hoist
+keys; that pair reports root-identity / edge-target loss and rejects in strict
+mode.
+Per-target details are normative in
+[`formats/npm-4.md`](../formats/npm-4.md) and the target format spec.
+
 ## Quirks (npm-specific, not obvious from "it makes a `node_modules`")
 
 - **Tree shape is install-history-dependent.** Same `package.json`, different

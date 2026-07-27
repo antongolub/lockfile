@@ -101,6 +101,8 @@ function lossApplies(entry: LossEntry, context: ObservationContext): boolean {
     case 'multi-spec-collapsed':
       return featurePresence(context.sourceGraph, 'multi-spec-collapsed')
         || hasClassicMultiSpecEntry(context.sourceLockfile)
+    case 'workspace-root-version':
+      return nodeMissingById(context.sourceGraph, context.destinationGraph)
     // Graph-shape losses (npm-{2,3} → npm-1 partition). Whether the loss fires
     // is fixture-dependent — `simple` round-trips cleanly, `peers-basic` drops
     // peer edges + tarball extras. `applies` ≡ `observed` so the contract
@@ -196,6 +198,8 @@ function lossObserved(entry: LossEntry, context: ObservationContext): boolean {
       return (featurePresence(context.sourceGraph, 'multi-spec-collapsed')
         || hasClassicMultiSpecEntry(context.sourceLockfile))
         && !hasClassicMultiSpecEntry(context.destinationLockfile)
+    case 'workspace-root-version':
+      return nodeMissingById(context.sourceGraph, context.destinationGraph)
     case 'edges':
       return edgeMissingByDst(context.sourceGraph, context.destinationGraph)
     case 'edge-kinds':
@@ -261,6 +265,13 @@ function edgeMissingByDst(source: Graph, destination: Graph): boolean {
     for (const edge of source.out(node.id)) {
       if (!destination.out(edge.src).some(c => c.dst === edge.dst)) return true
     }
+  }
+  return false
+}
+
+function nodeMissingById(source: Graph, destination: Graph): boolean {
+  for (const node of source.nodes()) {
+    if (destination.getNode(node.id) === undefined) return true
   }
   return false
 }

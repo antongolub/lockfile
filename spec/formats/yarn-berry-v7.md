@@ -133,6 +133,11 @@ true }`, yielding these deltas on top of that shared contract:
 Inherits v6 (raw-hex checksum side) and v8 (quoted-protocol inner
 range side). No v7-specific degradation rules.
 
+For an npm-4 source, the native raw-SRI / path patch carrier is not a
+yarn-berry patch locator, and npm manifest-extension fingerprints / applied
+provenance have no v7 carrier. Non-strict conversion reports both losses (while
+retaining representable effective graph edges); strict projection rejects.
+
 ## Fixtures
 
 - Synthetic: `src/test/resources/fixtures/lockfiles/*/yarn-berry-v7.lock`

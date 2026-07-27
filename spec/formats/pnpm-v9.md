@@ -206,6 +206,12 @@ under the [omit-never-fabricate](./_common.md#34-omit-never-fabricate) posture
 (`RECIPE_INTEGRITY_INCOMPLETE`) and leaves such entries without a resolution
 anchor until a registry fetch restores it.
 
+For an npm-4 source, the native raw-SRI / path patch carrier is not a pnpm
+`patchedDependencies` declaration, and npm manifest-extension fingerprints /
+applied provenance have no pnpm-v9 carrier. Non-strict conversion reports both
+losses (while retaining representable effective graph edges); strict projection
+rejects.
+
 ## Fixtures
 
 > **TBD:** generate.

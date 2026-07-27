@@ -1,7 +1,7 @@
 # `bun-text` — bun `bun.lock`
 
 > Status: stable (adapter + round-trip tested; bun audit-fix native remediation still absent upstream).
-> Updated: 2026-06-16
+> Updated: 2026-07-27
 > Provenance: Official (since Bun 1.2).
 
 **Primary bun target** — audit-friendly, human-readable; all bun-related
@@ -27,7 +27,10 @@ work in v1 starts and stays here.
 - **Filename:** `bun.lock`
 - **Encoding:** UTF-8, JSONC-flavoured (allows trailing commas + comments).
   Indented two spaces.
-- **Sibling files:** none required.
+- **Sibling files:** none required. Legacy binary `bun.lockb` is not a
+  registered format, parser, writer, or detector in lockgraph; migrate it with
+  bun's own tooling before using this adapter. See
+  [`bun-binary.md`](./bun-binary.md).
 
 ## Sources
 
@@ -170,6 +173,14 @@ this is only how bun-text *carries* it.
 | `patchedDependencies` → non-bun | **strip** (bun-only patch-map shape) |
 | Per-node `Node.patch` (recipe form) → bun-text | **drop** with `RECIPE_FEATURE_DROPPED` (no per-node patch protocol; only the top-level `patchedDependencies` map) |
 | Positional encoding | not user-visible — internal only |
+
+For an npm-4 source, the native raw-SRI / path patch carrier and manifest
+extension fingerprints / applied provenance have no bun-text carrier.
+Additionally, bun-text does not encode the npm root workspace version. Its flat
+dependency index cannot preserve edges to both root `is-number@7` and nested
+`is-number@6` without source-native de-hoist keys, so the root edge would
+otherwise resolve to v6. Non-strict conversion reports every carrier,
+root-identity, and edge-target loss; strict projection rejects.
 
 ## Fixtures
 

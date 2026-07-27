@@ -78,6 +78,12 @@ export const BERRY_WORKSPACE_FIXTURES = [
   'workspace-cross-refs' as const,
 ]
 
+// npm-4 is feature-triggered: npm 12 writes v3 for ordinary projects and only
+// the declarative packageExtensions `simple` corpus currently has a native v4
+// lock in the shared matrix tree. Native patch / imperative-extension risks are
+// exercised separately by the npm-4 incident-pair suite.
+export const NPM4_MATRIX_FIXTURES = ['simple'] as const
+
 // pnpm intra-family shared corpus (available across pnpm-v5, pnpm-v6, pnpm-v9):
 // - bundled-deps excluded: no pnpm fixtures on disk
 // - git-github-tarball excluded: no pnpm fixtures on disk

@@ -123,6 +123,11 @@ this is only how npm-2 *carries* it.
 | Peer virtualization | **flatten** with warning |
 | Patches | **strip** |
 
+For an npm-4 source, the native raw-SRI / path patch carrier and manifest
+extension fingerprints / applied provenance have no npm-2 carrier. Non-strict
+conversion reports both losses (while retaining representable effective graph
+edges); strict projection rejects.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

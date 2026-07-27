@@ -516,6 +516,11 @@ parses unchanged.
 | Patches | **strip** |
 | Workspace classification | **strip** (but workspaces themselves are preserved if `manifests` provided) |
 
+For an npm-4 source, the native raw-SRI / path patch carrier and manifest
+extension fingerprints / applied provenance have no yarn-classic carrier.
+Non-strict conversion reports both losses (while retaining representable
+effective graph edges); strict projection rejects.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

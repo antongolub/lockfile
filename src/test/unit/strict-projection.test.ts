@@ -20,6 +20,8 @@ import type { Integrity } from '../../main/ts/recipe/integrity.ts'
 const here = dirname(fileURLToPath(import.meta.url))
 const fixture = (file: string): string =>
   readFileSync(resolve(here, '../resources/fixtures/lockfiles/simple', file), 'utf8')
+const npm4ExtensionFixture = (): string =>
+  readFileSync(resolve(here, '../resources/fixtures/npm-v4/npm-extension/package-lock.json'), 'utf8')
 
 const sriIntegrity: Integrity = {
   hashes: [{ algorithm: 'sha512', digest: 'ab'.repeat(64), origin: 'sri' }],
@@ -137,6 +139,29 @@ function addMetadataToNativeControl(
 }
 
 describe('strict projection gate', () => {
+  it('reports and strict-rejects npm-4 manifest-extension provenance loss', () => {
+    const graph = parse('npm-4', npm4ExtensionFixture())
+    const projected = stringifyProjected('npm-3', graph)
+
+    expect(projected.losses).toContainEqual(expect.objectContaining({
+      class: 'inherent-meaningful',
+      feature: 'manifest-extension-provenance',
+      target: 'npm-3',
+    }))
+    expect(projected.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PROJECTION_LOSS',
+      data: expect.objectContaining({
+        class: 'inherent-meaningful',
+        feature: 'manifest-extension-provenance',
+        target: 'npm-3',
+      }),
+    }))
+
+    const error = caught('npm-3', graph)
+    expect(error.code).toBe('IRREDUCIBLE_LOSS')
+    expect(() => stringify('npm-4', graph)).not.toThrow()
+  })
+
   it.each([
     ['yarn-classic', sriIntegrity],
     ['yarn-berry-v8', berryIntegrity],
