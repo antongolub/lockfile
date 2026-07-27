@@ -466,8 +466,7 @@ function addPnpmV5PackageNodes(context: PnpmV5ParseContext): void {
     context.seenIds.add(nodeId)
     context.idByPackagesKey.set(pkgKey, nodeId)
     addPackageNode(
-      context.builder, context.sidecar, name, ver, peerContext, nodeId,
-      context.packagesMap[pkgKey], context.diagnostics,
+      context, name, ver, peerContext, nodeId, context.packagesMap[pkgKey],
     )
   }
 }
@@ -686,15 +685,14 @@ function sealPnpmV5Parse(context: PnpmV5ParseContext): Graph {
 }
 
 function addPackageNode(
-  builder: ReturnType<typeof newBuilder>,
-  sidecar: PnpmV5Sidecar,
+  context: PnpmV5ParseContext,
   name: string,
   version: string,
   peerContext: string[],
   nodeId: string,
   pkgEntry: unknown,
-  diagnostics: Diagnostic[],
 ): void {
+  const { builder, sidecar, diagnostics } = context
   const node: Node = {
     id: nodeId,
     name,

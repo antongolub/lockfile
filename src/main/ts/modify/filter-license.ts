@@ -43,6 +43,13 @@ export interface FilterLicenseResult {
   unresolved:       Diagnostic[]
 }
 
+interface OffendingLicense {
+  readonly id:      NodeId
+  readonly license: string | undefined
+}
+
+type DiagnosticEmitter = (diagnostic: Diagnostic) => void
+
 export async function filterLicense(
   graph: Graph,
   options: FilterLicenseOptions = {},
@@ -66,7 +73,7 @@ export async function filterLicense(
   // Enumerate offending nodes. Walk every non-workspace node; lookup license
   // via tarballOf. Workspace nodes are skipped — they are not packages whose
   // license a filter would gate on (they're the project itself).
-  const offending: Array<{ id: NodeId; license: string | undefined }> = []
+  const offending: OffendingLicense[] = []
   for (const node of graph.nodes()) {
     if (node.workspacePath !== undefined) continue
     const license = graph.tarballOf(node.id)?.license
@@ -78,26 +85,44 @@ export async function filterLicense(
     return emptyResult(graph)
   }
 
-  // Diagnostic-only mode: flag, return.
   if (mode === 'diagnostic-only') {
-    const flagged: NodeId[] = []
-    let currentGraph = graph
-    for (const { id, license } of offending) {
-      const d = modifyLicenseFlagged(id, license)
-      emit(d)
-      currentGraph = currentGraph.mutate(m => { m.diagnostic(d) }).graph
-      flagged.push(id)
-    }
-    return {
-      graph:            currentGraph,
-      flagged,
-      removed:          [],
-      recentlyAdded:    new Set(),
-      recentlyOrphaned: new Set(),
-      unresolved,
-    }
+    return flagOnly(graph, offending, unresolved, emit)
   }
 
+  return filterStrict(graph, offending, unresolved, emit)
+}
+
+// Diagnostic-only mode: flag every offending node without changing topology.
+function flagOnly(
+  graph: Graph,
+  offending: readonly OffendingLicense[],
+  unresolved: Diagnostic[],
+  emit: DiagnosticEmitter,
+): FilterLicenseResult {
+  const flagged: NodeId[] = []
+  let currentGraph = graph
+  for (const { id, license } of offending) {
+    const diagnostic = modifyLicenseFlagged(id, license)
+    emit(diagnostic)
+    currentGraph = currentGraph.mutate(mutator => { mutator.diagnostic(diagnostic) }).graph
+    flagged.push(id)
+  }
+  return {
+    graph: currentGraph,
+    flagged,
+    removed: [],
+    recentlyAdded: new Set(),
+    recentlyOrphaned: new Set(),
+    unresolved,
+  }
+}
+
+function filterStrict(
+  graph: Graph,
+  offending: readonly OffendingLicense[],
+  unresolved: Diagnostic[],
+  emit: DiagnosticEmitter,
+): FilterLicenseResult {
   // Strict mode: remove each offending node's incoming edges, then GC.
   // We don't go through removeDependency for the recursive collapse — we
   // need to operate per offending node uniformly. Workspace-rooted nodes

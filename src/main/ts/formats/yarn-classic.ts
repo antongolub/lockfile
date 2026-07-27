@@ -768,8 +768,8 @@ function addClassicEntryEdges(context: ClassicParseContext): void {
     manifestsProvided: context.options.overrides !== undefined,
   }
   for (const { node, entry } of context.entryNodes) {
-    addEdgesFromMap(context.builder, context.diagnostics, node.id, entry.dependencies, 'dep', context.specIndex, ladder, context.unresolvedDeps)
-    addEdgesFromMap(context.builder, context.diagnostics, node.id, entry.optionalDependencies, 'optional', context.specIndex, ladder, context.unresolvedDeps)
+    addEdgesFromMap(context, node.id, entry.dependencies, 'dep', ladder)
+    addEdgesFromMap(context, node.id, entry.optionalDependencies, 'optional', ladder)
   }
 }
 
@@ -1144,18 +1144,13 @@ function classicResolvedEdgeAttrs(
 }
 
 function addEdgesFromMap(
-  builder: ReturnType<typeof newBuilder>,
-  diagnostics: Diagnostic[],
+  context: ClassicParseContext,
   srcId: string,
   deps: Map<string, string>,
   kind: 'dep' | 'optional',
-  specIndex: Map<string, string>,
   ladder: ClassicEdgeLadderContext,
-  // F8 — collector for Rung-4-dropped refs whose target is ABSENT from the lock.
-  // Appended to (keyed by srcId) so emit re-emits them verbatim into the matching
-  // inner-block; omitted on paths that don't preserve.
-  unresolvedDeps?: Map<string, UnresolvedDepRef[]>,
 ): void {
+  const { builder, diagnostics, specIndex, unresolvedDeps } = context
   for (const [name, range] of Array.from(deps.entries()).sort((a, b) => cmpUtf16(a[0], b[0]))) {
     const resolution = resolveClassicEdgeTarget(diagnostics, srcId, name, range, specIndex, ladder)
     if (resolution.status === 'ambiguous') continue

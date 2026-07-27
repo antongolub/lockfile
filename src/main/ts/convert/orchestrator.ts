@@ -401,13 +401,14 @@ function probeEligible(
 function outputProbe(
   graph: Graph,
   output: string,
-  target: FormatId,
-  contract: StringifyAssessedOptions['contract'],
-  sourceEvidence: StringifyAssessedOptions['evidence'],
+  options: StringifyAssessedOptions,
   diagnostics: Diagnostic[],
   workspaceNames?: ReadonlyMap<string, string>,
-  targetVersion?: string,
 ): OutputProbeResult {
+  const target = options.target.format
+  const contract = options.contract
+  const sourceEvidence = options.evidence
+  const targetVersion = options.target.managerVersion
   if (!check(target, output)) {
     diagnostics.push(assessedDiagnostic(
       'COMPLETENESS_OUTPUT_FORMAT_REJECTED',
@@ -838,12 +839,9 @@ function stringifyAssessedRuntime(
     probe = outputProbe(
       graph,
       output,
-      options.target.format,
-      options.contract,
-      options.evidence,
+      options,
       diagnostics,
       companions?.pnpmWorkspaceNames,
-      options.target.managerVersion,
     )
   } catch (error) {
     diagnostics.push(assessedDiagnostic(

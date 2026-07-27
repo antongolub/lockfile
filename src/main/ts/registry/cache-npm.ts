@@ -144,6 +144,10 @@ interface BuildSlot {
   time:  number
 }
 
+interface ParsedBucketRecord extends IndexedEntry {
+  readonly time: number
+}
+
 async function buildIndex(cacheDir: string): Promise<CacheIndex> {
   const accum: Map<string, Map<string, BuildSlot>> = new Map()
   const bucketRoot = path.join(cacheDir, 'index-v5')
@@ -207,27 +211,8 @@ async function ingestBucket(
   // `\n<sha1>\t<json>` so a populated bucket starts with a leading
   // newline. Blank leading/trailing splits are ignored.
   for (const line of contents.split('\n')) {
-    if (line.length === 0) continue
-    const tabIdx = line.indexOf('\t')
-    if (tabIdx === -1) continue
-
-    const json = line.slice(tabIdx + 1)
-    let record: any
-    try {
-      record = JSON.parse(json)
-    } catch {
-      continue
-    }
-    if (record === null || typeof record !== 'object') continue
-
-    const key = typeof record.key === 'string' ? record.key : undefined
-    if (key === undefined) continue
-
-    const parsed = parseKey(key)
+    const parsed = parseBucketRecord(line)
     if (parsed === undefined) continue
-
-    const integrity = typeof record.integrity === 'string' ? record.integrity : undefined
-    const time      = typeof record.time === 'number'      ? record.time      : 0
 
     let byVersion = accum.get(parsed.name)
     if (byVersion === undefined) {
@@ -235,16 +220,40 @@ async function ingestBucket(
       accum.set(parsed.name, byVersion)
     }
     const prior = byVersion.get(parsed.version)
-    if (prior !== undefined && prior.time >= time) continue
+    if (prior !== undefined && prior.time >= parsed.time) continue
 
     byVersion.set(parsed.version, {
       entry: {
         name:      parsed.name,
         version:   parsed.version,
-        integrity,
+        integrity: parsed.integrity,
       },
-      time,
+      time: parsed.time,
     })
+  }
+}
+
+function parseBucketRecord(line: string): ParsedBucketRecord | undefined {
+  if (line.length === 0) return undefined
+  const tabIdx = line.indexOf('\t')
+  if (tabIdx === -1) return undefined
+
+  let record: any
+  try {
+    record = JSON.parse(line.slice(tabIdx + 1))
+  } catch {
+    return undefined
+  }
+  if (record === null || typeof record !== 'object' || typeof record.key !== 'string') {
+    return undefined
+  }
+
+  const parsed = parseKey(record.key)
+  if (parsed === undefined) return undefined
+  return {
+    ...parsed,
+    integrity: typeof record.integrity === 'string' ? record.integrity : undefined,
+    time: typeof record.time === 'number' ? record.time : 0,
   }
 }
 
