@@ -1,3 +1,12 @@
+## [0.4.0](https://github.com/lockgraph/lockgraph/compare/v0.3.0...v0.4.0) (2026-07-27)
+
+### Features
+* feat(interop): close the npm-4 conversion pair matrix and record its losses ([50dc717](https://github.com/lockgraph/lockgraph/commit/50dc717b926198960ae7a2d806d4dcb45ec1e3b0))
+
+### Fixes & improvements
+* fix: preserve pnpm workspace-peer names, patch markers and bun tuple structure on round-trip ([1426550](https://github.com/lockgraph/lockgraph/commit/1426550a9429a9928e09a7dadf85b07321f90e6a))
+* fix: drop false version constants and make graph digests independent of tool identity ([6a385ee](https://github.com/lockgraph/lockgraph/commit/6a385ee6e6ca88795b9277739eefc7cf0ca31154))
+
 ## [0.3.0](https://github.com/lockgraph/lockgraph/compare/v0.2.0...v0.3.0) (2026-07-26)
 
 ### Features
