@@ -4,14 +4,11 @@ exclude_patterns = [
   "src/test/resources/fixtures/**",
 ]
 
-# Underscore-prefixed modules are package-private plumbing: the format-family
-# cores (formats/_*.ts) and shared test helpers. Their complexity is intrinsic
-# and domain-bounded — decomposing them further would cross family boundaries,
-# which we value above a metric number. Exempt them from STRUCTURAL SMELLS only
-# (plugins = ["qlty"]); linters and security scanners still cover them.
+# Package-private `_*` cores/helpers and load-bearing build scripts are
+# domain-bounded plumbing: skip structural grading, but keep other scans.
 [[ignore]]
 plugins = ["qlty"]
-file_patterns = ["**/_*.ts"]
+file_patterns = ["**/_*.ts", "scripts/**"]
 
 # Thresholds tuned to this codebase's idioms (fail-closed returns, format-dispatch
 # branching); file_complexity, duplication, boolean_logic, nesting keep defaults.
@@ -38,5 +35,4 @@ name = "osv-scanner"
 plugins = ["osv-scanner"]
 file_patterns = [
   "src/test/resources/fixtures/**",
-  "legacy/**",
 ]
