@@ -300,6 +300,11 @@ yarn-berry patch locator, and npm manifest-extension fingerprints / applied
 provenance have no v9 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
+The stable yarn-berry-v10 incident pair is graph-lossless across the calibrated
+v9 corpus. Conditions, `compressionLevel`, virtual identities, and
+cacheKey-prefixed Berry zip checksums survive in both directions; the only
+required on-disk change is `__metadata.version`.
+
 ## Fixtures
 
 > **TBD:** no v9 fixtures yet — they are unproducible from the current

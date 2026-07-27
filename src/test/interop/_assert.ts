@@ -42,8 +42,10 @@ export function assertConversionContract(
   )
 
   const failures: string[] = []
-  if (!graphSubset(input.graphSource, input.graphDestination, contract.preserved)) {
-    failures.push('undeclared loss (regression bug)')
+  const missingPreserved = contract.preserved.filter(feature =>
+    !graphSubset(input.graphSource, input.graphDestination, [feature]))
+  if (missingPreserved.length > 0) {
+    failures.push(`undeclared loss (regression bug): ${missingPreserved.join(', ')}`)
   }
   if (spurious.length > 0) {
     failures.push(`spurious diagnostics: ${spurious.map(formatDiagnostic).join(', ')}`)

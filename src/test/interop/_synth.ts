@@ -45,7 +45,9 @@ export function minimalBerryLockfile(
   options: { conditions?: boolean; compressionLevel?: boolean } = {},
 ): string {
   const cacheKey = berryCacheKeyOf(format)
-  const checksum = format === 'yarn-berry-v8' || format === 'yarn-berry-v9'
+  const checksum = format === 'yarn-berry-v8'
+    || format === 'yarn-berry-v9'
+    || format === 'yarn-berry-v10'
     ? `${cacheKey}/deadbeef`
     : 'deadbeef'
   const compressionLine = options.compressionLevel ? '  compressionLevel: 0\n' : ''

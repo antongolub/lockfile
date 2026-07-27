@@ -7,10 +7,25 @@ import type { FormatId } from './_types.ts'
 const here = dirname(fileURLToPath(import.meta.url))
 
 export function fixtureLockfile(fixtureName: string, format: FormatId): string {
-  return readFileSync(
-    resolve(here, '../resources/fixtures/lockfiles', fixtureName, `${format}.lock`),
+  const sourceFormat = format === 'yarn-berry-v10' ? 'yarn-berry-v9' : format
+  const source = readFileSync(
+    resolve(here, '../resources/fixtures/lockfiles', fixtureName, `${sourceFormat}.lock`),
     'utf8',
   )
+  if (format !== 'yarn-berry-v10') return source
+
+  // Stable Yarn 4.17.1's v10 schema is structurally identical to v9 in the
+  // calibrated corpus. Keep the source fixture provenance honest (v9 on disk)
+  // and synthesize only the version discriminant, matching the established v7
+  // fixture precedent and the v10 format spec.
+  const output = source.replace(
+    /(^__metadata:\r?\n[ \t]+version:[ \t]*)9(?=\r?\n)/m,
+    '$110',
+  )
+  if (output === source) {
+    throw new Error(`fixtureLockfile: ${fixtureName}/${sourceFormat}.lock has no v9 metadata marker`)
+  }
+  return output
 }
 
 export const WORKSPACE_MANIFESTS: Record<string, YarnClassicManifest> = {
@@ -579,6 +594,22 @@ export const CROSS_FAMILY_NPM1_PNPM9_FIXTURES = [
   'peers-basic',
   'simple',
   'yarn-crlf',
+] as const
+
+// Cross-family npm-1 <-> pnpm-v5/v6 shared corpora (matrix closure):
+// - v5 has no patch fixture or patch primitive, so it uses the npm-1-safe
+//   four-fixture intersection.
+// - v6 has the same patch-yarn fixture as v9 and can exercise the declared
+//   downgrade patch loss honestly.
+export const CROSS_FAMILY_NPM1_PNPM5_FIXTURES = [
+  'deps-with-scopes',
+  'peers-basic',
+  'simple',
+  'yarn-crlf',
+] as const
+
+export const CROSS_FAMILY_NPM1_PNPM6_FIXTURES = [
+  ...CROSS_FAMILY_NPM1_PNPM9_FIXTURES,
 ] as const
 
 // Cross-family npm-1 <-> bun-text shared corpus (ADR-0020 Phase E-v): start

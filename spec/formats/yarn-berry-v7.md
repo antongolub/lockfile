@@ -138,6 +138,22 @@ yarn-berry patch locator, and npm manifest-extension fingerprints / applied
 provenance have no v7 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
+The yarn-berry-v10 pair is graph-lossless across the calibrated corpus.
+Conditions and `compressionLevel` pass through; v7's raw checksum and v10's
+cacheKey-prefixed checksum are encoding variants of the same Berry zip digest.
+
+The complete pair matrix pins every v7 cross-family cell. v7 → npm-1 loses
+some nested-tree edges, canonical resolution URLs, tarball payload metadata,
+and patch slots; v7 → npm-{2,3} loses canonical resolution URLs. The reverse
+npm-1 path preserves the representable graph and synthesizes the v7 preamble;
+npm-{2,3} → v7 additionally lose target tarball payload metadata. v7 → every
+pnpm generation rekeys workspace identities and loses tarball metadata, while
+pnpm → v7 flattens peer-virtual ids, loses tarball metadata, and synthesizes the
+v7 preamble. v7 → bun likewise rekeys the root workspace, loses canonical
+resolution URLs and tarball metadata; bun → v7 preserves the representable
+graph and synthesizes the preamble. Cross-origin integrity is omitted rather
+than relabelled between tarball SRI and Berry zip checksums.
+
 ## Fixtures
 
 - Synthetic: `src/test/resources/fixtures/lockfiles/*/yarn-berry-v7.lock`

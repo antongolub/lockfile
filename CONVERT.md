@@ -103,10 +103,11 @@ Formats and the package-manager versions behind them:
 | lockgraph | `lockgraph` | — (the L2 graph serialized; lossless round-trip) | — |
 
 The table above records parser/emitter support, not a claim that every
-cross-format pair is lossless. The interop contract matrix currently backs all
-28 non-v10 npm-4 incident pairs; their npm-native carrier losses are listed
-below and fail closed in strict mode. The 30 yarn-berry-v10 incident pairs are
-the next unclosed group and are not yet contract-covered.
+cross-format pair is lossless. The interop contract matrix backs **all 240 of
+240 ordered non-identity pairs (100%)** across the 16 concrete formats. Every
+claimed pair is contract-tested against a real shared fixture intersection and
+must either preserve its declared graph subset or report each accepted loss;
+there are no assumed or untested cells.
 
 ## Expressiveness — what each family can represent
 
@@ -144,6 +145,9 @@ Organised by feature axis. "Direction" is the family boundary that loses it;
 | --- | --- | --- | --- |
 | **Integrity — berry-zip ↔ tarball SRI** | berry → npm / yarn-classic / pnpm / bun (and back) | `RECIPE_INTEGRITY_INCOMPLETE` | Only from an authoritative target checksum or by obtaining artifact bytes and **recomputing** the target's hash. Never fabricated; mutable install may refill it, but immutable/frozen install can reject the omission. |
 | **Peer virtualization** | berry / pnpm → npm / yarn-classic / bun | `YARN_CLASSIC_PEER_VIRT_FLATTENED` / `NPM_V1_PEER_VIRT_FLATTENED` / `BUN_TEXT_PEER_VIRT_FLATTENED` (per target adapter) | No — flat targets model one instance per (name, version); peer-context forks collapse. |
+| **Berry virtual peer payload → yarn-classic** | yarn-berry-v10 → yarn-classic | `PROJECTION_LOSS` plus adapter-specific peer/virtual diagnostics | Classic flattens virtual node identities and edges and cannot retain Berry peer-declaration tarball metadata. The v10 incident contract therefore does not claim node/edge/tarball preservation on peer-bearing inputs. |
+| **Workspace node identity** | berry → pnpm / bun; npm → pnpm | `PROJECTION_LOSS` where classified; `INTEROP_*_WORKSPACE_REKEY` in the contract oracle | The package graph remains representable, but Berry/npm name-keyed root/member ids and pnpm/bun path/default-version ids differ. Consumers must compare the rekeyed workspace graph rather than claim source NodeId preservation. |
+| **Cross-family tarball payload metadata** | npm / pnpm / berry across sidecar boundaries | `PROJECTION_LOSS` where classified; `INTEROP_*_TARBALLS_DROPPED` in the contract oracle | Fields such as `bin`, `engines`, and `funding` have target-native carriers but may be held in parser sidecars that do not cross format adapters. Artifact/manifest enrichment can restore authoritative target metadata; the converter never silently claims it survived. |
 | **Patch recipe** | berry / pnpm → npm-1/2/3, yarn-classic, bun; or → npm-4 without matching native carrier | `RECIPE_FEATURE_DROPPED` (`feature='patch'`) | npm-4 can replay its own native carrier, but cannot derive npm's raw patch SRI/path from a foreign canonical identity. |
 | **npm-4 native patch carrier** | npm-4 → any non-npm-4 target | `PROJECTION_LOSS` (`feature='patch'`) | No portable replay: the raw-SRI/path pair is npm-native. Effective package facts may remain, but strict projection rejects rather than claiming a target-native patch declaration. |
 | **npm-4 manifest-extension provenance** | npm-4 → any non-npm-4 target | `PROJECTION_LOSS` (`feature='manifest-extension-provenance'`) | No target carrier. Representable effective graph edges remain, but fingerprints and applied-provenance evidence are not fabricated. |
@@ -392,7 +396,7 @@ sources are supplied; it does not replace native frozen verification.
 | --- | --- | --- | --- | --- | --- |
 | **npm** | v3↔v2 clean; v→v1 drops workspaces/peerMeta; npm-4 native carriers do not project downward | needs manifests for dev/peer + workspaces; npm-4 patch/provenance drops | overrides are manifest-only; Berry integrity needs an artifact-backed checksum; npm-4 patch/provenance drops | ordinary npm clean; npm-4 patch/provenance drops | ordinary npm clean; npm-4 additionally loses patch/provenance, root version, and multi-version edge targets |
 | **yarn-classic** | needs manifests (root + members + dev/peer) | — | preamble/workspace synthesized | needs manifests for dev/peer | resolved-URL forms may drop |
-| **yarn-berry** | drops peer-virt, patch, conditions; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions, workspace; needs manifests | clean (v-to-v; v→v4 drops conditions) | peer virtualization is re-encoded; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions |
+| **yarn-berry** | drops peer-virt, patch, conditions; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions, workspace; v10 peer-bearing inputs also lose virtual node/edge and peer-declaration payload shape; needs manifests | clean (v-to-v; v→v4 drops conditions) | peer virtualization is re-encoded; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions |
 | **pnpm** | drops peer-virt, patch, catalog | drops peer-virt, patch, workspace; needs manifests | drops catalog; preamble synthesized | clean (v-to-v; v9↔v5/6 settings drop) | drops peer-virt, patch, catalog |
 | **bun** | clean | drops resolved-URL forms; needs manifests | preamble synthesized | clean | — |
 

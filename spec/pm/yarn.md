@@ -826,6 +826,27 @@ effective graph edges, reports both carrier losses, and rejects in strict mode;
 it never fabricates yarn-native patch metadata. See the classic/berry format
 specs and [`formats/npm-4.md`](../formats/npm-4.md).
 
+## yarn-berry-v10 interoperability boundary
+
+All 30 ordered pairs incident to `yarn-berry-v10` are contract-covered.
+Within Berry the v10 body is v9-compatible: v5–v9 preserve the calibrated
+graph, and only v10 → v4 drops `conditions`. Cross-family conversion keeps the
+existing Berry rules: zip-cache checksums are never relabelled as tarball SRIs,
+and targets without Berry virtual peers, patches, conditions, or workspace
+identity report those losses. The yarn-classic boundary additionally flattens
+virtual node/edge identity and peer-declaration payload metadata. Normative
+details live in [`formats/yarn-berry-v10.md`](../formats/yarn-berry-v10.md)
+and each target format spec.
+
+## Complete conversion-matrix closure
+
+All yarn ordered pairs are now contract-backed. The final sparse cells close
+yarn-berry-v4…v8 against the older npm/pnpm generations and close every
+cross-family yarn-berry-v7 cell, including npm-3, pnpm-v9, and bun-text.
+Workspace rekeys, peer flattening, resolution/tarball loss, preamble synthesis,
+and the Berry-checksum versus tarball-SRI boundary are recorded in both
+endpoint format specs and [`CONVERT.md`](../../CONVERT.md).
+
 ## Adapter mapping (this project)
 
 | Concern | Classic | Berry |

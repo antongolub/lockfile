@@ -366,6 +366,22 @@ yarn-berry patch locator, and npm manifest-extension fingerprints / applied
 provenance have no v4 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
+For a yarn-berry-v10 source, the calibrated body is the same Berry graph shape
+but v4 cannot encode `conditions`. The emitter drops that scalar with
+`YARN_BERRY_V4_CONDITIONS_DROPPED`; the reverse direction synthesizes the v10
+marker without inventing conditions. Berry zip checksum bytes remain
+origin-compatible and are re-encoded in the target version's checksum syntax.
+
+The complete pair matrix also pins v4 ↔ npm-{1,2} and v4 ↔ pnpm-v{5,6}.
+On v4 → npm-1 the nested-tree target loses some edges, canonical resolution
+URLs, tarball payload metadata, and patch slots; v4 → npm-2 loses the canonical
+resolution URL. The reverse npm-1 path preserves the representable graph and
+synthesizes only the v4 preamble, while npm-2 → v4 also loses target tarball
+payload metadata. Across pnpm, v4 → pnpm rekeys workspace identities and loses
+tarball metadata; pnpm → v4 flattens peer-virtual ids, loses tarball metadata,
+and synthesizes the v4 preamble. Tarball SRI and Berry zip checksums remain
+different origins in every direction and are omitted, never relabelled.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

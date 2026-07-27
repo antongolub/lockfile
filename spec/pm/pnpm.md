@@ -637,6 +637,24 @@ in strict mode; it never fabricates pnpm-native patch metadata. See the
 versioned pnpm format specs and
 [`formats/npm-4.md`](../formats/npm-4.md).
 
+## yarn-berry-v10 interoperability boundary
+
+The six pnpm ↔ yarn-berry-v10 ordered pairs are contract-covered. Both families
+can represent virtual peers and patches, but their workspace identity and
+payload encodings differ; pnpm uses tarball SRI while Berry uses a zip-cache
+checksum. Conversion reports rekeying/payload losses and never relabels one
+digest as the other. See the versioned pnpm format spec and
+[`formats/yarn-berry-v10.md`](../formats/yarn-berry-v10.md).
+
+## Complete conversion-matrix closure
+
+All pnpm ordered pairs are now contract-backed. The final sparse cells cover
+pnpm-v{5,6} ↔ yarn-berry-v4…v8, pnpm-v9 ↔ yarn-berry-v7, and
+pnpm-v{5,6} ↔ npm-{1,2}. Their endpoint-specific workspace rekey, peer
+flattening, nested-tree edge, tarball payload, patch, preamble, and integrity
+rules are recorded in both versioned format specs and
+[`CONVERT.md`](../../CONVERT.md).
+
 ## Quirks
 
 - **Two peer-suffix encodings** for one identity: filesystem `_`/`+` (§2.4) vs

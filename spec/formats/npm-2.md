@@ -128,6 +128,20 @@ extension fingerprints / applied provenance have no npm-2 carrier. Non-strict
 conversion reports both losses (while retaining representable effective graph
 edges); strict projection rejects.
 
+For yarn-berry-v10 interchange, npm-2 inherits the Berry cross-origin boundary:
+a Berry zip checksum is not emitted as tarball SRI, and npm SRI is not emitted
+as a Berry checksum. The calibrated v10 → npm-2 cell also records native
+resolution degradation; npm-2 → v10 records target tarball-payload loss and
+synthesizes only the v10 preamble. Strict projection requires the reported
+remedies rather than fabricating either digest.
+
+The complete matrix pins the same boundary for yarn-berry-v4 through v8:
+Berry → npm-2 loses the canonical resolution URL; npm-2 → Berry loses tarball
+payload metadata and synthesizes the destination preamble. It also closes
+npm-2 ↔ pnpm-v{5,6}: npm-2 → pnpm rekeys workspace ids and loses cross-sidecar
+tarball metadata, while pnpm → npm-2 flattens peer-virtual ids. Tarball SRI
+remains native and is preserved within the npm/pnpm SRI origin class.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

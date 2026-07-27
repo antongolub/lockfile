@@ -641,6 +641,25 @@ mode.
 Per-target details are normative in
 [`formats/npm-4.md`](../formats/npm-4.md) and the target format spec.
 
+## yarn-berry-v10 interoperability boundary
+
+The eight npm ↔ yarn-berry-v10 ordered pairs are included in the v10 incident
+closure. npm's tarball SRI and Berry's zip-cache checksum are different
+artifact digests and are omitted, diagnosed, and refilled only from target
+artifact evidence. npm targets also inherit the documented Berry
+peer/patch/condition and layout limitations; npm-4 retains its additional
+native carrier rules. See the versioned npm format spec and
+[`formats/yarn-berry-v10.md`](../formats/yarn-berry-v10.md).
+
+## Complete conversion-matrix closure
+
+All npm ordered pairs are now contract-backed. The final sparse cells cover
+npm-{1,2} ↔ yarn-berry-v4…v8, npm-3 ↔ yarn-berry-v7, and npm-{1,2} ↔
+pnpm-v{5,6}. Their endpoint-specific workspace rekey, peer flattening,
+nested-tree edge, resolution URL, tarball payload, patch, preamble, and
+integrity-origin rules are recorded in both versioned format specs and
+[`CONVERT.md`](../../CONVERT.md).
+
 ## Quirks (npm-specific, not obvious from "it makes a `node_modules`")
 
 - **Tree shape is install-history-dependent.** Same `package.json`, different

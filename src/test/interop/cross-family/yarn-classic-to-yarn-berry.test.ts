@@ -14,6 +14,7 @@ const BERRY_TARGETS: Array<Extract<FormatId, `yarn-berry-${string}`>> = [
   'yarn-berry-v6',
   'yarn-berry-v8',
   'yarn-berry-v9',
+  'yarn-berry-v10',
 ]
 
 const CONTRACTS_FROM_CLASSIC = CONTRACTS.filter(contract =>

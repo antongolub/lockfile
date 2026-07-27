@@ -119,6 +119,18 @@ extension fingerprints / applied provenance have no npm-3 carrier. Non-strict
 conversion reports both losses (while retaining representable effective graph
 edges); strict projection rejects.
 
+For yarn-berry-v10 interchange, npm-3 inherits the Berry cross-origin boundary:
+a Berry zip checksum is not emitted as tarball SRI, and npm SRI is not emitted
+as a Berry checksum. The calibrated v10 → npm-3 cell records native resolution
+degradation; npm-3 → v10 records target tarball-payload loss and synthesizes
+only the v10 preamble. Strict projection requires the reported remedies.
+
+The yarn-berry-v7 cell is pinned to the same profile as the other calibrated
+Berry generations: v7 → npm-3 loses canonical resolution URLs; npm-3 → v7
+loses cross-sidecar tarball payload metadata and synthesizes the v7 preamble.
+Tarball SRI and Berry zip checksums remain distinct origins and are never
+relabelled across the boundary.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

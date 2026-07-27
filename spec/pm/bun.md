@@ -557,6 +557,23 @@ mode, and never fabricates bun-native patch metadata. See
 [`formats/bun-text.md`](../formats/bun-text.md) and
 [`formats/npm-4.md`](../formats/npm-4.md).
 
+## yarn-berry-v10 interoperability boundary
+
+Both bun-text ↔ yarn-berry-v10 directions are contract-covered. bun's
+declarative peers and flat package index cannot retain Berry virtual peer
+identity, conditions, patch identity, or Berry workspace keys; its tarball SRI
+also cannot stand in for a Berry zip-cache checksum. Best-effort conversion
+reports the accepted loss and strict projection requires the advertised
+remedies. See [`formats/bun-text.md`](../formats/bun-text.md) and
+[`formats/yarn-berry-v10.md`](../formats/yarn-berry-v10.md).
+
+## Complete conversion-matrix closure
+
+All bun-text ordered pairs are now contract-backed. The final sparse bun cell,
+bun-text ↔ yarn-berry-v7, pins the same workspace-rekey, canonical-resolution,
+tarball-payload, preamble, and integrity-origin boundary documented in both
+format specs and [`CONVERT.md`](../../CONVERT.md).
+
 ## Sources
 
 Authoritative (bun.com/docs + oven-sh blog/source), fetched/searched 2026-06-16;

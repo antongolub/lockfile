@@ -182,6 +182,18 @@ dependency index cannot preserve edges to both root `is-number@7` and nested
 otherwise resolve to v6. Non-strict conversion reports every carrier,
 root-identity, and edge-target loss; strict projection rejects.
 
+For a yarn-berry-v10 source, bun-text cannot retain Berry peer virtualization,
+conditions, patch identity, workspace node identity, native resolution, or
+Berry zip checksum payload. Inbound bun → v10 preserves the representable graph
+but synthesizes only the v10 preamble and omits tarball SRI rather than
+fabricating a Berry checksum. The best-effort path reports the projection loss;
+strict projection requires the advertised remedies.
+
+The yarn-berry-v7 pair is also contract-backed. v7 → bun-text rekeys the root
+workspace id and loses canonical resolution URLs plus cross-sidecar tarball
+metadata. bun-text → v7 preserves the representable graph, synthesizes only the
+v7 preamble, and omits tarball SRI rather than fabricating a Berry checksum.
+
 ## Fixtures
 
 Synthetic matrix under `src/test/resources/fixtures/lockfiles/<case>/bun-text.lock`

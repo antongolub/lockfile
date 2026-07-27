@@ -14,6 +14,8 @@ import {
   CROSS_FAMILY_CLASSIC_PNPM9_FIXTURES,
   CROSS_FAMILY_NPM1_BUN_FIXTURES,
   CROSS_FAMILY_NPM1_CLASSIC_FIXTURES,
+  CROSS_FAMILY_NPM1_PNPM5_FIXTURES,
+  CROSS_FAMILY_NPM1_PNPM6_FIXTURES,
   CROSS_FAMILY_NPM1_PNPM9_FIXTURES,
   CROSS_FAMILY_NPM1_YB9_FIXTURES,
   CROSS_FAMILY_NPM3_CLASSIC_FIXTURES,
@@ -167,7 +169,7 @@ const supportsConditions = (format: BerryFormat): boolean => BERRY_VERSION[forma
 
 // ADR-0014 §4.F1: integrity is held canonical (`sha512-<base64>` SRI) on the
 // Graph and re-encoded at the adapter stringify boundary into the per-version
-// PM-native form (raw hex for v4/v5/v6; cacheKey-prefixed for v8/v9). Cross-
+// PM-native form (raw hex for v4/v5/v6; cacheKey-prefixed for v8/v9/v10). Cross-
 // version conversions preserve the canonical bytes byte-equal — no integrity
 // drop in any direction. `RECIPE_INTEGRITY_TRANSLATED` maps to
 // `INTEROP_..._INTEGRITY_PASSTHROUGH` per ADR-0014 §5.
@@ -200,7 +202,7 @@ function conditionsLossEntry(from: BerryFormat, to: BerryFormat): LossEntry {
 
 function berryFixtureSubsetFor(from: BerryFormat, to: BerryFormat): readonly string[] {
   const versions = new Set<BerryVersion>([BERRY_VERSION[from], BERRY_VERSION[to]])
-  if (versions.has(9) && versions.has(4)) return BERRY_SHARED_NO_GIT_FOR_V9
+  if ((versions.has(9) || versions.has(10)) && versions.has(4)) return BERRY_SHARED_NO_GIT_FOR_V9
   if (versions.has(4)) return BERRY_SHARED_FIXTURES
   return BERRY_WORKSPACE_FIXTURES
 }
@@ -247,7 +249,7 @@ function buildBerryPair(from: BerryFormat, to: BerryFormat): ConversionContract 
 
 function conditionsRationale(from: BerryFormat, to: BerryFormat): string {
   if (BERRY_VERSION[from] >= 8 && BERRY_VERSION[to] >= 8) {
-    return 'v8 and v9 both preserve the conditions sidecar verbatim'
+    return 'both endpoints preserve the conditions sidecar verbatim'
   }
   if (BERRY_VERSION[from] === 5 && BERRY_VERSION[to] === 6 || BERRY_VERSION[from] === 6 && BERRY_VERSION[to] === 5) {
     return 'v5 and v6 both preserve conditions blocks'
@@ -2137,13 +2139,10 @@ const CROSS_FAMILY_YB9_BUN_CONTRACTS: ConversionContract[] = [
 //       loss on current bun-text fixtures.
 //     - `__metadata.version` PREAMBLE_SYNTHESIZED fires universally, with the
 //       destination literal `4`, `5`, `6`, or `8`.
-// `OlderBerryFormat` enumerates the pre-v9 berry generations that participate
-// in cross-family contracts. v7 is intentionally excluded: it is a Yarn 4 RC
-// transitional `__metadata.version: 7` shape that has no on-disk shared
-// fixture corpus reachable via `_gen.mjs` and no real-world cross-family
-// probe demand outside intra-family + real-world v7 sources. Cross-family
-// v7 contracts can be added under a follow-up dispatch if a v7-bearing
-// corpus lands.
+// `OlderBerryFormat` enumerates the pre-v9 berry generations handled by this
+// original cross-family builder. Transitional v7 is closed separately in the
+// final sparse-matrix block below, where its generated on-disk corpus is paired
+// with every previously missing endpoint.
 type OlderBerryFormat = Exclude<BerryFormat, 'yarn-berry-v7' | 'yarn-berry-v9' | 'yarn-berry-v10'>
 
 const OLDER_BERRY_BUN_FORMATS: OlderBerryFormat[] = [
@@ -3020,6 +3019,8 @@ function remapContractText(
   return value
     .replaceAll(baseFrom, from)
     .replaceAll(baseTo, to)
+    .replaceAll(fromCode(baseFrom), fromCode(from))
+    .replaceAll(fromCode(baseTo), fromCode(to))
 }
 
 function remapContractCode(
@@ -3117,9 +3118,289 @@ const NPM4_INCIDENT_CONTRACTS: ConversionContract[] = NPM4_OTHER_FORMATS.flatMap
   },
 )
 
-const RAW_CONTRACTS: ConversionContract[] = [
+// === yarn-berry-v10 incident-pair contracts (coverage closure) =============
+//
+// Stable Yarn 4.17.1's v10 body is the v9 body with a new schema
+// discriminant. Berry-family and classic pairs therefore use their capability
+// builders directly; the remaining cross-family cells clone the already-probed
+// v9 analogues, including the feature-triggered npm-4 pair. Source fixtures are
+// synthesized from the calibrated v9 corpus in `_fixtures.ts` by changing only
+// `__metadata.version`.
+const PRE_V10_CONTRACTS: ConversionContract[] = [
   ...PRE_NPM4_CONTRACTS,
   ...NPM4_INCIDENT_CONTRACTS,
+]
+
+type V10CrossFamilyFormat = Exclude<FormatId, BerryFormat | 'yarn-classic'>
+
+const V10_CROSS_FAMILY_FORMATS: V10CrossFamilyFormat[] = [
+  'npm-1',
+  'npm-2',
+  'npm-3',
+  'npm-4',
+  'pnpm-v5',
+  'pnpm-v6',
+  'pnpm-v9',
+  'bun-text',
+]
+
+function cloneV10Contract(
+  baseFrom: FormatId,
+  baseTo: FormatId,
+  from: FormatId,
+  to: FormatId,
+): ConversionContract {
+  const base = PRE_V10_CONTRACTS.find(contract =>
+    contract.from === baseFrom && contract.to === baseTo)
+  if (base === undefined) {
+    throw new Error(`cloneV10Contract: missing proxy ${baseFrom} -> ${baseTo}`)
+  }
+
+  return {
+    ...base,
+    from,
+    to,
+    preserved: [...base.preserved],
+    lost: base.lost.map(entry => ({
+      ...entry,
+      diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    added: base.added.map(entry => ({
+      ...entry,
+      ...(entry.diagnostic === undefined ? {} : {
+        diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      }),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    passthrough: base.passthrough.map(entry => ({
+      ...entry,
+      diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    ...(base.fixtureSubset === undefined ? {} : {
+      fixtureSubset: [...base.fixtureSubset],
+    }),
+  }
+}
+
+const V10_BERRY_CONTRACTS: ConversionContract[] = BERRY_FORMATS.flatMap(other => [
+  buildBerryPair('yarn-berry-v10', other),
+  buildBerryPair(other, 'yarn-berry-v10'),
+])
+
+const v10ToClassicContract = buildBerryToClassic('yarn-berry-v10')
+v10ToClassicContract.preserved = v10ToClassicContract.preserved.filter(feature =>
+  feature !== 'nodes'
+    && feature !== 'edges'
+    && feature !== 'edge-kinds'
+    && feature !== 'tarballs')
+v10ToClassicContract.lost.push({
+  feature: 'tarballs',
+  diagnostic: 'INTEROP_YARN_BERRY_V10_TO_YARN_CLASSIC_TARBALL_METADATA_DROPPED',
+  severity: 'warning',
+  rationale: 'classic cannot retain Berry peer-declaration tarball metadata on virtualized peer fixtures',
+})
+v10ToClassicContract.fixtureSubset = [...BERRY_SHARED_NO_GIT_FOR_V9]
+
+const V10_CLASSIC_CONTRACTS: ConversionContract[] = [
+  v10ToClassicContract,
+  buildClassicToBerry('yarn-berry-v10'),
+]
+
+const V10_CROSS_FAMILY_CONTRACTS: ConversionContract[] =
+  V10_CROSS_FAMILY_FORMATS.flatMap(other => [
+    cloneV10Contract('yarn-berry-v9', other, 'yarn-berry-v10', other),
+    cloneV10Contract(other, 'yarn-berry-v9', other, 'yarn-berry-v10'),
+  ])
+
+const V10_INCIDENT_CONTRACTS: ConversionContract[] = [
+  ...V10_BERRY_CONTRACTS,
+  ...V10_CLASSIC_CONTRACTS,
+  ...V10_CROSS_FAMILY_CONTRACTS,
+]
+
+const PRE_SPARSE_CLOSURE_CONTRACTS: ConversionContract[] = [
+  ...PRE_V10_CONTRACTS,
+  ...V10_INCIDENT_CONTRACTS,
+]
+
+// === final sparse conversion-matrix closure ================================
+//
+// The final 54 ordered cells combine endpoint shapes that are already probed
+// independently elsewhere in the matrix:
+//   - yarn-berry-v{4..8} against npm-{1,2} / pnpm-v{5,6};
+//   - yarn-berry-v7 against npm-3 / pnpm-v9 / bun-text;
+//   - npm-{1,2} against pnpm-v{5,6}.
+//
+// Berry v9 is the graph-capability proxy for the pre-v9 Berry endpoint; pnpm-v9
+// is the graph-capability proxy for the older pnpm endpoint. Contracts retain
+// the already-probed directional losses and remap their diagnostic namespaces.
+// Fixture overrides below keep every contract on a real bidirectional disk
+// intersection (notably: no patch-yarn for Berry < v9 or pnpm-v5, and no
+// workspace-cross-refs for Berry v4).
+type SparseBerryFormat = Extract<
+  BerryFormat,
+  'yarn-berry-v4'
+    | 'yarn-berry-v5'
+    | 'yarn-berry-v6'
+    | 'yarn-berry-v7'
+    | 'yarn-berry-v8'
+>
+type SparseBerryPeerFormat = Extract<
+  FormatId,
+  'npm-1' | 'npm-2' | 'npm-3' | 'pnpm-v5' | 'pnpm-v6' | 'pnpm-v9' | 'bun-text'
+>
+
+const SPARSE_BERRY_FORMATS: SparseBerryFormat[] = [
+  'yarn-berry-v4',
+  'yarn-berry-v5',
+  'yarn-berry-v6',
+  'yarn-berry-v7',
+  'yarn-berry-v8',
+]
+const SPARSE_COMMON_BERRY_PEERS: SparseBerryPeerFormat[] = [
+  'npm-1',
+  'npm-2',
+  'pnpm-v5',
+  'pnpm-v6',
+]
+const SPARSE_V7_EXTRA_PEERS: SparseBerryPeerFormat[] = [
+  'npm-3',
+  'pnpm-v9',
+  'bun-text',
+]
+
+function cloneSparseContract(
+  baseFrom: FormatId,
+  baseTo: FormatId,
+  from: FormatId,
+  to: FormatId,
+  fixtureSubset?: readonly string[],
+): ConversionContract {
+  const base = PRE_SPARSE_CLOSURE_CONTRACTS.find(contract =>
+    contract.from === baseFrom && contract.to === baseTo)
+  if (base === undefined) {
+    throw new Error(`cloneSparseContract: missing proxy ${baseFrom} -> ${baseTo}`)
+  }
+
+  const mappedAddition = (entry: AdditionEntry): AdditionEntry => {
+    const mapped: AdditionEntry = {
+      ...entry,
+      ...(entry.diagnostic === undefined ? {} : {
+        diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      }),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    }
+    if (mapped.field === '__metadata.version' && to.startsWith('yarn-berry-v')) {
+      mapped.rationale = `${to} destinations synthesize a \`__metadata.version\` preamble matching the destination generation; the non-Berry source has no equivalent field.`
+    }
+    return mapped
+  }
+
+  return {
+    ...base,
+    from,
+    to,
+    preserved: [...base.preserved],
+    lost: base.lost.map(entry => ({
+      ...entry,
+      diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    added: base.added.map(mappedAddition),
+    passthrough: base.passthrough.map(entry => ({
+      ...entry,
+      diagnostic: remapContractCode(entry.diagnostic, baseFrom, baseTo, from, to),
+      rationale: remapContractText(entry.rationale, baseFrom, baseTo, from, to),
+    })),
+    fixtureSubset: [
+      ...(fixtureSubset ?? base.fixtureSubset ?? []),
+    ],
+  }
+}
+
+function sparseBerryFixtureSubset(
+  berry: SparseBerryFormat,
+  other: SparseBerryPeerFormat,
+  base: readonly string[],
+): readonly string[] {
+  if (other === 'npm-1') return CROSS_FAMILY_NPM1_BUN_FIXTURES
+  if (berry === 'yarn-berry-v4' && other.startsWith('pnpm-')) {
+    return CROSS_FAMILY_YB4_PNPM9_FIXTURES
+  }
+  return base
+}
+
+function buildSparseBerryPair(
+  berry: SparseBerryFormat,
+  other: SparseBerryPeerFormat,
+): ConversionContract[] {
+  const forwardBase = PRE_SPARSE_CLOSURE_CONTRACTS.find(contract =>
+    contract.from === 'yarn-berry-v9' && contract.to === other)
+  const reverseBase = PRE_SPARSE_CLOSURE_CONTRACTS.find(contract =>
+    contract.from === other && contract.to === 'yarn-berry-v9')
+  if (forwardBase?.fixtureSubset === undefined || reverseBase?.fixtureSubset === undefined) {
+    throw new Error(`buildSparseBerryPair: missing yarn-berry-v9 proxy for ${other}`)
+  }
+
+  return [
+    cloneSparseContract(
+      'yarn-berry-v9',
+      other,
+      berry,
+      other,
+      sparseBerryFixtureSubset(berry, other, forwardBase.fixtureSubset),
+    ),
+    cloneSparseContract(
+      other,
+      'yarn-berry-v9',
+      other,
+      berry,
+      sparseBerryFixtureSubset(berry, other, reverseBase.fixtureSubset),
+    ),
+  ]
+}
+
+const SPARSE_BERRY_CONTRACTS: ConversionContract[] = [
+  ...SPARSE_BERRY_FORMATS.flatMap(berry =>
+    SPARSE_COMMON_BERRY_PEERS.flatMap(other => buildSparseBerryPair(berry, other))),
+  ...SPARSE_V7_EXTRA_PEERS.flatMap(other =>
+    buildSparseBerryPair('yarn-berry-v7', other)),
+]
+
+type SparseNpmFormat = Extract<FormatId, 'npm-1' | 'npm-2'>
+type SparsePnpmFormat = Extract<FormatId, 'pnpm-v5' | 'pnpm-v6'>
+
+const SPARSE_NPM_FORMATS: SparseNpmFormat[] = ['npm-1', 'npm-2']
+const SPARSE_PNPM_FORMATS: SparsePnpmFormat[] = ['pnpm-v5', 'pnpm-v6']
+
+function sparseNpmPnpmFixtures(
+  npm: SparseNpmFormat,
+  pnpm: SparsePnpmFormat,
+): readonly string[] | undefined {
+  if (npm === 'npm-1' && pnpm === 'pnpm-v5') {
+    return CROSS_FAMILY_NPM1_PNPM5_FIXTURES
+  }
+  if (npm === 'npm-1' && pnpm === 'pnpm-v6') {
+    return CROSS_FAMILY_NPM1_PNPM6_FIXTURES
+  }
+  return undefined
+}
+
+const SPARSE_NPM_PNPM_CONTRACTS: ConversionContract[] = SPARSE_NPM_FORMATS.flatMap(npm =>
+  SPARSE_PNPM_FORMATS.flatMap(pnpm => {
+    const fixtures = sparseNpmPnpmFixtures(npm, pnpm)
+    return [
+      cloneSparseContract('pnpm-v9', npm, pnpm, npm, fixtures),
+      cloneSparseContract(npm, 'pnpm-v9', npm, pnpm, fixtures),
+    ]
+  }))
+
+const RAW_CONTRACTS: ConversionContract[] = [
+  ...PRE_SPARSE_CLOSURE_CONTRACTS,
+  ...SPARSE_BERRY_CONTRACTS,
+  ...SPARSE_NPM_PNPM_CONTRACTS,
 ]
 
 // ADR-0031 — integrity is origin-scoped: a tarball SRI (npm / pnpm / bun /

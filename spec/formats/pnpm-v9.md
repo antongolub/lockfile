@@ -212,6 +212,18 @@ applied provenance have no pnpm-v9 carrier. Non-strict conversion reports both
 losses (while retaining representable effective graph edges); strict projection
 rejects.
 
+The yarn-berry-v10 pair has the same calibrated boundary as v9 Berry:
+workspace node identities are rekeyed across the PMs and Berry zip checksums
+cannot become pnpm tarball SRIs. In the reverse direction pnpm's virtual
+instance/payload shape and SRI cannot be claimed as a v10 Berry checksum.
+Best-effort conversion reports these losses; strict projection requires the
+corresponding evidence/remedies.
+
+The transitional yarn-berry-v7 pair is contract-backed with the same profile:
+v7 → pnpm-v9 rekeys workspace ids and loses cross-sidecar tarball metadata;
+pnpm-v9 → v7 flattens peer-virtual ids, loses tarball metadata, synthesizes the
+v7 preamble, and never relabels tarball SRI as a Berry checksum.
+
 ## Fixtures
 
 > **TBD:** generate.

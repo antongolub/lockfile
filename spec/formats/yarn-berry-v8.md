@@ -295,6 +295,20 @@ yarn-berry patch locator, and npm manifest-extension fingerprints / applied
 provenance have no v8 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
+The yarn-berry-v10 pair is graph-lossless across the calibrated corpus. Both
+formats preserve conditions, `compressionLevel`, and cacheKey-prefixed Berry
+zip checksums; the only required on-disk change is the metadata version marker.
+
+The complete pair matrix also pins v8 ↔ npm-{1,2} and v8 ↔ pnpm-v{5,6}.
+On v8 → npm-1 the nested-tree target loses some edges, canonical resolution
+URLs, tarball payload metadata, and patch slots; v8 → npm-2 loses the canonical
+resolution URL. The reverse npm-1 path preserves the representable graph and
+synthesizes only the v8 preamble, while npm-2 → v8 also loses target tarball
+payload metadata. Across pnpm, v8 → pnpm rekeys workspace identities and loses
+tarball metadata; pnpm → v8 flattens peer-virtual ids, loses tarball metadata,
+and synthesizes the v8 preamble. Cross-origin integrity is omitted rather than
+relabelled between tarball SRI and Berry zip checksums.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

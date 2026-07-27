@@ -133,6 +133,21 @@ extension fingerprints / applied provenance have no npm-1 carrier. Non-strict
 conversion reports both losses (while retaining representable effective graph
 edges); strict projection rejects.
 
+For a yarn-berry-v10 source, npm-1 also cannot retain Berry patch,
+peer-virtual, condition, workspace, or deeply hoisted edge semantics. Its SRI
+field cannot reuse a Berry zip checksum; output omits that digest and reports
+the structured projection loss. The reverse direction synthesizes the v10
+preamble but requires artifact bytes for a target-native Berry checksum.
+
+The complete matrix applies the same calibrated boundary to yarn-berry-v4
+through v8: Berry → npm-1 loses some nested-tree edges, canonical resolution
+URLs, tarball payload metadata, and patch slots; npm-1 → Berry preserves the
+representable graph, synthesizes the destination preamble, and omits SRI rather
+than relabelling it as a Berry checksum. The npm-1 ↔ pnpm-v{5,6} cells are also
+pinned: npm-1 → pnpm rekeys the root workspace id, while pnpm → npm-1 loses
+unrepresentable edges, peer virtualization, tarball metadata, and any patch
+slot the source graph carries.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

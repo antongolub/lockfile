@@ -13,7 +13,12 @@ and the completion phases (modify / enrich / optimize) reference
 published [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
 (modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
 (optimize). This spec records only the read-side capabilities and the
-single on-disk delta from v9 (`__metadata.version: 10`).
+single on-disk delta from v9 (`__metadata.version: 10`). That inheritance
+claim is measured against real v10 lockfiles from `prettier`,
+`facebook/jest`, and `yarnpkg/berry` master, compared with the 1,760-entry
+v9 `babel` lockfile: their field vocabulary is identical, v10 adds or drops
+no field, and both generations use `cacheKey: 10`. `cacheKey` is independent
+of the lockfile version; never derive it from `__metadata.version`.
 
 ## Compatibility
 
@@ -92,15 +97,37 @@ Inherits v9.
 
 ## Degradation rules
 
-Inherits v9.
+Inherits v9. The interop matrix closes all 30 ordered pairs incident to v10
+(v10 ↔ every other supported concrete format):
+
+- v5–v9 ↔ v10 preserve the calibrated graph, conditions,
+  `compressionLevel`, and Berry zip checksum bytes; v10 → v4 additionally
+  drops `conditions` with `YARN_BERRY_V4_CONDITIONS_DROPPED`;
+- every Berry ↔ non-Berry boundary omits the source-origin checksum rather
+  than relabelling it (`berry-zip` is not tarball SRI), reporting
+  `RECIPE_INTEGRITY_INCOMPLETE` / the corresponding structured projection
+  loss and requiring artifact bytes to fill the target checksum;
+- v10 → yarn-classic flattens peer virtualization, virtual identities and
+  their incident edges, and cannot retain peer-declaration tarball metadata;
+  patch slots, conditions, workspace metadata, `cacheKey`, and
+  `compressionLevel` are likewise unsupported by classic;
+- npm, pnpm, and bun targets inherit their documented v9 cross-family graph
+  losses (layout/rekeying, unsupported patch/condition/peer carriers), while
+  conversion to v10 synthesizes only the v10 preamble and never fabricates
+  missing Berry checksums.
+
+The public best-effort path emits structured projection diagnostics for every
+accepted cross-family loss. Strict conversion withholds output until all
+blocking evidence/remedies are supplied.
 
 ## Fixtures
 
-> **TBD:** stable Yarn 4.17.1 is not yet bundled in the calibrated fixture
-> matrix. When wired, it is the canonical v10 writer. Synthetic fixtures derived
-> from v9 by bumping the `version: 10` marker (per
-> [yarn-berry-v7](./yarn-berry-v7.md) precedent) are admissible for
-> round-trip regression coverage until a producer is wired up.
+> Stable Yarn 4.17.1 is not yet bundled in the calibrated producer matrix.
+> The 30-pair interop suite synthesizes v10 fixtures from the calibrated v9
+> corpus by changing only the `version: 10` marker (per
+> [yarn-berry-v7](./yarn-berry-v7.md) precedent). This covers eight shared
+> graph fixtures in both directions; a native 4.17.1 corpus remains the
+> provenance upgrade.
 
 ## Open questions
 

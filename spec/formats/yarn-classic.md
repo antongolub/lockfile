@@ -521,6 +521,14 @@ extension fingerprints / applied provenance have no yarn-classic carrier.
 Non-strict conversion reports both losses (while retaining representable
 effective graph edges); strict projection rejects.
 
+For a yarn-berry-v10 source, classic additionally cannot encode conditions,
+patch slots, workspace metadata, `cacheKey`, or `compressionLevel`. On
+peer-bearing inputs it flattens virtual identities and their incident edges and
+drops Berry peer-declaration tarball metadata; the v10 incident contract
+therefore does not claim node/edge/tarball preservation for that path. In the
+reverse direction, manifests are required to recover classic workspace and
+edge classification, and artifact bytes are required to mint Berry checksums.
+
 ## Fixtures
 
 See the test-bench fixtures under [`src/test/resources/fixtures/`](../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.

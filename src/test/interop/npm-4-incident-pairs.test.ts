@@ -29,7 +29,9 @@ const OTHER_FORMATS: FormatId[] = [
 
 const incidentContracts = CONTRACTS.filter(contract =>
   (contract.from === 'npm-4' || contract.to === 'npm-4')
-    && contract.from !== contract.to)
+    && contract.from !== contract.to
+    && contract.from !== 'yarn-berry-v10'
+    && contract.to !== 'yarn-berry-v10')
 
 runIntraFamily('interop: npm-4 incident pairs', incidentContracts)
 

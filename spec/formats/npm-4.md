@@ -130,6 +130,13 @@ used to build the graph, not a portable reconstruction of the source
 | Extension fingerprint / applied provenance → any non-npm-4 format | effective graph edges remain where representable, but the npm-native fingerprints and applied-provenance carrier are dropped with `PROJECTION_LOSS` (`manifest-extension-provenance`); strict projection rejects |
 | Declarative-extension graph → bun-text | bun-text does not encode the npm root workspace version; its flat dependency index also cannot preserve edges to both root `is-number@7` and nested `is-number@6` without source-native de-hoist keys. Non-strict conversion reports the root-identity and edge-target losses; strict projection rejects |
 
+The yarn-berry-v10 pair follows both native boundaries above. npm-4 patch and
+manifest-extension carriers have no v10 representation; conversely a Berry
+patch identity cannot synthesize npm's raw-SRI/path carrier. Tarball SRI and
+Berry zip checksum are different artifacts, so neither is relabelled across the
+pair. Best-effort conversion reports every accepted loss; strict projection
+rejects until the required evidence is supplied.
+
 ## Fixtures and oracle
 
 Genuine npm 12.0.1 artifacts live under

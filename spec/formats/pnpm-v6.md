@@ -95,6 +95,22 @@ patch declaration, and npm manifest-extension fingerprints / applied provenance
 have no pnpm-v6 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
+For yarn-berry-v10 interchange, pnpm-v6 re-encodes peer virtualization but
+uses a different workspace identity convention and a tarball-SRI integrity
+origin. The calibrated v10 cell records workspace rekeying and tarball payload
+loss; the reverse cell records peer-virtual and tarball payload loss. Missing
+target integrity is reported and never fabricated.
+
+The complete matrix pins the same directional profile for yarn-berry-v4
+through v8: Berry → pnpm-v6 rekeys workspace ids and loses cross-sidecar
+tarball metadata; pnpm-v6 → Berry flattens peer-virtual ids, loses tarball
+metadata, and synthesizes the destination preamble. The npm-{1,2} cells are
+also contract-backed. npm-1 → pnpm-v6 rekeys the root workspace id; the reverse
+loses nested-tree edges, peer virtualization, tarball metadata, and patch
+slots. npm-2 → pnpm-v6 rekeys workspace ids and loses tarball metadata; the
+reverse flattens peer-virtual ids. Integrity remains tarball SRI across
+npm/pnpm.
+
 ## Fixtures
 
 > **TBD:** generate.
