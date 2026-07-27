@@ -27,3 +27,16 @@ threshold = 30
 [[source]]
 name = "default"
 default = true
+
+[[plugin]]
+name = "osv-scanner"
+
+# Vendored lockfiles are immutable test inputs from third-party projects, not
+# lockgraph's dependency graph. Keep osv-scanner enabled for the root lockfile,
+# but exclude those fixtures from the supply-chain report.
+[[exclude]]
+plugins = ["osv-scanner"]
+file_patterns = [
+  "src/test/resources/fixtures/**",
+  "legacy/**",
+]
