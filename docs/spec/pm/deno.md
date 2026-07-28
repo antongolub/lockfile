@@ -23,9 +23,12 @@ through an explicit, opt-in **npm-compatibility layer**.
 
 Deno is the most divergent family from the Node/npm model. The six family axes
 are all covered, but several are "Deno has no equivalent" rather than a delta
-from `_common.md`. Byte-level lockfile behavior is specified in
-[`docs/spec/formats/deno.md`](../formats/deno.md); broader runtime behavior
-which is not called out as measured remains research-grade.
+from `_common.md`. Byte-level lockfile behavior is specified by the four
+concrete pages [`deno-v2`](../formats/deno-v2.md),
+[`deno-v3`](../formats/deno-v3.md),
+[`deno-v4`](../formats/deno-v4.md), and
+[`deno-v5`](../formats/deno-v5.md); broader runtime behavior which is not
+called out as measured remains research-grade.
 
 > **Version sensitivity is high.** Deno 1 → Deno 2 (Oct 2024) changed defaults
 > across nearly every axis: `deno cache` → `deno install`, `deno install` became
@@ -445,9 +448,12 @@ default in the family. Trust state has no `deno.lock` field analogous to bun's
 
 ### 6.1 `deno.lock`
 
-> **Format spec:** [`docs/spec/formats/deno.md`](../formats/deno.md) is the
-> byte-level contract. The summary below explains the package-manager behavior;
-> the format document owns exact layouts, adapter scope, and oracle gates.
+> **Format specs:** [`deno-v2`](../formats/deno-v2.md),
+> [`deno-v3`](../formats/deno-v3.md),
+> [`deno-v4`](../formats/deno-v4.md), and
+> [`deno-v5`](../formats/deno-v5.md) are the concrete byte-level contracts.
+> Their shared measured schema lives in [`_deno.md`](../formats/_deno.md).
+> The summary below explains package-manager behavior.
 
 - **Filename:** `deno.lock`, auto-created next to `deno.json(c)` since **Deno
   1.28**. Disable with `deno.json` `"lock": false` or CLI `--no-lock`. Frozen mode:
@@ -685,8 +691,8 @@ fix, no `--force` — is [`audit-fix.md §4.6`](./audit-fix.md#46-deno--native-c
 
 ## Adapter mapping
 
-The public `deno` adapter is intentionally narrower than the Node-family
-adapters:
+The public `deno-v2` … `deno-v5` adapters are intentionally narrower than the
+Node-family adapters:
 
 | Concern | Setting / note |
 |---|---|
@@ -695,8 +701,9 @@ adapters:
 | Integrity | preserve distinct JSR metadata, remote-module, and npm-tarball domains; mutate only proven npm SHA-512 SRI |
 | Layout | usually **none**; if `nodeModulesDir` ≠ `none`, an isolated (`.deno/`) or hoisted Node layout |
 | Peer identity | project native npm suffixes to semantic peer edges one-way; raw suffix remains authoritative |
-| Emission | exact byte replay when unchanged; version-preserving v2-v5 JSON emission for npm-section mutation |
-| Cross-format | 16 manifest-backed `deno` → Node-family pairs project the npm subgraph with declared JSR/remote loss; 16 reverse pairs fail closed |
+| Emission | exact byte replay when unchanged; target-driven v2-v5 JSON emission for npm-section mutation and supported intra-Deno conversion |
+| Cross-format | 64 manifest-backed concrete-Deno → Node-family pairs project the npm subgraph with declared JSR/remote loss; 64 reverse pairs fail closed |
+| Intra-Deno | Nine cells are supported; v3/v4 targets are pinned-producer frozen-certified, v2 is parse/emit-only, and v2/v3/v4 → v5 remains fail-closed pending complete package metadata and dependency/optional/peer reclassification proof |
 | Registry | npm registry evidence for projected nodes; JSR and raw HTTPS state is preserved, not projected |
 | Advisories | native `deno audit`/`fix` already constraint-aware — project value-add is breadth, not remediation |
 
@@ -747,7 +754,9 @@ research-grade.
 - **Cross-refs (this repo):** [`docs/spec/pm/_common.md`](./_common.md) (Node substrate) ·
   [`docs/spec/registry/jsr.md`](../registry/jsr.md) · [`docs/spec/registry/npm.md`](../registry/npm.md) ·
   [`docs/spec/registry/_common.md`](../registry/_common.md) · [`docs/spec/formats/_common.md` §3 integrity](../formats/_common.md#3-integrity-model) ·
-  [`docs/spec/formats/deno.md`](../formats/deno.md)
+  [`docs/spec/formats/_deno.md`](../formats/_deno.md) ·
+  [`deno-v2`](../formats/deno-v2.md) · [`deno-v3`](../formats/deno-v3.md) ·
+  [`deno-v4`](../formats/deno-v4.md) · [`deno-v5`](../formats/deno-v5.md)
 
 ## Open questions
 

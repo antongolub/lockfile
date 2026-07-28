@@ -145,14 +145,14 @@ const inaccessibleFileSystem: ConvertFileSystem = {
 describe('convert input normalization', () => {
   it('allows byte-exact same-format deno conversion', async () => {
     await expect(convert(DENO, {
-      from: 'deno',
-      to: 'deno',
+      from: 'deno-v5',
+      to: 'deno-v5',
       strict: false,
     })).resolves.toBe(DENO)
   })
 
   it('requires manifest evidence before deno -> npm-family conversion', async () => {
-    await expect(convert(DENO, { from: 'deno', to: 'npm-3', strict: false }))
+    await expect(convert(DENO, { from: 'deno-v5', to: 'npm-3', strict: false }))
       .rejects.toMatchObject({
         code: 'INVALID_INPUT',
         message: expect.stringContaining('deno.json/package.json'),
@@ -164,7 +164,7 @@ describe('convert input normalization', () => {
     async target => {
       const diagnostics: Diagnostic[] = []
       const output = await convert(DENO, {
-        from: 'deno',
+        from: 'deno-v5',
         to: target,
         strict: false,
         manifests: DENO_MANIFESTS,
@@ -178,7 +178,7 @@ describe('convert input normalization', () => {
 
   it('blocks Deno JSR loss in strict mode and allows it only explicitly', async () => {
     await expect(convert(DENO, {
-      from: 'deno',
+      from: 'deno-v5',
       to: 'npm-3',
       manifests: DENO_MANIFESTS,
     })).rejects.toMatchObject({
@@ -188,10 +188,10 @@ describe('convert input normalization', () => {
   })
 
   it('keeps npm-family -> deno explicitly unsupported', async () => {
-    await expect(convert(NPM, { from: 'npm-3', to: 'deno', strict: false }))
+    await expect(convert(NPM, { from: 'npm-3', to: 'deno-v5', strict: false }))
       .rejects.toMatchObject({
         code: 'CAPABILITY_LACK',
-        message: expect.stringContaining('native npm ids and peer suffixes'),
+        message: expect.stringContaining('native npm ids, peer suffixes'),
       })
   })
 

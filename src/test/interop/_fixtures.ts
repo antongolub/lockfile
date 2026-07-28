@@ -7,7 +7,11 @@ import type { FormatId } from './_types.ts'
 const here = dirname(fileURLToPath(import.meta.url))
 
 export function fixtureLockfile(fixtureName: string, format: FormatId): string {
-  const sourceFormat = format === 'yarn-berry-v10' ? 'yarn-berry-v9' : format
+  const sourceFormat = format === 'yarn-berry-v10'
+    ? 'yarn-berry-v9'
+    : format === 'deno-v5'
+      ? 'deno'
+      : format
   const source = readFileSync(
     resolve(here, '../resources/fixtures/lockfiles', fixtureName, `${sourceFormat}.lock`),
     'utf8',
@@ -50,6 +54,7 @@ export const WORKSPACE_MANIFESTS: Record<string, YarnClassicManifest> = {
 
 export function denoManifestsForFixture(
   fixtureName: string,
+  format: Extract<FormatId, `deno-v${string}`>,
 ): Record<string, YarnClassicManifest> {
   return {
     '': fixtureName === 'deno-npm-only'
@@ -59,10 +64,12 @@ export function denoManifestsForFixture(
           dependencies: { ms: '2.1.3' },
         }
       : {
-          name: 'case-deno',
-          version: '1.0.0',
-          dependencies: { 'react-dom': '^19.1.0' },
+        name: 'case-deno',
+        version: '1.0.0',
+        dependencies: {
+          'react-dom': format === 'deno-v5' ? '^19.1.0' : '19.1.1',
         },
+      },
   }
 }
 

@@ -4,6 +4,8 @@ import type {
   FormatId,
   StringifyOptions,
 } from './format-contract.ts'
+import { isDenoFormat } from './format-contract.ts'
+import { LockfileError } from './errors.ts'
 import {
   adapterStateSubjects as pnpmFlatAdapterStateSubjects,
   hasAdapterState as hasPnpmFlatAdapterState,
@@ -24,7 +26,15 @@ import {
 } from '../formats/_yarn-berry-core.ts'
 
 import * as bunText from '../formats/bun-text.ts'
-import * as deno from '../formats/deno.ts'
+import {
+  adapterStateSubjects as denoAdapterStateSubjects,
+  hasAdapterState as hasDenoAdapterState,
+  rebindAdapterState as rebindDenoAdapterState,
+} from '../formats/_deno-core.ts'
+import * as denoV2 from '../formats/deno-v2.ts'
+import * as denoV3 from '../formats/deno-v3.ts'
+import * as denoV4 from '../formats/deno-v4.ts'
+import * as denoV5 from '../formats/deno-v5.ts'
 import * as npm1 from '../formats/npm-1.ts'
 import * as npm2 from '../formats/npm-2.ts'
 import * as npm3 from '../formats/npm-3.ts'
@@ -160,6 +170,12 @@ const npm2StateAdapter = {
   },
 } satisfies AdapterStateContract
 
+const denoStateAdapter = {
+  adapterStateSubjects: denoAdapterStateSubjects,
+  hasAdapterState: hasDenoAdapterState,
+  rebindAdapterState: rebindDenoAdapterState,
+} satisfies AdapterStateContract
+
 const FORMAT_STATE_REGISTRY = {
   'yarn-berry-v4': yarnBerryStateAdapter,
   'yarn-berry-v5': yarnBerryStateAdapter,
@@ -177,7 +193,10 @@ const FORMAT_STATE_REGISTRY = {
   'pnpm-v6': pnpmFlatStateAdapter,
   'pnpm-v9': pnpmFlatStateAdapter,
   'bun-text': bunText,
-  deno,
+  'deno-v2': denoStateAdapter,
+  'deno-v3': denoStateAdapter,
+  'deno-v4': denoStateAdapter,
+  'deno-v5': denoStateAdapter,
   lockgraph: undefined,
 } as const satisfies Readonly<Record<FormatId, AdapterStateContract | undefined>>
 
@@ -232,14 +251,10 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
       overrides: context.overrides,
     }),
   },
-  deno: {
-    check: deno.check,
-    parse: (input, context) => deno.parse(input, { manifests: context.manifests }),
-    stringify: (graph, context) => deno.stringify(graph, {
-      lineEnding: context.lineEnding,
-      onDiagnostic: context.onDiagnostic,
-    }),
-  },
+  'deno-v2': denoAdapter(denoV2),
+  'deno-v3': denoAdapter(denoV3),
+  'deno-v4': denoAdapter(denoV4),
+  'deno-v5': denoAdapter(denoV5),
   lockgraph: {
     check: lockgraph.check,
     parse: input => lockgraph.parse(input),
@@ -254,7 +269,10 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
 export const DETECTION_ORDER = [
   'lockgraph',
   'bun-text',
-  'deno',
+  'deno-v5',
+  'deno-v4',
+  'deno-v3',
+  'deno-v2',
   'yarn-berry-v10',
   'yarn-berry-v9',
   'yarn-berry-v8',
@@ -273,7 +291,7 @@ export const DETECTION_ORDER = [
 ] as const satisfies readonly FormatId[]
 
 export function checkFormat(format: FormatId, input: string): boolean {
-  return FORMAT_REGISTRY[format].check(input)
+  return formatAdapter(format).check(input)
 }
 
 export function detectFormat(input: string): FormatId | undefined {
@@ -288,7 +306,7 @@ export function parseFormat(
   input: string,
   context: ParseDispatchContext = {},
 ): Graph {
-  return FORMAT_REGISTRY[format].parse(input, context)
+  return formatAdapter(format).parse(input, context)
 }
 
 export function stringifyFormat(
@@ -296,7 +314,34 @@ export function stringifyFormat(
   graph: Graph,
   context: StringifyDispatchContext = {},
 ): string {
-  return FORMAT_REGISTRY[format].stringify(graph, context)
+  return formatAdapter(format).stringify(graph, context)
+}
+
+export function formatAdapterStateCompatible(source: FormatId, target: FormatId): boolean {
+  return source === target || (isDenoFormat(source) && isDenoFormat(target))
+}
+
+function denoAdapter(
+  adapter: Pick<typeof denoV2, 'check' | 'parse' | 'stringify'>,
+): FormatAdapter {
+  return {
+    check: adapter.check,
+    parse: (input, context) => adapter.parse(input, { manifests: context.manifests }),
+    stringify: (graph, context) => adapter.stringify(graph, {
+      lineEnding: context.lineEnding,
+      onDiagnostic: context.onDiagnostic,
+    }),
+  }
+}
+
+function formatAdapter(format: FormatId): FormatAdapter {
+  const runtimeFormat = format as string
+  const adapter = (FORMAT_REGISTRY as Readonly<Record<string, FormatAdapter | undefined>>)[runtimeFormat]
+  if (adapter !== undefined) return adapter
+  throw new LockfileError({
+    code: 'FORMAT_MISMATCH',
+    message: `unknown format id ${JSON.stringify(runtimeFormat)}`,
+  })
 }
 
 /** Whether the graph identity still carries its source adapter's native replay state. */

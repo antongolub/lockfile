@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { check, parse, stringify } from '../../main/ts/formats/deno.ts'
+import { detect, parse, stringify } from '../../main/ts/index.ts'
+import type { DenoFormatId } from '../../main/ts/api/format-contract.ts'
 
 const corpusRoot = resolve('tmp/deno-corpus/raw')
 const corpusAvailable = existsSync(corpusRoot)
@@ -28,11 +29,21 @@ suite(
       expect(realFiles).toHaveLength(191)
       expect(strictJsonFiles).toHaveLength(190)
 
+      const detectedCounts = new Map<DenoFormatId, number>()
       for (const file of strictJsonFiles) {
         const input = readFileSync(resolve(corpusRoot, file), 'utf8')
-        expect(check(input), file).toBe(true)
-        expect(stringify(parse(input)), file).toBe(input)
+        const format = detect(input)
+        expect(format, file).toMatch(/^deno-v[2345]$/)
+        const denoFormat = format as DenoFormatId
+        detectedCounts.set(denoFormat, (detectedCounts.get(denoFormat) ?? 0) + 1)
+        expect(stringify(denoFormat, parse(denoFormat, input)), file).toBe(input)
       }
+      expect(Object.fromEntries([...detectedCounts].sort())).toEqual({
+        'deno-v2': 7,
+        'deno-v3': 25,
+        'deno-v4': 31,
+        'deno-v5': 127,
+      })
     })
   },
 )

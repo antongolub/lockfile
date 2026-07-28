@@ -1,4 +1,4 @@
-// Deno native `deno.lock` adapter (v2-v5).
+// Shared Deno native `deno.lock` adapter core (v2-v5).
 //
 // This adapter deliberately projects only the npm resolution subgraph. JSR,
 // remote modules, redirects and workspace configuration remain native sidecar
@@ -34,7 +34,7 @@ export interface DenoStringifyOptions {
 
 // === TYPES AND NATIVE SHAPES ================================================
 
-type DenoVersion = '2' | '3' | '4' | '5'
+export type DenoVersion = '2' | '3' | '4' | '5'
 type JsonObject = Record<string, unknown>
 
 interface DenoNpmPackageId {
@@ -103,6 +103,17 @@ export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
 }
 
+export function sourceVersionOf(graph: Graph): DenoVersion | undefined {
+  return sidecarByGraph.get(graph)?.version
+}
+
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  const sidecar = sidecarByGraph.get(graph)
+  if (sidecar === undefined) return []
+  return unknownTopLevelKeys(sidecar.document, sidecar.version)
+    .map(key => `top-level:${key}`)
+}
+
 export function nonNpmSectionCounts(
   graph: Graph,
 ): Readonly<{ jsr: number; remote: number }> | undefined {
@@ -146,9 +157,9 @@ export function rebindAdapterState(
 
 // === PUBLIC API ==============================================================
 
-export function check(input: string): boolean {
+export function checkVersion(input: string, expectedVersion: DenoVersion): boolean {
   if (hasConflictMarkers(input)) {
-    return /"version"\s*:\s*"[2345]"/.test(input)
+    return new RegExp(`"version"\\s*:\\s*"${expectedVersion}"`).test(input)
       && /"(?:npm|packages|remote|specifiers)"\s*:/.test(input)
   }
   let value: unknown
@@ -159,7 +170,7 @@ export function check(input: string): boolean {
   }
   if (!isObject(value)) return false
   const version = value.version
-  if (version !== '2' && version !== '3' && version !== '4' && version !== '5') return false
+  if (version !== expectedVersion) return false
   if (version === '2') return isObject(value.npm) || isObject(value.remote)
   if (version === '3') {
     return isObject(value.packages)
@@ -174,13 +185,17 @@ export function check(input: string): boolean {
     || isObject(value.workspace)
 }
 
-export function parse(input: string, options: DenoParseOptions = {}): Graph {
+export function parseVersion(
+  input: string,
+  expectedVersion: DenoVersion,
+  options: DenoParseOptions = {},
+): Graph {
   if (hasConflictMarkers(input)) {
     throw failure(
       'DENO_MERGE_CONFLICT: deno.lock contains unresolved git conflict markers; resolve the merge before mutation',
     )
   }
-  const layout = parseLayout(input)
+  const layout = parseLayout(input, expectedVersion)
   validateNonNpmIntegrity(layout)
   const context = createParseContext(layout, options.manifests?.[''])
   registerNpmNodes(context)
@@ -189,8 +204,9 @@ export function parse(input: string, options: DenoParseOptions = {}): Graph {
   return sealDenoGraph(context, input)
 }
 
-export function stringify(
+export function stringifyVersion(
   graph: Graph,
+  targetVersion: DenoVersion,
   options: DenoStringifyOptions = {},
 ): string {
   const sidecar = sidecarByGraph.get(graph)
@@ -200,14 +216,18 @@ export function stringify(
       message: 'deno emitter requires same-format native state',
     })
   }
-  if (sidecar.exactReplay) return sidecar.originalInput
+  if (sidecar.version === targetVersion && sidecar.exactReplay) {
+    return sidecar.originalInput
+  }
   if (sidecar.unrepresentable.length > 0) {
     throw new LockfileError({
       code: 'IRREDUCIBLE_LOSS',
       message: `deno emitter cannot safely represent mutation: ${sidecar.unrepresentable.join('; ')}`,
     })
   }
-  return emitMutatedDocument(graph, sidecar, options)
+  return sidecar.version === targetVersion
+    ? emitMutatedDocument(graph, sidecar, options)
+    : emitConvertedDocument(graph, sidecar, targetVersion, options)
 }
 
 // === EMIT ===================================================================
@@ -250,6 +270,302 @@ function emitMutatedDocument(
 
   const newline = options.lineEnding === 'crlf' ? '\r\n' : '\n'
   return JSON.stringify(document, null, 2).replaceAll('\n', newline) + newline
+}
+
+const V5_ENTRY_FIELDS = [
+  'bin',
+  'cpu',
+  'deprecated',
+  'optionalDependencies',
+  'optionalPeers',
+  'os',
+  'scripts',
+  'tarball',
+] as const
+
+function emitConvertedDocument(
+  graph: Graph,
+  sidecar: DenoSidecar,
+  targetVersion: DenoVersion,
+  options: DenoStringifyOptions,
+): string {
+  if (targetVersion === '5') {
+    throw new LockfileError({
+      code: 'CAPABILITY_LACK',
+      message: `deno-v${sidecar.version} -> deno-v5 is unsupported: a v${sidecar.version} lock has neither complete v5 package metadata nor evidence that existing dependency, optional-dependency, and peer edges were correctly reclassified; a registry fetch alone is insufficient`,
+    })
+  }
+
+  reportCrossVersionLosses(sidecar, targetVersion, options)
+  const npm = buildConvertedNpmRecord(graph, sidecar, targetVersion)
+  const specifiers = convertSpecifierRecord(sidecar, targetVersion)
+  const jsr = convertJsrRecord(sidecar, targetVersion, specifiers)
+  const remote = cloneJsonObject(nativeSection(sidecar, 'remote'))
+  const workspace = cloneJsonObject(nativeSection(sidecar, 'workspace'))
+  if (
+    sidecar.version === '2'
+    && targetVersion !== '2'
+    && Object.keys(specifiers).length > 0
+  ) {
+    workspace.dependencies = Object.keys(specifiers).sort(compareStrings)
+  }
+  const redirects = cloneJsonObject(nativeSection(sidecar, 'redirects'))
+  const document: JsonObject = { version: targetVersion }
+
+  if (targetVersion === '2') {
+    document.remote = remote
+    document.npm = { specifiers: npmOnlySpecifiers(specifiers), packages: npm }
+  } else if (targetVersion === '3') {
+    document.packages = { specifiers, jsr, npm }
+    document.remote = remote
+    if (Object.keys(workspace).length > 0) document.workspace = workspace
+  } else {
+    document.specifiers = specifiers
+    document.jsr = jsr
+    document.npm = npm
+    document.remote = remote
+    if (Object.keys(redirects).length > 0) document.redirects = redirects
+    if (Object.keys(workspace).length > 0) document.workspace = workspace
+  }
+
+  for (const key of unknownTopLevelKeys(sidecar.document, sidecar.version)) {
+    document[key] = cloneJson(sidecar.document[key])
+  }
+  const newline = options.lineEnding === 'crlf' ? '\r\n' : '\n'
+  return JSON.stringify(document, null, 2).replaceAll('\n', newline) + newline
+}
+
+function buildConvertedNpmRecord(
+  graph: Graph,
+  sidecar: DenoSidecar,
+  targetVersion: DenoVersion,
+): Record<string, DenoNpmPackageEntry> {
+  const sourceNpm = npmRecordFromDocument(sidecar.document, sidecar.version)
+  const output: Record<string, DenoNpmPackageEntry> = {}
+  for (const nativeId of [...sidecar.nodeByNative.keys()].sort(compareStrings)) {
+    output[nativeId] = buildNpmEntry(
+      graph,
+      sidecar,
+      nativeId,
+      sourceNpm[nativeId],
+      targetVersion,
+    )
+  }
+  return output
+}
+
+function convertSpecifierRecord(
+  sidecar: DenoSidecar,
+  targetVersion: DenoVersion,
+): Record<string, string> {
+  const source = specifierRecordFromDocument(sidecar.document, sidecar.version)
+  const output: Record<string, string> = {}
+  for (const [request, resolved] of Object.entries(source).sort(compareEntries)) {
+    const npmRef = nativeIdFromSpecifier(sidecar.version, request, resolved)
+    if (npmRef !== undefined) {
+      const requestBody = sidecar.version === '2'
+        ? request
+        : request.startsWith('npm:')
+          ? request.slice('npm:'.length)
+          : request
+      const targetRequest = targetVersion === '2' ? requestBody : `npm:${requestBody}`
+      output[targetRequest] = targetVersion === '2'
+        ? npmRef.nativeId
+        : targetVersion === '3'
+          ? `npm:${npmRef.nativeId}`
+          : splitNameAndTail(npmRef.nativeId)?.tail ?? npmRef.nativeId
+      continue
+    }
+    if (!request.startsWith('jsr:') || targetVersion === '2') {
+      if (targetVersion !== '2') output[request] = resolved
+      continue
+    }
+    output[request] = targetVersion === '3'
+      ? jsrV3Resolution(request, resolved, sidecar.version)
+      : jsrV4Resolution(request, resolved, sidecar.version)
+  }
+  return output
+}
+
+function jsrV3Resolution(
+  request: string,
+  resolved: string,
+  sourceVersion: DenoVersion,
+): string {
+  if (sourceVersion === '3') return resolved
+  const parsed = splitJsrSpecifier(request)
+  return parsed === undefined ? resolved : `jsr:${parsed.name}@${resolved}`
+}
+
+function jsrV4Resolution(
+  request: string,
+  resolved: string,
+  sourceVersion: DenoVersion,
+): string {
+  if (sourceVersion === '4' || sourceVersion === '5') return resolved
+  const parsed = splitJsrSpecifier(resolved)
+  return parsed?.range ?? resolved
+}
+
+function convertJsrRecord(
+  sidecar: DenoSidecar,
+  targetVersion: DenoVersion,
+  targetSpecifiers: Readonly<Record<string, string>>,
+): JsonObject {
+  if (targetVersion === '2') return {}
+  const source = cloneJsonObject(nativeSection(sidecar, 'jsr'))
+  if (sidecar.version === targetVersion
+    || (sidecar.version === '4' && targetVersion === '5')
+    || (sidecar.version === '5' && targetVersion === '4')) return source
+  for (const entry of Object.values(source)) {
+    if (!isObject(entry) || !Array.isArray(entry.dependencies)) continue
+    entry.dependencies = entry.dependencies.map(dependency => {
+      if (typeof dependency !== 'string' || !dependency.startsWith('jsr:')) return dependency
+      if (targetVersion === '3') {
+        const parsed = splitJsrSpecifier(dependency)
+        if (parsed?.range !== undefined) return dependency
+        const candidate = Object.keys(targetSpecifiers)
+          .filter(request => splitJsrSpecifier(request)?.name === parsed?.name)
+          .sort(compareStrings)[0]
+        return candidate ?? dependency
+      }
+      const parsed = splitJsrSpecifier(dependency)
+      return parsed === undefined ? dependency : `jsr:${parsed.name}`
+    })
+  }
+  return source
+}
+
+function splitJsrSpecifier(
+  value: string,
+): Readonly<{ name: string; range?: string }> | undefined {
+  if (!value.startsWith('jsr:')) return undefined
+  const body = value.slice('jsr:'.length)
+  const separator = body.lastIndexOf('@')
+  if (separator <= 0) return { name: body }
+  return { name: body.slice(0, separator), range: body.slice(separator + 1) }
+}
+
+function npmOnlySpecifiers(
+  specifiers: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(specifiers).filter(([request]) => !request.startsWith('jsr:')),
+  )
+}
+
+function reportCrossVersionLosses(
+  sidecar: DenoSidecar,
+  targetVersion: Exclude<DenoVersion, '5'>,
+  options: DenoStringifyOptions,
+): void {
+  const sectionNames = targetVersion === '2'
+    ? ['jsr', 'workspace', 'redirects'] as const
+    : targetVersion === '3'
+      ? ['redirects'] as const
+      : []
+  for (const section of sectionNames) {
+    const value = nativeSection(sidecar, section)
+    const count = Object.keys(value).length
+    if (count === 0) continue
+    options.onDiagnostic?.({
+      code: `DENO_V${targetVersion}_NATIVE_SECTION_DROPPED`,
+      severity: 'error',
+      subject: `top-level:${section}`,
+      message: `deno-v${sidecar.version} -> deno-v${targetVersion} drops non-empty native ${section} state because deno.lock v${targetVersion} has no carrier for it`,
+      data: {
+        feature: `top-level:${section}`,
+        sourceFormat: `deno-v${sidecar.version}`,
+        target: `deno-v${targetVersion}`,
+        count,
+      },
+    })
+  }
+  if (sidecar.version !== '5') return
+  const sourceNpm = npmRecordFromDocument(sidecar.document, sidecar.version)
+  for (const [nativeId, entry] of Object.entries(sourceNpm).sort(compareEntries)) {
+    const fields = V5_ENTRY_FIELDS.filter(field => entry[field] !== undefined)
+    if (fields.length === 0) continue
+    options.onDiagnostic?.({
+      code: `DENO_V${targetVersion}_V5_ENTRY_FIELDS_DROPPED`,
+      severity: 'error',
+      subject: nativeId,
+      message: `deno-v5 -> deno-v${targetVersion} drops v5-only npm entry fields ${fields.join(', ')} from ${nativeId}`,
+      data: {
+        feature: 'deno:v5-entry-fields',
+        sourceFormat: 'deno-v5',
+        target: `deno-v${targetVersion}`,
+        fields,
+      },
+    })
+  }
+}
+
+function nativeSection(
+  sidecar: Pick<DenoSidecar, 'document' | 'version'>,
+  section: 'jsr' | 'remote' | 'redirects' | 'workspace',
+): JsonObject {
+  if (section === 'jsr' && sidecar.version === '3') {
+    return optionalObject(optionalObject(sidecar.document.packages, 'packages').jsr, 'packages.jsr')
+  }
+  if (section === 'jsr' && sidecar.version === '2') return {}
+  if (section === 'redirects' && (sidecar.version === '2' || sidecar.version === '3')) return {}
+  if (section === 'workspace' && sidecar.version === '2') return {}
+  return optionalObject(sidecar.document[section], section)
+}
+
+function npmRecordFromDocument(
+  document: JsonObject,
+  version: DenoVersion,
+): Record<string, DenoNpmPackageEntry> {
+  if (version === '2') {
+    return npmRecord(optionalObject(document.npm, 'npm').packages)
+  }
+  if (version === '3') {
+    return npmRecord(optionalObject(document.packages, 'packages').npm)
+  }
+  return npmRecord(document.npm)
+}
+
+function specifierRecordFromDocument(
+  document: JsonObject,
+  version: DenoVersion,
+): Record<string, string> {
+  if (version === '2') {
+    return stringRecord(optionalObject(document.npm, 'npm').specifiers, 'npm.specifiers')
+  }
+  if (version === '3') {
+    return stringRecord(optionalObject(document.packages, 'packages').specifiers, 'packages.specifiers')
+  }
+  return stringRecord(document.specifiers, 'specifiers')
+}
+
+const ALL_DENO_KNOWN_TOP_LEVEL_KEYS = new Set([
+  'version',
+  'npm',
+  'packages',
+  'specifiers',
+  'jsr',
+  'remote',
+  'redirects',
+  'workspace',
+])
+
+function unknownTopLevelKeys(
+  document: JsonObject,
+  _version: DenoVersion,
+): string[] {
+  return Object.keys(document)
+    .filter(key => !ALL_DENO_KNOWN_TOP_LEVEL_KEYS.has(key))
+    .sort(compareStrings)
+}
+
+function cloneJsonObject(value: JsonObject): JsonObject {
+  return cloneJson(value) as JsonObject
+}
+
+function cloneJson(value: unknown): unknown {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 }
 
 function mutableNpmRecord(
@@ -309,6 +625,7 @@ function buildNpmEntry(
   sidecar: DenoSidecar,
   nativeId: string,
   previous?: DenoNpmPackageEntry,
+  targetVersion: DenoVersion = sidecar.version,
 ): DenoNpmPackageEntry {
   const nodeId = sidecar.nodeByNative.get(nativeId)
   const node = nodeId === undefined ? undefined : graph.getNode(nodeId)
@@ -331,25 +648,41 @@ function buildNpmEntry(
   }
 
   const entry: DenoNpmPackageEntry = { integrity }
-  const defaultUrl = defaultNpmTarballUrl(node.name, node.version)
-  if (previous?.tarball !== undefined || payload.resolution.url !== defaultUrl) {
-    entry.tarball = payload.resolution.url
+  if (targetVersion === '5') {
+    const defaultUrl = defaultNpmTarballUrl(node.name, node.version)
+    if (previous?.tarball !== undefined || payload.resolution.url !== defaultUrl) {
+      entry.tarball = payload.resolution.url
+    }
+    if (payload.os !== undefined) entry.os = [...payload.os]
+    if (payload.cpu !== undefined) entry.cpu = [...payload.cpu]
+    if (payload.deprecated !== undefined) entry.deprecated = true
+    if (payload.hasInstallScript === true) entry.scripts = true
+    if (payload.bin !== undefined) entry.bin = true
   }
-  if (payload.os !== undefined) entry.os = [...payload.os]
-  if (payload.cpu !== undefined) entry.cpu = [...payload.cpu]
-  if (payload.deprecated !== undefined) entry.deprecated = true
-  if (payload.hasInstallScript === true) entry.scripts = true
-  if (payload.bin !== undefined) entry.bin = true
 
-  const dependencies = dependencyBlockForEmit(graph, sidecar, nodeId, 'dep')
-  const optionalDependencies = dependencyBlockForEmit(graph, sidecar, nodeId, 'optional')
-  if (dependencies !== undefined) entry.dependencies = dependencies
+  const dependencies = dependencyBlockForEmit(
+    graph,
+    sidecar,
+    nodeId,
+    targetVersion === '5' ? ['dep'] : ['dep', 'optional'],
+    targetVersion,
+  )
+  const optionalDependencies = targetVersion === '5'
+    ? dependencyBlockForEmit(graph, sidecar, nodeId, ['optional'], targetVersion)
+    : undefined
+  if (dependencies !== undefined) {
+    entry.dependencies = dependencies
+  } else if (targetVersion === '2' || targetVersion === '3') {
+    entry.dependencies = {}
+  }
   if (optionalDependencies !== undefined) entry.optionalDependencies = optionalDependencies
-  const optionalPeers = Object.entries(payload.peerDependenciesMeta ?? {})
-    .filter(([, meta]) => meta.optional === true)
-    .map(([name]) => name)
-    .sort(compareStrings)
-  if (optionalPeers.length > 0) entry.optionalPeers = optionalPeers
+  if (targetVersion === '5') {
+    const optionalPeers = Object.entries(payload.peerDependenciesMeta ?? {})
+      .filter(([, meta]) => meta.optional === true)
+      .map(([name]) => name)
+      .sort(compareStrings)
+    if (optionalPeers.length > 0) entry.optionalPeers = optionalPeers
+  }
   return entry
 }
 
@@ -357,14 +690,15 @@ function dependencyBlockForEmit(
   graph: Graph,
   sidecar: DenoSidecar,
   srcId: string,
-  kind: 'dep' | 'optional',
+  kinds: readonly ('dep' | 'optional')[],
+  targetVersion: DenoVersion,
 ): Record<string, string> | string[] | undefined {
-  const edges = graph.out(srcId, kind).slice().sort((a, b) => {
+  const edges = kinds.flatMap(kind => graph.out(srcId, kind)).sort((a, b) => {
     const alias = compareStrings(a.attrs?.alias ?? '', b.attrs?.alias ?? '')
     return alias !== 0 ? alias : compareStrings(a.dst, b.dst)
   })
   if (edges.length === 0) return undefined
-  if (sidecar.version === '2' || sidecar.version === '3') {
+  if (targetVersion === '2' || targetVersion === '3') {
     const output: Record<string, string> = {}
     for (const edge of edges) {
       const target = graph.getNode(edge.dst)
@@ -372,7 +706,12 @@ function dependencyBlockForEmit(
       if (target === undefined || nativeId === undefined) {
         throw emitFailure(`${srcId} dependency ${edge.dst} lacks native Deno identity`)
       }
-      output[edge.attrs?.alias ?? target.name] = nativeId
+      const alias = edge.attrs?.alias ?? target.name
+      const previous = output[alias]
+      if (previous !== undefined && previous !== nativeId) {
+        throw emitFailure(`${srcId} dependency alias ${alias} resolves to both ${previous} and ${nativeId}`)
+      }
+      output[alias] = nativeId
     }
     return output
   }
@@ -385,7 +724,7 @@ function dependencyBlockForEmit(
     if (values === undefined) nativeIdsByName.set(node.name, [nativeId])
     else values.push(nativeId)
   }
-  return edges.map(edge => {
+  const output = edges.map(edge => {
     const target = graph.getNode(edge.dst)
     const nativeId = sidecar.nativeByNode.get(edge.dst)
     if (target === undefined || nativeId === undefined) {
@@ -397,6 +736,7 @@ function dependencyBlockForEmit(
       ? target.name
       : nativeId
   })
+  return [...new Set(output)]
 }
 
 function rewriteSpecifierResolution(
@@ -476,7 +816,7 @@ function emitFailure(message: string): LockfileError {
 
 // === PARSE ==================================================================
 
-function parseLayout(input: string): DenoLayout {
+function parseLayout(input: string, expectedVersion: DenoVersion): DenoLayout {
   let value: unknown
   try {
     value = JSON.parse(input)
@@ -489,10 +829,10 @@ function parseLayout(input: string): DenoLayout {
   }
   if (!isObject(value)) throw failure('deno adapter: top-level value must be an object')
   const version = value.version
-  if (version !== '2' && version !== '3' && version !== '4' && version !== '5') {
+  if (version !== expectedVersion) {
     throw new LockfileError({
       code: 'FORMAT_MISMATCH',
-      message: `deno adapter: expected version 2-5, got ${JSON.stringify(version)}`,
+      message: `deno-v${expectedVersion} adapter: expected top-level version ${expectedVersion}, got ${JSON.stringify(version)}`,
     })
   }
 
@@ -512,7 +852,7 @@ function parseLayout(input: string): DenoLayout {
   }
 
   return {
-    version,
+    version: expectedVersion,
     document: value,
     specifiers: stringRecord(specifiersValue, 'specifiers'),
     npm: npmRecord(npmValue),

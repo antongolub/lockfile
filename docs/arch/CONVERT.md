@@ -100,23 +100,24 @@ Formats and the package-manager versions behind them:
 | yarn berry | `yarn-berry-v4` … `yarn-berry-v10` | yarn 2/3/4 (`__metadata.version` 4–10) | `yarn.lock` |
 | pnpm | `pnpm-v5`, `pnpm-v6`, `pnpm-v9` | pnpm 3–7 / 7–8 / 9+ | `pnpm-lock.yaml` |
 | bun | `bun-text` | bun 1.2+ (textual `bun.lock`; binary `bun.lockb` is unsupported and must be migrated first) | `bun.lock` |
-| deno | `deno` | Deno 1.x/2.x (`deno.lock` v2-v5); same-format npm-section audit/fix plus manifest-backed npm-subgraph projection to Node-family targets | `deno.lock` |
+| deno | `deno-v2`, `deno-v3`, `deno-v4`, `deno-v5` | Concrete `deno.lock` v2-v5 identities; same-format npm-section audit/fix, nine intra-Deno targets, and manifest-backed npm-subgraph projection to Node-family targets | `deno.lock` |
 | lockgraph | `lockgraph` | — (the L2 graph serialized; lossless round-trip) | — |
 
 The table above records parser/emitter support, not a claim that every
-cross-format pair is lossless. The interop contract matrix represents **all 272
-of 272 ordered non-identity cells (100%)** across the 17 concrete formats:
-256 supported conversion contracts are tested against their real shared fixture
-intersections, including all 16 `deno` → Node-family directions. The 16 reverse
-Node-family → `deno` cells are explicit unsupported contracts that must fail
-closed. There are no assumed or untested cells.
+cross-format pair is lossless. The interop contract matrix represents **all 380
+of 380 ordered non-identity cells (100%)** across the 20 concrete formats:
+313 supported conversion contracts are tested against their real shared fixture
+intersections: 240 Node-family cells, 64 concrete-Deno → Node-family cells, and
+9 intra-Deno cells. The 67 unsupported cells comprise 64 reverse
+Node-family → concrete-Deno cells and the three v2/v3/v4 → v5 cells. There are
+no assumed or untested cells.
 
 ## Expressiveness — what each family can represent
 
 A target loses a feature exactly when it is `✗` for that target but present in the
 source. `~` = representable only with `manifests`, or in a degraded form.
 
-| Feature | npm-1 | npm-2/3 | npm-4 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text | deno |
+| Feature | npm-1 | npm-2/3 | npm-4 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text | deno-v2…v5 |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | Project root in lock | ✗ | ✓ (`""`) | ✓ (`""`) | ✗ (rootless) | ✓ (`root@workspace:.`) | ✓ (`importers`) | ✓ (`importers['.']`) | ✓ (`workspaces[""]`) | ~ (native sidecar) |
 | Workspaces (members) | ✗ | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ✓ | ✓ | ~ (native sidecar) |
@@ -150,8 +151,11 @@ Organised by feature axis. "Direction" is the family boundary that loses it;
 
 | Feature lost | Direction (source → target) | Runtime diagnostic | Recoverable? |
 | --- | --- | --- | --- |
-| **Deno JSR / remote module graph** | `deno` → every Node-family format | `DENO_JSR_PACKAGES_DROPPED` / `DENO_REMOTE_PACKAGES_DROPPED` | The npm resolution subgraph is projected, but Node-family locks have no native carrier for Deno JSR packages or remote URL modules. Deno's official [`denoland/dnt`](https://github.com/denoland/dnt) is the source-level path; Lockgraph does not invoke or certify it. |
-| **Deno native identity synthesis** | every Node-family format → `deno` | `CAPABILITY_LACK` | Unsupported and fail-closed. No pinned Deno producer has validated synthesized native npm ids and peer suffixes. |
+| **Deno JSR / remote module graph** | every concrete Deno format → every Node-family format | `DENO_JSR_PACKAGES_DROPPED` / `DENO_REMOTE_PACKAGES_DROPPED` | The npm resolution subgraph is projected, but Node-family locks have no native carrier for Deno JSR packages or remote URL modules. Deno's official [`denoland/dnt`](https://github.com/denoland/dnt) is the source-level path; Lockgraph does not invoke or certify it. |
+| **Deno native identity synthesis** | every Node-family format → `deno-v2` … `deno-v5` | `CAPABILITY_LACK` | Unsupported and fail-closed. No pinned Deno producer has validated synthesized native npm ids and peer suffixes. |
+| **Deno native sections on downgrade** | Deno → `deno-v2` / `deno-v3` | `DENO_V2_NATIVE_SECTION_DROPPED` / `DENO_V3_NATIVE_SECTION_DROPPED` | Target-addressed diagnostics name each non-empty JSR/workspace/redirect carrier without a target representation. Strict conversion fails closed. |
+| **Deno v5 npm-entry metadata on downgrade** | `deno-v5` → `deno-v2` / `deno-v3` / `deno-v4` | `DENO_V2_V5_ENTRY_FIELDS_DROPPED` / `DENO_V3_V5_ENTRY_FIELDS_DROPPED` / `DENO_V4_V5_ENTRY_FIELDS_DROPPED` | Exact per-entry field lists identify unrepresentable v5 metadata. Non-strict output is producer-compatible; strict conversion fails closed. |
+| **Deno v5 synthesis from older locks** | `deno-v2` / `deno-v3` / `deno-v4` → `deno-v5` | `CAPABILITY_LACK` | Unsupported until complete v5 package metadata and correct dependency/optional/peer edge reclassification are proven; registry fetching alone is insufficient. |
 | **Deno dev/prod declaration scope** | `deno.lock` → audit/fix classification | — source fact absent | Yes, but only from the sibling `deno.json` or `package.json`; the lock alone cannot prove that a vulnerability is dev-only. |
 | **Integrity — berry-zip ↔ tarball SRI** | berry → npm / yarn-classic / pnpm / bun (and back) | `RECIPE_INTEGRITY_INCOMPLETE` | Only from an authoritative target checksum or by obtaining artifact bytes and **recomputing** the target's hash. Never fabricated; mutable install may refill it, but immutable/frozen install can reject the omission. |
 | **Peer virtualization** | berry / pnpm → npm / yarn-classic / bun | `YARN_CLASSIC_PEER_VIRT_FLATTENED` / `NPM_V1_PEER_VIRT_FLATTENED` / `BUN_TEXT_PEER_VIRT_FLATTENED` (per target adapter) | No — flat targets model one instance per (name, version); peer-context forks collapse. |
@@ -218,7 +222,8 @@ and workspace members in the lock, so `manifests` is optional for them and only
 refines `dev`/`peer`/`optional` classification of workspace-member edges. Deno
 workspace state is preserved only in its native same-format sidecar; its
 manifest-backed npm root declarations are projected in the supported
-`deno` → Node-family directions.
+the 64 concrete-Deno → Node-family directions and nine supported intra-Deno
+directions.
 
 ## Project companion projection
 

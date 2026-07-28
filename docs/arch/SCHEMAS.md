@@ -78,14 +78,18 @@ schema and is not detected as v1.
 
 ## deno
 
-| Adapter id | Marker | Verified writers | Scope |
-|------------|--------|------------------|-------|
-| `deno` | top-level `version: "2"` … `"5"` | Deno 1.44.4 (v3), 2.2.8 (v4), 2.9.4 (v5) | same-format npm-section audit/fix |
+| Adapter id | Marker | Verified writer | Scope |
+|------------|--------|-----------------|-------|
+| `deno-v2` | top-level `version: "2"` | measured corpus; parse/emit proof | same-format mutation; supported targets v3/v4 |
+| `deno-v3` | top-level `version: "3"` | Deno 1.44.4 | same-format mutation; supported targets v2/v4 |
+| `deno-v4` | top-level `version: "4"` | Deno 2.2.8 | same-format mutation; supported targets v2/v3 |
+| `deno-v5` | top-level `version: "5"` | Deno 2.9.4 | same-format mutation; supported targets v2/v3/v4 |
 
-One adapter accepts the versioned v2-v5 layouts and preserves the input version
-when it emits a mutation. V1 is rejected. Unchanged input replays byte-exactly;
-JSR, remote, redirect, and workspace sections remain native sidecar state.
-Cross-format Deno projection is not certified and fails closed.
+Each adapter accepts exactly one layout. V1 is rejected. Unchanged same-format
+input replays byte-exactly; JSR, remote, redirect, workspace, and unknown
+top-level state remain in the shared native sidecar. Every concrete source also
+supports manifest-backed npm-subgraph projection to the 16 Node-family
+formats. Node-family → Deno and v2/v3/v4 → v5 fail closed.
 
 ## Sources
 

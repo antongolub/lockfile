@@ -508,7 +508,9 @@ function diagnosticLossClass(
     || code.endsWith('_PEER_DROPPED')
     || code.endsWith('_PEER_VIRT_FLATTENED')
     || code.endsWith('_WORKSPACES_UNSAFE')
-    || code.endsWith('_SETTINGS_DROPPED')) {
+    || code.endsWith('_SETTINGS_DROPPED')
+    || code.endsWith('_NATIVE_SECTION_DROPPED')
+    || code.endsWith('_V5_ENTRY_FIELDS_DROPPED')) {
     return 'inherent-meaningful'
   }
   return undefined

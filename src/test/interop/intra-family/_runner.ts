@@ -57,8 +57,15 @@ export function runIntraFamily(
             to:     contract.to,
             source: sourceLockfile,
             mode:   'naive',
-            ...(contract.from === 'deno'
-              ? { options: { manifests: denoManifestsForFixture(fixtureName) } }
+            ...(contract.from.startsWith('deno-v')
+              ? {
+                  options: {
+                    manifests: denoManifestsForFixture(
+                      fixtureName,
+                      contract.from as Extract<typeof contract.from, `deno-v${string}`>,
+                    ),
+                  },
+                }
               : {}),
           })
           const observedContract = activeContract(contract, {

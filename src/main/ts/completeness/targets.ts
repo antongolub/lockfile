@@ -1,5 +1,5 @@
 import type { EdgeKind, PackageMetadataField } from '../graph.ts'
-import type { FormatId } from '../api/format-contract.ts'
+import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
 import {
   PACKAGE_METADATA_FIELDS,
 } from '../registry/payload.ts'
@@ -60,7 +60,7 @@ function targetManagerOf(format: FormatId): TargetManager {
   if (format.startsWith('yarn-')) return 'yarn'
   if (format.startsWith('pnpm-')) return 'pnpm'
   if (format === 'bun-text') return 'bun'
-  if (format === 'deno') return 'deno'
+  if (isDenoFormat(format)) return 'deno'
   return 'lockgraph'
 }
 
@@ -291,7 +291,7 @@ function assertCompatible(format: FormatId, version: ManagerVersion | undefined)
               : format === 'pnpm-v6' ? major === 8
                 : format === 'pnpm-v9' ? major >= 9
                   : format === 'bun-text' ? major > 1 || (major === 1 && (minor ?? -1) >= 2)
-                    : format === 'deno' ? major >= 1
+                    : isDenoFormat(format) ? major >= 1
                       : format === 'lockgraph' ? false
                       : yarnCompatible
   if (!compatible) throw new TypeError(`target manager version is incompatible with ${format}`)
@@ -381,7 +381,10 @@ function resolvedCapabilities(
     case 'pnpm-v6': return { capabilities: pnpmV6, ambiguous: [] }
     case 'pnpm-v9': return pnpmV9(version)
     case 'bun-text': return { capabilities: bunText, ambiguous: [] }
-    case 'deno': return { capabilities: deno, ambiguous: [] }
+    case 'deno-v2':
+    case 'deno-v3':
+    case 'deno-v4':
+    case 'deno-v5': return { capabilities: deno, ambiguous: [] }
     case 'lockgraph': return { capabilities: lockgraph, ambiguous: [] }
   }
 }

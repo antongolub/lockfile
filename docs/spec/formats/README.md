@@ -45,7 +45,10 @@ Every spec declares its provenance to set expectations:
 | `pnpm-v9`          | `lockfileVersion: '9.0'`    | Source-only         | [pnpm-v9.md](./pnpm-v9.md) |
 | `bun-text`         | `bun.lock` filename + JSONC | Official            | [bun-text.md](./bun-text.md) |
 | `bun-binary`       | `bun.lockb` filename + magic | Reverse-engineered | [bun-binary.md](./bun-binary.md) |
-| `deno`             | top-level `version: "2"` … `"5"` | External producer + measured oracles | [deno.md](./deno.md) |
+| `deno-v2`          | top-level `version: "2"` | Measured corpus; parse/emit proof | [deno-v2.md](./deno-v2.md) |
+| `deno-v3`          | top-level `version: "3"` | Deno 1.44.4 + measured oracle | [deno-v3.md](./deno-v3.md) |
+| `deno-v4`          | top-level `version: "4"` | Deno 2.2.8 + measured oracle | [deno-v4.md](./deno-v4.md) |
+| `deno-v5`          | top-level `version: "5"` | Deno 2.9.4 + measured oracle | [deno-v5.md](./deno-v5.md) |
 | `lockgraph`        | `@lockgraph` magic (first token) | **Native**     | [lockgraph.md](./lockgraph.md) |
 
 > **`lockgraph` is not a package-manager lockfile.** It is this project's own
@@ -107,16 +110,21 @@ does not shell out).
 
 ### deno
 
-| Deno semver | `deno` adapter | Native lock version | Notes |
-|-------------|----------------|---------------------|-------|
-| Deno 1.44.4 | RW | v3 | producer- and frozen-verified |
-| Deno 2.2.8 | RW | v4 | producer- and frozen-verified |
-| Deno 2.9.4 | RW | v5 | producer- and frozen-verified |
+| Deno semver | `deno-v2` | `deno-v3` | `deno-v4` | `deno-v5` | Notes |
+|-------------|-----------|-----------|-----------|-----------|-------|
+| measured legacy corpus | RW | – | – | – | v2 has parse/emit proof; no pinned producer |
+| Deno 1.44.4 | – | RW | – | – | v3 producer- and frozen-verified |
+| Deno 2.2.8 | – | – | RW | – | v4 producer- and frozen-verified |
+| Deno 2.9.4 | – | – | – | RW | v5 producer- and frozen-verified |
 
-The adapter also accepts v2 from the measured corpus. RW includes same-format
-npm-section audit/fix with native JSR/remote/workspace replay. With sibling
-manifest evidence, the npm subgraph projects to all 16 Node-family formats;
-the 16 reverse directions remain explicitly unsupported.
+Each adapter accepts exactly its literal top-level version. Same-identity RW
+includes npm-section audit/fix with native JSR/remote/workspace replay. Nine
+intra-Deno targets are supported: every target-v3/v4 result is frozen-verified,
+while target-v2 is parse/emit-only. V2/v3/v4 → v5 remains fail-closed pending
+complete v5 package metadata and dependency/optional/peer reclassification
+proof. With sibling manifest evidence, the four concrete sources project their
+npm subgraphs to all 16 Node-family formats (64 cells); all 64 reverse cells
+remain explicitly unsupported.
 
 > **Open:** several "opt-in" rows above are educated guesses about the exact
 > CLI flags and PM versions where the capability appeared. Validate each one

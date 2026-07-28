@@ -19,7 +19,10 @@ const formats: readonly FormatId[] = [
   'pnpm-v6',
   'pnpm-v9',
   'bun-text',
-  'deno',
+  'deno-v2',
+  'deno-v3',
+  'deno-v4',
+  'deno-v5',
   'lockgraph',
 ]
 
@@ -73,7 +76,7 @@ describe('sourceCapabilitiesOf', () => {
       edgeKinds: 'complete',
       peerModel: 'declared',
     })
-    expect(sourceCapabilitiesOf('deno').floor).toMatchObject({
+    expect(sourceCapabilitiesOf('deno-v5').floor).toMatchObject({
       projectTopology: 'partial',
       resolvedGraph: 'partial',
       edgeKinds: 'partial',

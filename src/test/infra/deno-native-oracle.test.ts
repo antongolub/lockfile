@@ -9,6 +9,12 @@ import {
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  parse,
+  stringify,
+  type DenoFormatId,
+  type Diagnostic,
+} from '../../main/ts/index.ts'
 
 interface DenoOracle {
   readonly lockVersion: '3' | '4' | '5'
@@ -61,6 +67,8 @@ function runOracle(
   oracle: DenoOracle,
   lockfile: string,
   leg: 'clean' | 'tampered' | 'restored',
+  importRange = oracle.importRange,
+  includeJsr = true,
 ): {
   readonly status: number | null
   readonly output: string
@@ -73,14 +81,16 @@ function runOracle(
       resolve(projectRoot, 'deno.json'),
       `${JSON.stringify({
         imports: {
-          '@std/assert': 'jsr:@std/assert@1.0.19',
-          'react-dom': `npm:react-dom@${oracle.importRange}`,
+          ...(includeJsr ? { '@std/assert': 'jsr:@std/assert@1.0.19' } : {}),
+          'react-dom': `npm:react-dom@${importRange}`,
         },
       }, null, 2)}\n`,
     )
     writeFileSync(
       resolve(projectRoot, 'main.ts'),
-      "import { assert } from '@std/assert'\nimport { renderToString } from 'react-dom/server'\nassert(renderToString('oracle') === 'oracle')\n",
+      includeJsr
+        ? "import { assert } from '@std/assert'\nimport { renderToString } from 'react-dom/server'\nassert(renderToString('oracle') === 'oracle')\n"
+        : "import { renderToString } from 'react-dom/server'\nif (renderToString('oracle') !== 'oracle') throw new Error('render mismatch')\n",
     )
     writeFileSync(resolve(projectRoot, 'deno.lock'), lockfile)
 
@@ -134,4 +144,83 @@ describe('infra: pinned Deno native frozen oracles', () => {
       600_000,
     )
   }
+
+  const supportedCrossVersionPairs = [
+    ['deno-v2', 'deno-v3'],
+    ['deno-v4', 'deno-v3'],
+    ['deno-v5', 'deno-v3'],
+    ['deno-v2', 'deno-v4'],
+    ['deno-v3', 'deno-v4'],
+    ['deno-v5', 'deno-v4'],
+  ] as const satisfies readonly (readonly [DenoFormatId, DenoFormatId])[]
+
+  for (const [from, to] of supportedCrossVersionPairs) {
+    const targetVersion = to.slice(-1) as DenoOracle['lockVersion']
+    const oracle = oracles.find(candidate => candidate.lockVersion === targetVersion)!
+    const binary = resolve(`tmp/deno-oracle/${oracle.denoVersion}/deno`)
+    const available = existsSync(binary)
+    const runnable = available ? it : it.skip
+    runnable(
+      `${from} -> ${to} passes target Deno ${oracle.denoVersion} cold-cache frozen acceptance`
+        + (available ? '' : ` [skip: pinned binary ${oracle.denoVersion} is absent]`),
+      () => {
+        const sourceVersion = from.slice(-1)
+        const sourceFixture = sourceVersion === '5'
+          ? 'deno.lock'
+          : `deno-v${sourceVersion}.lock`
+        const source = readFileSync(resolve(fixtureRoot, sourceFixture), 'utf8')
+        const sourceRange = from === 'deno-v5' ? '^19.1.0' : '19.1.1'
+        const graph = parse(from, source, {
+          manifests: {
+            '': {
+              name: 'case-deno',
+              version: '1.0.0',
+              dependencies: { 'react-dom': sourceRange },
+            },
+          },
+        })
+        const diagnostics: Diagnostic[] = []
+        const converted = stringify(to, graph, {
+          strict: false,
+          onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+        })
+        expect(JSON.parse(converted).version).toBe(targetVersion)
+        expect(diagnostics.map(diagnostic => diagnostic.code))
+          .not.toContain('COMPLETENESS_ADAPTER_STATE_LOST')
+
+        const includeJsr = from !== 'deno-v2'
+        const clean = runOracle(oracle, converted, 'clean', sourceRange, includeJsr)
+        expect(clean.status, clean.output).toBe(0)
+        expect(clean.resultingLockfile).toBe(converted)
+
+        const tampered = runOracle(
+          oracle,
+          tamperNpmIntegrity(converted),
+          'tampered',
+          sourceRange,
+          includeJsr,
+        )
+        expect(tampered.status, tampered.output).toBe(oracle.tamperedExit)
+        expect(tampered.output).toMatch(/cache|checksum|integrity|lock|mismatch/i)
+
+        const restored = runOracle(oracle, converted, 'restored', sourceRange, includeJsr)
+        expect(restored.status, restored.output).toBe(0)
+        expect(restored.resultingLockfile).toBe(converted)
+        expect(stringify(to, parse(to, restored.resultingLockfile))).toBe(converted)
+      },
+      600_000,
+    )
+  }
+
+  it('labels every target-v2 cell as parse/emit-only while preserving byte identity', () => {
+    for (const from of ['deno-v3', 'deno-v4', 'deno-v5'] as const) {
+      const source = readFileSync(
+        resolve(fixtureRoot, from === 'deno-v5' ? 'deno.lock' : `${from}.lock`),
+        'utf8',
+      )
+      const output = stringify('deno-v2', parse(from, source), { strict: false })
+      expect(JSON.parse(output).version).toBe('2')
+      expect(stringify('deno-v2', parse('deno-v2', output))).toBe(output)
+    }
+  })
 })

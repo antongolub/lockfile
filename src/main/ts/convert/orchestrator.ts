@@ -6,7 +6,7 @@ import {
   type ProjectionLoss,
   type ProjectionRemedy,
 } from '../api/errors.ts'
-import type { FormatId } from '../api/format-contract.ts'
+import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
 import {
   assessedDiagnostic,
   canonicalProjectionGraphSnapshot,
@@ -62,7 +62,7 @@ import {
   type PnpmWorkspacePeerProjection,
   type PnpmWorkspacePeerProjectionEvidence,
 } from '../formats/_pnpm-flat-core.ts'
-import * as deno from '../formats/deno.ts'
+import { nonNpmSectionCounts as denoNonNpmSectionCounts } from '../formats/_deno-core.ts'
 import { enrich as enrichGraph, type EnrichSources } from '../enrich/facade.ts'
 import {
   yarnBerryPluginCompatGapDiagnostics,
@@ -273,23 +273,33 @@ async function prepareConversionRuntime(
   for (const diagnostic of prepared.diagnostics) report(diagnostic)
   const sources = mergedEnrichSources(prepared, options)
   if (
-    prepared.source !== options.to
-    && options.to === 'deno'
+    !isDenoFormat(prepared.source)
+    && isDenoFormat(options.to)
   ) {
     throw new LockfileError({
       code: 'CAPABILITY_LACK',
-      message: `convert: ${prepared.source} -> deno is unsupported; lockgraph has not producer-certified synthesis of Deno native npm ids and peer suffixes. Source-level package transformation may use Deno's https://github.com/denoland/dnt, but lockgraph does not invoke or certify dnt`,
+      message: `convert: ${prepared.source} -> ${options.to} is unsupported; lockgraph has no target-specific producer-certified synthesis of Deno native npm ids, peer suffixes, integrity, and root specifier bindings. Source-level package transformation may use Deno's https://github.com/denoland/dnt, but lockgraph does not invoke or certify dnt`,
     })
   }
   if (
-    prepared.source === 'deno'
-    && prepared.source !== options.to
+    isDenoFormat(prepared.source)
+    && prepared.source !== 'deno-v5'
+    && options.to === 'deno-v5'
+  ) {
+    throw new LockfileError({
+      code: 'CAPABILITY_LACK',
+      message: `convert: ${prepared.source} -> deno-v5 is unsupported; the source lacks complete v5 package metadata and proof that existing dependency, optional-dependency, and peer edges were correctly reclassified. A registry fetch alone is insufficient`,
+    })
+  }
+  if (
+    isDenoFormat(prepared.source)
+    && !isDenoFormat(options.to)
     && sources.manifests?.[''] === undefined
   ) {
     const diagnostic: Diagnostic = {
       code: 'DENO_MANIFEST_REQUIRED',
       severity: 'error',
-      message: `convert: deno -> ${options.to} requires sibling deno.json/package.json manifest evidence because deno.lock does not encode root dev/production scope`,
+      message: `convert: ${prepared.source} -> ${options.to} requires sibling deno.json/package.json manifest evidence because deno.lock does not encode root dev/production scope`,
     }
     report(diagnostic)
     throw new LockfileError({
@@ -302,13 +312,13 @@ async function prepareConversionRuntime(
     manifests: sources.manifests === undefined ? undefined : { ...sources.manifests },
     onDiagnostic: report,
   })
-  if (prepared.source === 'deno' && prepared.source !== options.to) {
-    const counts = deno.nonNpmSectionCounts(graph)
+  if (isDenoFormat(prepared.source) && !isDenoFormat(options.to)) {
+    const counts = denoNonNpmSectionCounts(graph)
     if ((counts?.jsr ?? 0) > 0) {
       report({
         code: 'DENO_JSR_PACKAGES_DROPPED',
         severity: 'warning',
-        message: `convert: deno -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.jsr} JSR package${counts!.jsr === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
+        message: `convert: ${prepared.source} -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.jsr} JSR package${counts!.jsr === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
         data: { feature: 'deno:jsr', count: counts!.jsr },
       })
     }
@@ -316,7 +326,7 @@ async function prepareConversionRuntime(
       report({
         code: 'DENO_REMOTE_PACKAGES_DROPPED',
         severity: 'warning',
-        message: `convert: deno -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.remote} remote module${counts!.remote === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
+        message: `convert: ${prepared.source} -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.remote} remote module${counts!.remote === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
         data: { feature: 'deno:remote', count: counts!.remote },
       })
     }
@@ -387,7 +397,7 @@ function targetLockPath(format: FormatId): string {
   if (format.startsWith('yarn-')) return 'yarn.lock'
   if (format.startsWith('pnpm-')) return 'pnpm-lock.yaml'
   if (format === 'bun-text') return 'bun.lock'
-  if (format === 'deno') return 'deno.lock'
+  if (isDenoFormat(format)) return 'deno.lock'
   return 'lockgraph.lockgraph'
 }
 

@@ -22,8 +22,20 @@ export type FormatId =
   | 'pnpm-v6'
   | 'pnpm-v9'
   | 'bun-text'
-  | 'deno'
+  | 'deno-v2'
+  | 'deno-v3'
+  | 'deno-v4'
+  | 'deno-v5'
   | 'lockgraph'
+
+export type DenoFormatId = Extract<FormatId, `deno-v${string}`>
+
+export function isDenoFormat(format: string): format is DenoFormatId {
+  return format === 'deno-v2'
+    || format === 'deno-v3'
+    || format === 'deno-v4'
+    || format === 'deno-v5'
+}
 
 export interface ParseOptions {
   /**

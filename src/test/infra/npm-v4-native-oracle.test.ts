@@ -87,7 +87,7 @@ describe('infra: npm-4 native npm 12 oracle', () => {
       source.npm['ms@2.1.3']!.tarball =
         `${registry!.registry!.replace(/\/$/, '')}/ms/-/ms-2.1.3.tgz`
       const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
-        from: 'deno',
+        from: 'deno-v5',
         to: 'npm-4',
         strict: false,
         targetVersion: adapter.version,

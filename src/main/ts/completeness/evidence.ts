@@ -10,7 +10,7 @@ import {
   type OverrideConstraint,
   type TarballKey,
 } from '../graph.ts'
-import type { FormatId } from '../api/format-contract.ts'
+import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
 import type { PackumentVersion } from '../registry/types.ts'
 import type {
   CompletenessDimension,
@@ -418,7 +418,7 @@ function targetManagerOf(format: FormatId): TargetManager {
   if (format.startsWith('yarn-')) return 'yarn'
   if (format.startsWith('pnpm-')) return 'pnpm'
   if (format === 'bun-text') return 'bun'
-  if (format === 'deno') return 'deno'
+  if (isDenoFormat(format)) return 'deno'
   return 'lockgraph'
 }
 

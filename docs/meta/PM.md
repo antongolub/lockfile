@@ -33,7 +33,7 @@ account for effectively all public JavaScript projects.
 | [Yarn Berry](https://github.com/yarnpkg/berry) (2.x–4.x) | Rewrite around Plug'n'Play: no `node_modules`, packages resolved from zip archives. | `yarn.lock` (YAML, `__metadata.version` 4–10) | `registry.yarnpkg.com` | yes — `yarn-berry-v4` … `v10` |
 | [pnpm](https://github.com/pnpm/pnpm) | Content-addressable store plus a symlinked `node_modules`: strict dependency isolation and disk reuse. | `pnpm-lock.yaml` (v5, v6, v9) | `registry.npmjs.org` | yes — `pnpm-v5`, `pnpm-v6`, `pnpm-v9` |
 | [Bun](https://github.com/oven-sh/bun) | Runtime with a built-in installer; speed-first, npm-registry compatible. | `bun.lock` (text), `bun.lockb` (binary, superseded) | `registry.npmjs.org` | text yes — `bun-text`; binary detect-only |
-| [Deno](https://github.com/denoland/deno) | Runtime with an integrated manager spanning three sources: npm packages, JSR modules and remote URLs. | `deno.lock` (v2–v5) | `registry.npmjs.org` + `jsr.io` | yes — `deno`, same-format npm-section only |
+| [Deno](https://github.com/denoland/deno) | Runtime with an integrated manager spanning three sources: npm packages, JSR modules and remote URLs. | `deno.lock` (v2–v5) | `registry.npmjs.org` + `jsr.io` | yes — `deno-v2` … `deno-v5`; same-format npm-section, nine intra-Deno targets, and manifest-backed npm-subgraph projection |
 
 Registries are covered separately in [REGISTRIES.md](./REGISTRIES.md).
 

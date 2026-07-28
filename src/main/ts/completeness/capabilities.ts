@@ -197,7 +197,10 @@ export function sourceCapabilitiesOf(
       return { floor: pnpmV9, ambiguousDimensions: noAmbiguity() }
     case 'bun-text':
       return { floor: bunText, ambiguousDimensions: noAmbiguity() }
-    case 'deno':
+    case 'deno-v2':
+    case 'deno-v3':
+    case 'deno-v4':
+    case 'deno-v5':
       return { floor: deno, ambiguousDimensions: noAmbiguity() }
     case 'lockgraph':
       return { floor: lockgraph, ambiguousDimensions: noAmbiguity() }

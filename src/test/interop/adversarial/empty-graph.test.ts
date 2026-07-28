@@ -29,20 +29,23 @@ describe('interop adversarial §8.1 — empty graph conversion', () => {
         )
         return
       }
-      const sourceLockfile = contract.from === 'deno'
-        ? '{\n  "version": "4",\n  "specifiers": {},\n  "npm": {}\n}\n'
+      const sourceLockfile = contract.from.startsWith('deno-v')
+        ? emptyDenoLock(contract.from as Extract<typeof contract.from, `deno-v${string}`>)
         : stringifyEmpty(contract.from).lockfile
-      const emitted = stringifyEmpty(contract.to, graph)
+      const sourceGraph = contract.from.startsWith('deno-v')
+        ? parseFormat(contract.from, sourceLockfile)
+        : graph
+      const emitted = stringifyEmpty(contract.to, sourceGraph)
       const destinationGraph = parseFormat(contract.to, emitted.lockfile)
       const interopDiagnostics = observeInteropDiagnostics(contract, {
-        sourceGraph: graph,
+        sourceGraph,
         destinationGraph,
         sourceLockfile,
         destinationLockfile: emitted.lockfile,
         mode: 'naive',
       })
       const observedContract = activeContract(contract, {
-        sourceGraph: graph,
+        sourceGraph,
         destinationGraph,
         sourceLockfile,
         destinationLockfile: emitted.lockfile,
@@ -50,7 +53,7 @@ describe('interop adversarial §8.1 — empty graph conversion', () => {
       })
 
       assertConversionContract(observedContract, {
-        graphSource: graph,
+        graphSource: sourceGraph,
         graphDestination: destinationGraph,
         diagnostics: [...emitted.diagnostics, ...interopDiagnostics],
         mode: 'naive',
@@ -63,6 +66,15 @@ describe('interop adversarial §8.1 — empty graph conversion', () => {
 
 function stringifyEmpty(format: ConversionContract['from'], graph = emptyGraph()) {
   return stringifyFormat(format, graph)
+}
+
+function emptyDenoLock(format: Extract<ConversionContract['from'], `deno-v${string}`>): string {
+  const version = format.slice('deno-v'.length)
+  return version === '2'
+    ? `{\n  "version": "2",\n  "remote": {},\n  "npm": {\n    "specifiers": {},\n    "packages": {}\n  }\n}\n`
+    : version === '3'
+      ? `{\n  "version": "3",\n  "packages": {\n    "specifiers": {},\n    "jsr": {},\n    "npm": {}\n  },\n  "remote": {}\n}\n`
+      : `{\n  "version": "${version}",\n  "specifiers": {},\n  "jsr": {},\n  "npm": {},\n  "remote": {}\n}\n`
 }
 
 function isSameFamily(contract: ConversionContract): boolean {

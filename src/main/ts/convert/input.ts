@@ -3,7 +3,7 @@ import { LockfileError } from '../api/errors.ts'
 import { readYaml } from '../formats/_pnpm-yaml.ts'
 import type { Diagnostic, Manifest, OverrideConstraint, OverridePM } from '../graph.ts'
 import { captureOverrides } from '../recipe/overrides.ts'
-import type { FormatId } from '../api/format-contract.ts'
+import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
 import { expandBraces, matchesGlobSet } from './glob.ts'
 import type {
   ConvertDependencies,
@@ -133,7 +133,7 @@ function familyOf(format: FormatId): Extract<FileRole, { kind: 'lock' }>['family
   if (format.startsWith('yarn-')) return 'yarn'
   if (format.startsWith('pnpm-')) return 'pnpm'
   if (format === 'bun-text') return 'bun'
-  if (format === 'deno') return 'deno'
+  if (isDenoFormat(format)) return 'deno'
   return 'lockgraph'
 }
 
@@ -476,7 +476,7 @@ function prepareProjectFiles(
     if (role.kind === 'config') {
       const content = decodeText(file.content, file.path)
       const basename = path.posix.basename(rebased)
-      if (source === 'deno' && (basename === 'deno.json' || basename === 'deno.jsonc')) {
+      if (isDenoFormat(source) && (basename === 'deno.json' || basename === 'deno.jsonc')) {
         const directory = path.posix.dirname(rebased)
         const key = directory === '.' ? '' : directory
         denoManifests[key] = parseDenoProjectManifest(content, rebased)

@@ -268,7 +268,7 @@ describe('infra: frozen conversion native oracle', () => {
     const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === alias)!
     const runnable = runnableFor(adapter)
     runnable.run(
-      `deno -> ${adapter.format} is accepted by ${adapter.alias} frozen mode${runnable.suffix}`,
+      `deno-v5 -> ${adapter.format} is accepted by ${adapter.alias} frozen mode${runnable.suffix}`,
       async () => {
         const files = createNativeLock(adapter, projectFiles(adapter))
         const source = JSON.parse(readFileSync(denoNpmOnlyPath, 'utf8')) as unknown
@@ -280,7 +280,7 @@ describe('infra: frozen conversion native oracle', () => {
           ? nativeLockfile.match(/^\s+checksum:\s+(\S+)\s*$/m)?.[1]
           : undefined
         const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
-          from: 'deno',
+          from: 'deno-v5',
           to: adapter.format,
           strict: false,
           targetVersion: adapter.version,

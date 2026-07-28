@@ -24,7 +24,10 @@ const fixture = (file: string): string => readFileSync(
 
 const EXPECTED_FORMATS = [
   'bun-text',
-  'deno',
+  'deno-v2',
+  'deno-v3',
+  'deno-v4',
+  'deno-v5',
   'lockgraph',
   'npm-1',
   'npm-2',
@@ -46,7 +49,10 @@ const EXPECTED_FORMATS = [
 const EXPECTED_DETECTION_ORDER = [
   'lockgraph',
   'bun-text',
-  'deno',
+  'deno-v5',
+  'deno-v4',
+  'deno-v3',
+  'deno-v2',
   'yarn-berry-v10',
   'yarn-berry-v9',
   'yarn-berry-v8',
@@ -70,6 +76,7 @@ function inputFor(format: FormatId): string {
     return fixture('yarn-berry-v9.lock')
       .replace(/(^__metadata:\s*\n\s+version:\s*)9(\s)/m, '$110$2')
   }
+  if (format === 'deno-v5') return fixture('deno.lock')
   return fixture(`${format}.lock`)
 }
 
@@ -131,6 +138,12 @@ describe('typed format registry — adapter state dispatch', () => {
     const pnpmFlat = parseFormat('pnpm-v6', inputFor('pnpm-v6'))
     expect(hasFormatAdapterState('pnpm-v6', pnpmFlat)).toBe(true)
     expect(hasFormatAdapterState('pnpm-v9', pnpmFlat)).toBe(true)
+
+    const deno = parseFormat('deno-v5', inputFor('deno-v5'))
+    expect(hasFormatAdapterState('deno-v2', deno)).toBe(true)
+    expect(hasFormatAdapterState('deno-v3', deno)).toBe(true)
+    expect(hasFormatAdapterState('deno-v4', deno)).toBe(true)
+    expect(hasFormatAdapterState('deno-v5', deno)).toBe(true)
   })
 
   it.each([undefined, 'lockgraph'] as const)('keeps %s rebinding a no-op', format => {

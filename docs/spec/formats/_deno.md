@@ -1,32 +1,37 @@
-# `deno.lock` — Deno's native lockfile
+# Shared `deno.lock` model — Deno v2-v5
 
-> Status: implemented preview adapter; same-format npm-section mutation and
-> manifest-backed npm-subgraph projection to all 16 Node-family formats.
+> Status: shared measured schema for the four public `deno-v2` … `deno-v5`
+> adapters; same-format npm-section mutation, nine supported intra-Deno
+> conversions, and manifest-backed npm-subgraph projection to all 16
+> Node-family formats.
 > Updated: 2026-07-28.
 > Provenance: **External** — emitted and frozen-verified by pinned Deno binaries.
 
-The adapter reads `deno.lock` versions 2 through 5. It projects the native npm
+The four public adapters each accept exactly one `deno.lock` wire version. They
+share the parser/state/emitter model described here. The model projects the native npm
 resolution section into the canonical graph and keeps JSR, remote modules,
 redirects, and workspace data in a same-format native sidecar. An unchanged
-graph replays the original bytes exactly. A graph mutation is emitted as
-canonical two-space JSON while preserving the input lockfile version.
+graph replays the original bytes exactly. A same-identity graph mutation is
+emitted as canonical two-space JSON for that identity. Cross-identity emission
+always uses the selected target adapter's layout and version.
 
 This deliberately is not a general Deno ecosystem conversion surface. The
-interop matrix supports all 16 `deno` → Node-family directions for the npm
-resolution subgraph when a sibling manifest is supplied. The 16 reverse
+interop matrix supports all 64 concrete-Deno → Node-family directions for the
+npm resolution subgraph when a sibling manifest is supplied. The 64 reverse
 directions remain explicitly unsupported and fail closed with
 `CAPABILITY_LACK`. The supported operations are:
 
 ```text
-deno.lock v2-v5 → npm subgraph audit/fix → same deno.lock version
-deno.lock v2-v5 + sibling manifest → npm subgraph → Node-family lock
+deno-v2 … deno-v5 → npm subgraph audit/fix → same concrete format
+supported Deno source → deno-v2 / deno-v3 / deno-v4
+concrete Deno source + sibling manifest → npm subgraph → Node-family lock
 ```
 
 This is a lockfile-layer boundary, not an ecosystem dead end. Deno's official
 [`denoland/dnt`](https://github.com/denoland/dnt) performs a source-level
 Deno-to-Node transformation: it rewrites module specifiers, can localise remote
 modules that have no npm mapping, and emits an npm package with `package.json`.
-That output can enter Lockgraph's normal npm-family pipeline. This adapter does
+That output can enter Lockgraph's normal npm-family pipeline. These adapters do
 not invoke `dnt`, and no composed `dnt` → Lockgraph round trip is certified here.
 
 ## Compatibility and producer oracles
@@ -38,7 +43,8 @@ not invoke `dnt`, and no composed `dnt` → Lockgraph round trip is certified he
 | v4 | emitted by Deno 2.2.8 | clean/restored exit 0; cold-cache tamper exit 10 |
 | v5 | emitted by Deno 2.9.4 | clean/restored exit 0; cold-cache tamper exit 1 |
 
-Deno v1 is unsupported. The format detector and parser reject it rather than
+Deno v1 is unsupported. Every concrete format detector and parser rejects it
+rather than
 guessing an obsolete schema.
 
 The frozen oracle uses `deno install --frozen`, the relevant project config,
@@ -140,7 +146,7 @@ by that mutation and retains those native sections.
 
 `deno.lock` does not encode whether a requested dependency is a development-only
 or production declaration. The lock alone therefore cannot establish that a
-vulnerable package is dev-only, and the adapter deliberately does not infer
+vulnerable package is dev-only, and the adapters deliberately do not infer
 that scope from reachability. An audit or fix that needs the distinction must
 also receive the sibling `deno.json`/`deno.jsonc` or `package.json` as manifest
 evidence. Cross-format conversion always requires that evidence and fails
@@ -167,7 +173,7 @@ the peer suffix. The raw suffix is authoritative for same-format replay and
 renaming. Projected peer edges are a one-way semantic view; they never normalize
 or replace a native suffix that Deno already wrote.
 
-If the adapter cannot associate a suffix peer with one unique npm package, it
+If an adapter cannot associate a suffix peer with one unique npm package, it
 keeps the native suffix, emits a diagnostic, and declines any mutation that
 would require inventing the missing association.
 
@@ -204,7 +210,7 @@ preserving an authoritative custom source.
 
 ## Merge conflicts
 
-Before JSON parsing, the adapter recognizes all four line-start diff3 markers:
+Before JSON parsing, every adapter recognizes all four line-start diff3 markers:
 `<<<<<<<`, `|||||||`, `=======`, and `>>>>>>>`.
 
 Their presence produces `DENO_MERGE_CONFLICT` and rejects parsing before any
@@ -213,10 +219,10 @@ the library does not guess which supply-chain claim is authoritative.
 
 ## Emission
 
-Unchanged input is byte-exact, including ordering, whitespace, line endings,
-and all native-only sections. Mutation:
+Unchanged same-identity input is byte-exact, including ordering, whitespace,
+line endings, and all native-only sections. Same-identity mutation:
 
-1. preserves the input version;
+1. emits the selected adapter's version;
 2. renames the changed native npm identity, including dependent references;
 3. rewrites requested-specifier resolutions for that version's layout;
 4. rebuilds only npm entries whose graph facts changed;
@@ -227,9 +233,15 @@ The committed v5 mutation fixture is byte-identical to Deno 2.9.4 output and
 passes `deno install --frozen` unchanged.
 
 The distribution-size ceiling is raised from 1140 kB to 1220 kB with this
-adapter. The adapter is an intentional new public format surface; the new limit
+shared implementation. The four adapters are intentional new public format
+surfaces; the new limit
 records that cost and restores 80 kB of explicit headroom instead of leaving
 the gate exactly at the measured bundle size.
+
+The declaration-only ceiling is raised from 123 kB to 126 kB because the
+single preview entry point became four concrete public subpaths. The increase
+records the four independently importable type surfaces and retains explicit
+headroom rather than hiding them behind one schema-ambiguous declaration.
 
 ## Corpus and tests
 
@@ -239,16 +251,23 @@ tested separately because they are intentionally not JSON.
 
 The unit and interop suites cover:
 
-- v2-v5 detection, parsing, exact replay, and version-preserving mutation;
+- disjoint v2-v5 detection, parsing, exact replay, and target-driven mutation;
+- all nine supported intra-Deno conversions, with pinned frozen target-native
+  acceptance for every v3/v4 target and structural parse/emit proof for v2;
+- explicit fail-closed v2/v3/v4 → v5 cells until complete package metadata and
+  dependency/optional/peer edge-reclassification evidence exists;
 - native peer suffixes and reference rewriting;
 - mandatory/optional incomplete-reference fail-closed behavior;
 - tarball presence policy and integrity-domain validation;
 - all diff3 markers;
 - producer-compatible v5 emission;
-- all 16 manifest-backed `deno` → Node-family matrix cells as supported
-  conversions and all 16 reverse cells as explicit unsupported conversions;
+- all 64 manifest-backed concrete-Deno → Node-family matrix cells as supported
+  conversions and all 64 reverse cells as explicit unsupported conversions;
 - pinned native frozen acceptance for every supported target generation,
   including a dedicated npm-4/Node-26 gate and bundled Yarn 4.17.1/v10.
 
-Behavioral context is documented in [`docs/spec/pm/deno.md`](../pm/deno.md);
+Public entry pages are [`deno-v2.md`](./deno-v2.md),
+[`deno-v3.md`](./deno-v3.md), [`deno-v4.md`](./deno-v4.md), and
+[`deno-v5.md`](./deno-v5.md). Behavioral context is documented in
+[`docs/spec/pm/deno.md`](../pm/deno.md);
 integrity terminology follows [`_common.md`](./_common.md).

@@ -4,7 +4,18 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { serializeNodeId, type Graph } from '../../main/ts/graph.ts'
-import { check, parse, stringify } from '../../main/ts/formats/deno.ts'
+import {
+  check as checkPublic,
+  parse as parsePublic,
+  stringify as stringifyPublic,
+  type Diagnostic,
+  type FormatId,
+} from '../../main/ts/index.ts'
+import { sourceVersionOf, type DenoVersion } from '../../main/ts/formats/_deno-core.ts'
+import * as denoV2 from '../../main/ts/formats/deno-v2.ts'
+import * as denoV3 from '../../main/ts/formats/deno-v3.ts'
+import * as denoV4 from '../../main/ts/formats/deno-v4.ts'
+import * as denoV5 from '../../main/ts/formats/deno-v5.ts'
 import { parseSri } from '../../main/ts/recipe/integrity.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -22,6 +33,35 @@ const LAYOUT_FIXTURES = [
 
 const SCHEDULER_027_SRI =
   'sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q=='
+
+const ADAPTERS = {
+  '2': denoV2,
+  '3': denoV3,
+  '4': denoV4,
+  '5': denoV5,
+} as const
+
+function check(input: string): boolean {
+  return Object.values(ADAPTERS).some(adapter => adapter.check(input))
+}
+
+function parse(input: string): Graph {
+  let version: DenoVersion
+  try {
+    version = JSON.parse(input).version as DenoVersion
+  } catch {
+    const match = input.match(/"version"\s*:\s*"([2345])"/)
+    if (match === null) throw new Error('missing Deno version')
+    version = match[1] as DenoVersion
+  }
+  return ADAPTERS[version].parse(input)
+}
+
+function stringify(graph: Graph): string {
+  const version = sourceVersionOf(graph)
+  if (version === undefined) throw new Error('missing Deno adapter state')
+  return ADAPTERS[version].stringify(graph)
+}
 
 function bumpScheduler(graph: Graph): Graph {
   const schedulerId = graph.byName('scheduler')[0]!
@@ -47,6 +87,22 @@ function bumpScheduler(graph: Graph): Graph {
 }
 
 describe('deno adapter', () => {
+  it.each(LAYOUT_FIXTURES)(
+    'isolates the public deno-v%s identity from all sibling versions',
+    (version, filename) => {
+      const input = fixture(filename)
+      const format = `deno-v${version}` as FormatId
+      expect(checkPublic(format, input)).toBe(true)
+      for (const sibling of ['deno-v2', 'deno-v3', 'deno-v4', 'deno-v5'] as const) {
+        if (sibling === format) continue
+        expect(checkPublic(sibling, input)).toBe(false)
+        expect(() => parsePublic(sibling, input)).toThrowError(
+          expect.objectContaining({ code: 'FORMAT_MISMATCH' }),
+        )
+      }
+    },
+  )
+
   it.each(LAYOUT_FIXTURES)(
     'parses and byte-replays committed v%s input',
     (_version, filename) => {
@@ -100,6 +156,19 @@ describe('deno adapter', () => {
     },
   )
 
+  it.each(LAYOUT_FIXTURES)(
+    'preserves unknown top-level state after a concrete-id mutation for v%s',
+    (version, filename) => {
+      const document = JSON.parse(fixture(filename))
+      document['x-lockgraph-sentinel'] = { nested: [1, true, 'value'] }
+      const graph = bumpScheduler(parse(`${JSON.stringify(document, null, 2)}\n`))
+      expect(JSON.parse(stringify(graph))['x-lockgraph-sentinel']).toEqual(
+        document['x-lockgraph-sentinel'],
+      )
+      expect(sourceVersionOf(graph)).toBe(version)
+    },
+  )
+
   it('allows exact replay but refuses mutation after an incomplete mandatory reference', () => {
     const input = `{
   "version": "5",
@@ -125,7 +194,7 @@ describe('deno adapter', () => {
   })
 
   it('preserves explicit tarball-field presence when the package version changes', () => {
-    const document = JSON.parse(fixture('deno-v4.lock'))
+    const document = JSON.parse(fixture('deno.lock'))
     document.npm['scheduler@0.26.0'].tarball = 'https://mirror.invalid/scheduler-0.26.0.tgz'
     const output = JSON.parse(stringify(bumpScheduler(parse(`${JSON.stringify(document, null, 2)}\n`))))
     expect(output.npm['scheduler@0.27.0'].tarball).toBe(
@@ -182,5 +251,77 @@ describe('deno adapter', () => {
       jsr: JSON.parse(fixture('deno.lock')).jsr,
       workspace: JSON.parse(fixture('deno.lock')).workspace,
     })
+  })
+
+  it.each([
+    ['deno-v2', 'deno-v3'],
+    ['deno-v2', 'deno-v4'],
+    ['deno-v3', 'deno-v2'],
+    ['deno-v3', 'deno-v4'],
+    ['deno-v4', 'deno-v2'],
+    ['deno-v4', 'deno-v3'],
+    ['deno-v5', 'deno-v2'],
+    ['deno-v5', 'deno-v3'],
+    ['deno-v5', 'deno-v4'],
+  ] as const)(
+    'emits a concrete target layout for supported %s -> %s',
+    (from, to) => {
+      const sourceVersion = from.slice(-1)
+      const input = fixture(sourceVersion === '5' ? 'deno.lock' : `deno-v${sourceVersion}.lock`)
+      const graph = parsePublic(from, input)
+      const diagnostics: Diagnostic[] = []
+      const output = stringifyPublic(to, graph, {
+        strict: false,
+        onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+      })
+      expect(JSON.parse(output).version).toBe(to.slice(-1))
+      expect(checkPublic(to, output)).toBe(true)
+      expect(() => parsePublic(to, output)).not.toThrow()
+      expect(diagnostics.map(diagnostic => diagnostic.code))
+        .not.toContain('COMPLETENESS_ADAPTER_STATE_LOST')
+    },
+  )
+
+  it.each(['deno-v2', 'deno-v3', 'deno-v4'] as const)(
+    'fails closed for %s -> deno-v5 before emitting a partial lock',
+    from => {
+      const input = fixture(`deno-v${from.slice(-1)}.lock`)
+      expect(() => stringifyPublic('deno-v5', parsePublic(from, input), {
+        strict: false,
+      })).toThrowError(expect.objectContaining({
+        code: 'CAPABILITY_LACK',
+        message: expect.stringContaining('reclassified'),
+      }))
+    },
+  )
+
+  it('keeps adapter-state loss for Deno -> Node while replacing it with precise intra-Deno losses', () => {
+    const document = JSON.parse(fixture('deno.lock'))
+    document['x-lockgraph-sentinel'] = { preserved: true }
+    document.npm['scheduler@0.26.0'].tarball =
+      'https://registry.npmjs.org/scheduler/-/scheduler-0.26.0.tgz'
+    const graph = parsePublic('deno-v5', `${JSON.stringify(document, null, 2)}\n`)
+
+    const siblingDiagnostics: Diagnostic[] = []
+    stringifyPublic('deno-v2', graph, {
+      strict: false,
+      onDiagnostic: diagnostic => siblingDiagnostics.push(diagnostic),
+    })
+    expect(siblingDiagnostics).toContainEqual(expect.objectContaining({
+      code: 'DENO_V2_V5_ENTRY_FIELDS_DROPPED',
+      subject: 'scheduler@0.26.0',
+    }))
+    expect(siblingDiagnostics.map(diagnostic => diagnostic.code))
+      .not.toContain('COMPLETENESS_ADAPTER_STATE_LOST')
+
+    const nodeDiagnostics: Diagnostic[] = []
+    stringifyPublic('npm-3', graph, {
+      strict: false,
+      onDiagnostic: diagnostic => nodeDiagnostics.push(diagnostic),
+    })
+    expect(nodeDiagnostics).toContainEqual(expect.objectContaining({
+      code: 'COMPLETENESS_ADAPTER_STATE_LOST',
+      data: expect.objectContaining({ feature: 'top-level:x-lockgraph-sentinel' }),
+    }))
   })
 })

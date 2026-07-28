@@ -15,7 +15,10 @@ import { parse as parsePnpmV5, stringify as stringifyPnpmV5 } from '../../main/t
 import { parse as parsePnpmV6, stringify as stringifyPnpmV6 } from '../../main/ts/formats/pnpm-v6.ts'
 import { parse as parsePnpmV9, stringify as stringifyPnpmV9 } from '../../main/ts/formats/pnpm-v9.ts'
 import { parse as parseBunText, stringify as stringifyBunText } from '../../main/ts/formats/bun-text.ts'
-import { parse as parseDeno } from '../../main/ts/formats/deno.ts'
+import { parse as parseDenoV2, stringify as stringifyDenoV2 } from '../../main/ts/formats/deno-v2.ts'
+import { parse as parseDenoV3, stringify as stringifyDenoV3 } from '../../main/ts/formats/deno-v3.ts'
+import { parse as parseDenoV4, stringify as stringifyDenoV4 } from '../../main/ts/formats/deno-v4.ts'
+import { parse as parseDenoV5, stringify as stringifyDenoV5 } from '../../main/ts/formats/deno-v5.ts'
 import { CONTRACTS } from './_matrix.ts'
 import type { ConversionContract, FormatId } from './_matrix.ts'
 import { enrichClassicGraph, normalizeGraphForBerry } from './_normalize.ts'
@@ -58,7 +61,10 @@ const PARSERS: Record<FormatId, ((lockfile: string) => Graph) | undefined> = {
   'pnpm-v6': parsePnpmV6,
   'pnpm-v9': parsePnpmV9,
   'bun-text': parseBunText,
-  'deno': parseDeno,
+  'deno-v2': undefined,
+  'deno-v3': undefined,
+  'deno-v4': undefined,
+  'deno-v5': undefined,
 }
 
 const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
@@ -78,7 +84,10 @@ const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
   'pnpm-v6': { kind: 'classic', emit: stringifyPnpmV6 },
   'pnpm-v9': { kind: 'classic', emit: stringifyPnpmV9 },
   'bun-text': { kind: 'classic', emit: stringifyBunText },
-  'deno': undefined,
+  'deno-v2': { kind: 'classic', emit: stringifyDenoV2 },
+  'deno-v3': { kind: 'classic', emit: stringifyDenoV3 },
+  'deno-v4': { kind: 'classic', emit: stringifyDenoV4 },
+  'deno-v5': { kind: 'classic', emit: stringifyDenoV5 },
 }
 
 const BERRY_CACHE_KEYS: Record<Extract<FormatId, `yarn-berry-${string}`>, string> = {
@@ -96,7 +105,10 @@ export function parseFormat(
   lockfile: string,
   manifests?: Readonly<Record<string, Manifest>>,
 ): Graph {
-  if (format === 'deno') return parseDeno(lockfile, { manifests })
+  if (format === 'deno-v2') return parseDenoV2(lockfile, { manifests })
+  if (format === 'deno-v3') return parseDenoV3(lockfile, { manifests })
+  if (format === 'deno-v4') return parseDenoV4(lockfile, { manifests })
+  if (format === 'deno-v5') return parseDenoV5(lockfile, { manifests })
   const parser = PARSERS[format]
   if (parser === undefined) throw new Error(`parseFormat: unsupported format ${format}`)
   return parser(lockfile)
@@ -172,7 +184,7 @@ export function convert(input: ConvertInput): ConvertResult {
     cacheKey,
     lineEnding: options.lineEnding,
   })
-  const destinationGraph = parseFormat(input.to, stringified.lockfile)
+  const destinationGraph = parseFormat(input.to, stringified.lockfile, options.manifests)
 
   const interopDiagnostics = contract === undefined ? [] : observeInteropDiagnostics(contract, {
     sourceGraph,

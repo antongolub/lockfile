@@ -21,14 +21,20 @@ const FORMAT_IDS: FormatId[] = [
   'pnpm-v6',
   'pnpm-v9',
   'bun-text',
-  'deno',
+  'deno-v2',
+  'deno-v3',
+  'deno-v4',
+  'deno-v5',
 ]
 
-const NODE_FAMILY_FORMATS = FORMAT_IDS.filter(format => format !== 'deno')
-const DENO_FORWARD_PAIRS = new Set(NODE_FAMILY_FORMATS
-  .map(format => `deno -> ${format}`))
-const DENO_REVERSE_PAIRS = new Set(NODE_FAMILY_FORMATS
-  .map(format => `${format} -> deno`))
+const NODE_FAMILY_FORMATS = FORMAT_IDS.filter(format => !format.startsWith('deno-v'))
+const DENO_FORMATS = FORMAT_IDS.filter(format => format.startsWith('deno-v'))
+const DENO_FORWARD_PAIRS = new Set(DENO_FORMATS.flatMap(deno =>
+  NODE_FAMILY_FORMATS.map(format => `${deno} -> ${format}`)))
+const DENO_REVERSE_PAIRS = new Set(DENO_FORMATS.flatMap(deno =>
+  NODE_FAMILY_FORMATS.map(format => `${format} -> ${deno}`)))
+const DENO_INTRA_PAIRS = new Set(DENO_FORMATS.flatMap(from =>
+  DENO_FORMATS.filter(to => to !== from).map(to => `${from} -> ${to}`)))
 
 const EXPECTED_REMAINING_PAIRS = new Set([
   ...[
@@ -62,6 +68,11 @@ runIntraFamily(
   CONTRACTS.filter(contract =>
     DENO_FORWARD_PAIRS.has(`${contract.from} -> ${contract.to}`)),
 )
+runIntraFamily(
+  'interop: Deno concrete-version conversions',
+  CONTRACTS.filter(contract =>
+    DENO_INTRA_PAIRS.has(`${contract.from} -> ${contract.to}`)),
+)
 
 describe('interop: complete conversion-matrix coverage', () => {
   it('registers the final 54 ordered incident pairs exactly once', () => {
@@ -70,16 +81,16 @@ describe('interop: complete conversion-matrix coverage', () => {
       `${contract.from} -> ${contract.to}`))).toEqual(EXPECTED_REMAINING_PAIRS)
   })
 
-  it('covers every ordered pair among all 17 public formats exactly once', () => {
+  it('covers every ordered pair among all 20 public formats exactly once', () => {
     const registered = new Set(CONTRACTS.map(contract =>
       `${contract.from} -> ${contract.to}`))
 
-    expect(CONTRACTS).toHaveLength(272)
-    expect(registered).toHaveLength(272)
+    expect(CONTRACTS).toHaveLength(380)
+    expect(registered).toHaveLength(380)
     expect(CONTRACTS.filter(contract =>
-      contract.unsupportedReason === undefined)).toHaveLength(256)
+      contract.unsupportedReason === undefined)).toHaveLength(313)
     expect(CONTRACTS.filter(contract =>
-      contract.unsupportedReason !== undefined)).toHaveLength(16)
+      contract.unsupportedReason !== undefined)).toHaveLength(67)
     for (const from of FORMAT_IDS) {
       for (const to of FORMAT_IDS) {
         if (from !== to) expect(registered).toContain(`${from} -> ${to}`)
@@ -87,10 +98,10 @@ describe('interop: complete conversion-matrix coverage', () => {
     }
   })
 
-  it('registers 16 manifest-backed deno outputs and 16 fail-closed deno inputs', () => {
+  it('registers 64 manifest-backed Deno outputs and 64 fail-closed Deno inputs', () => {
     const forward = CONTRACTS.filter(contract =>
       DENO_FORWARD_PAIRS.has(`${contract.from} -> ${contract.to}`))
-    expect(forward).toHaveLength(16)
+    expect(forward).toHaveLength(64)
     expect(forward.every(contract =>
       contract.unsupportedReason === undefined
       && contract.enrichRequired?.includes('manifests') === true,
@@ -98,14 +109,12 @@ describe('interop: complete conversion-matrix coverage', () => {
 
     const reverse = CONTRACTS.filter(contract =>
       DENO_REVERSE_PAIRS.has(`${contract.from} -> ${contract.to}`))
-    expect(reverse).toHaveLength(16)
+    expect(reverse).toHaveLength(64)
     expect(new Set(reverse.map(contract =>
       `${contract.from} -> ${contract.to}`))).toEqual(DENO_REVERSE_PAIRS)
 
     for (const contract of reverse) {
-      expect(contract.unsupportedReason).toBe(
-        'npm-family -> deno requires synthesising Deno native npm ids and peer suffixes that no pinned Deno producer has validated',
-      )
+      expect(contract.unsupportedReason).toContain('target-specific producer-certified synthesis')
       expect(() => convert({
         from: contract.from,
         to: contract.to,
@@ -114,5 +123,18 @@ describe('interop: complete conversion-matrix coverage', () => {
         `convert: unsupported ${contract.from} -> ${contract.to}: ${contract.unsupportedReason}`,
       )
     }
+  })
+
+  it('registers 9 supported and 3 fail-closed intra-Deno cells', () => {
+    const intra = CONTRACTS.filter(contract =>
+      DENO_INTRA_PAIRS.has(`${contract.from} -> ${contract.to}`))
+    expect(intra).toHaveLength(12)
+    expect(intra.filter(contract => contract.unsupportedReason === undefined)).toHaveLength(9)
+    const unsupported = intra.filter(contract => contract.unsupportedReason !== undefined)
+    expect(unsupported).toHaveLength(3)
+    expect(unsupported.every(contract =>
+      contract.to === 'deno-v5'
+      && contract.unsupportedReason!.includes('reclassified'),
+    )).toBe(true)
   })
 })

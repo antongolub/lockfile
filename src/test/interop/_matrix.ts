@@ -3402,124 +3402,170 @@ const SPARSE_NPM_PNPM_CONTRACTS: ConversionContract[] = SPARSE_NPM_FORMATS.flatM
     ]
   }))
 
+const NODE_MATRIX_FORMATS = [
+  'yarn-berry-v4',
+  'yarn-berry-v5',
+  'yarn-berry-v6',
+  'yarn-berry-v7',
+  'yarn-berry-v8',
+  'yarn-berry-v9',
+  'yarn-berry-v10',
+  'yarn-classic',
+  'npm-1',
+  'npm-2',
+  'npm-3',
+  'npm-4',
+  'pnpm-v5',
+  'pnpm-v6',
+  'pnpm-v9',
+  'bun-text',
+] as const satisfies readonly Exclude<FormatId, `deno-v${string}`>[]
+
+type DenoFormat = Extract<FormatId, `deno-v${string}`>
+const DENO_FORMATS: readonly DenoFormat[] = [
+  'deno-v2',
+  'deno-v3',
+  'deno-v4',
+  'deno-v5',
+]
+
+function denoToNodeContract(
+  from: DenoFormat,
+  to: typeof NODE_MATRIX_FORMATS[number],
+): ConversionContract {
+  const pnpmTarget = to.startsWith('pnpm-')
+  const berryTarget = to.startsWith('yarn-berry-')
+  const classicTarget = to === 'yarn-classic'
+  const bunTarget = to === 'bun-text'
+  const peerIdentityDrops = !pnpmTarget
+  const preservedDrops = new Set<PreservedFeature>()
+  if (peerIdentityDrops) {
+    for (const feature of ['nodes', 'edges', 'edge-kinds', 'peer-virt'] as const) {
+      preservedDrops.add(feature)
+    }
+    if (!berryTarget) preservedDrops.add('integrity')
+    preservedDrops.add('resolved-url')
+    if (
+      berryTarget
+      || classicTarget
+      || bunTarget
+      || to === 'npm-1'
+    ) preservedDrops.add('tarballs')
+  }
+  if (pnpmTarget || classicTarget || bunTarget) {
+    preservedDrops.add('nodes')
+    preservedDrops.add('edges')
+    preservedDrops.add('edge-kinds')
+    preservedDrops.add('workspace-membership')
+  }
+  const structuralLosses: LossEntry[] = [
+    ...(peerIdentityDrops
+      ? [{
+          feature: 'peer-virt' as const,
+          diagnostic: `INTEROP_${fromCode(from)}_TO_${fromCode(to)}_PEER_VIRT_FLATTENED`,
+          severity: 'warning' as const,
+          rationale: 'Deno peer suffix identity has no producer-certified target-native virtual locator; the installed peer requirement is projected but native virtualization is flattened',
+        }]
+      : []),
+    ...(pnpmTarget
+      ? [{
+          feature: 'workspace-rekey' as const,
+          diagnostic: `INTEROP_${fromCode(from)}_TO_${fromCode(to)}_WORKSPACE_REKEY`,
+          severity: 'warning' as const,
+          rationale: 'pnpm importer identity is path-keyed and reparses the Deno manifest root as .@0.0.0',
+        }]
+      : []),
+    ...(classicTarget || bunTarget
+      ? [{
+          feature: 'workspace-root-version' as const,
+          diagnostic: `INTEROP_${fromCode(from)}_TO_${fromCode(to)}_WORKSPACE_ROOT_VERSION_DROPPED`,
+          severity: 'warning' as const,
+          rationale: classicTarget
+            ? 'Yarn Classic lockfiles do not encode a root workspace entry'
+            : 'bun.lock preserves the root name and declarations but not its manifest version',
+        }]
+      : []),
+  ]
+  return {
+    from,
+    to,
+    preserved: ALL_FEATURES.filter(feature => !preservedDrops.has(feature)),
+    lost: [
+      {
+        feature: 'deno-jsr',
+        diagnostic: `INTEROP_${fromCode(from)}_TO_${fromCode(to)}_JSR_SOURCE_TRANSFORM_REQUIRED`,
+        severity: 'warning',
+        rationale: 'Node-family locks cannot encode Deno JSR packages; source-level conversion can use denoland/dnt',
+      },
+      {
+        feature: 'deno-remote',
+        diagnostic: `INTEROP_${fromCode(from)}_TO_${fromCode(to)}_REMOTE_SOURCE_TRANSFORM_REQUIRED`,
+        severity: 'warning',
+        rationale: 'Node-family locks cannot encode Deno remote modules; source-level conversion can use denoland/dnt',
+      },
+      ...structuralLosses,
+    ],
+    added: [],
+    passthrough: [],
+    reentrancy: 'asymmetric',
+    enrichRequired: ['manifests'],
+    fixtureSubset: ['simple'],
+  }
+}
+
+function unsupportedContract(
+  from: FormatId,
+  to: FormatId,
+  unsupportedReason: string,
+): ConversionContract {
+  return {
+    from,
+    to,
+    unsupportedReason,
+    preserved: [],
+    lost: [],
+    added: [],
+    passthrough: [],
+    reentrancy: 'asymmetric',
+  }
+}
+
+const DENO_NODE_CONTRACTS: ConversionContract[] = DENO_FORMATS.flatMap(deno =>
+  NODE_MATRIX_FORMATS.flatMap(node => [
+    denoToNodeContract(deno, node),
+    unsupportedContract(
+      node,
+      deno,
+      `${node} -> ${deno} lacks target-specific producer-certified synthesis of Deno native npm ids, peer suffixes, integrity, and root specifier bindings`,
+    ),
+  ]))
+
+const DENO_INTRA_CONTRACTS: ConversionContract[] = DENO_FORMATS.flatMap(from =>
+  DENO_FORMATS
+    .filter(to => to !== from)
+    .map(to => to === 'deno-v5'
+      ? unsupportedContract(
+          from,
+          to,
+          `${from} -> deno-v5 lacks complete v5 package metadata and proof that existing dependency, optional-dependency, and peer edges were correctly reclassified; a registry fetch alone is insufficient`,
+        )
+      : {
+          from,
+          to,
+          preserved: ALL_FEATURES,
+          lost: [],
+          added: [],
+          passthrough: [],
+          reentrancy: 'asymmetric',
+          fixtureSubset: ['simple'],
+        }))
+
 const RAW_CONTRACTS: ConversionContract[] = [
   ...PRE_SPARSE_CLOSURE_CONTRACTS,
   ...SPARSE_BERRY_CONTRACTS,
   ...SPARSE_NPM_PNPM_CONTRACTS,
-  ...([
-    'yarn-berry-v4',
-    'yarn-berry-v5',
-    'yarn-berry-v6',
-    'yarn-berry-v7',
-    'yarn-berry-v8',
-    'yarn-berry-v9',
-    'yarn-berry-v10',
-    'yarn-classic',
-    'npm-1',
-    'npm-2',
-    'npm-3',
-    'npm-4',
-    'pnpm-v5',
-    'pnpm-v6',
-    'pnpm-v9',
-    'bun-text',
-  ] as const satisfies readonly Exclude<FormatId, 'deno'>[]).flatMap(format => {
-    const fromCode = (value: FormatId): string =>
-      value.replaceAll('-', '_').toUpperCase()
-    const pnpmTarget = format.startsWith('pnpm-')
-    const berryTarget = format.startsWith('yarn-berry-')
-    const classicTarget = format === 'yarn-classic'
-    const bunTarget = format === 'bun-text'
-    const peerIdentityDrops = !pnpmTarget
-    const preservedDrops = new Set<PreservedFeature>()
-    if (peerIdentityDrops) {
-      for (const feature of ['nodes', 'edges', 'edge-kinds', 'peer-virt'] as const) {
-        preservedDrops.add(feature)
-      }
-      if (!berryTarget) {
-        preservedDrops.add('integrity')
-      }
-      preservedDrops.add('resolved-url')
-      if (
-        berryTarget
-        || classicTarget
-        || bunTarget
-        || format === 'npm-1'
-      ) preservedDrops.add('tarballs')
-    }
-    if (pnpmTarget || classicTarget || bunTarget) {
-      preservedDrops.add('nodes')
-      preservedDrops.add('edges')
-      preservedDrops.add('edge-kinds')
-      preservedDrops.add('workspace-membership')
-    }
-    const structuralLosses: LossEntry[] = [
-      ...(peerIdentityDrops
-        ? [{
-            feature: 'peer-virt' as const,
-            diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_PEER_VIRT_FLATTENED`,
-            severity: 'warning' as const,
-            rationale: 'Deno peer suffix identity has no producer-certified target-native virtual locator; the installed peer requirement is projected but native virtualization is flattened',
-          }]
-        : []),
-      ...(pnpmTarget
-        ? [{
-            feature: 'workspace-rekey' as const,
-            diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_WORKSPACE_REKEY`,
-            severity: 'warning' as const,
-            rationale: 'pnpm importer identity is path-keyed and reparses the Deno manifest root as .@0.0.0',
-          }]
-        : []),
-      ...(classicTarget || bunTarget
-        ? [{
-            feature: 'workspace-root-version' as const,
-            diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_WORKSPACE_ROOT_VERSION_DROPPED`,
-            severity: 'warning' as const,
-            rationale: classicTarget
-              ? 'Yarn Classic lockfiles do not encode a root workspace entry'
-              : 'bun.lock preserves the root name and declarations but not its manifest version',
-          }]
-        : []),
-    ]
-    const denoForward: ConversionContract = {
-      from: 'deno',
-      to: format,
-      preserved: ALL_FEATURES.filter(feature => !preservedDrops.has(feature)),
-      lost: [
-        {
-          feature: 'deno-jsr',
-          diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_JSR_SOURCE_TRANSFORM_REQUIRED`,
-          severity: 'warning',
-          rationale: 'Node-family locks cannot encode Deno JSR packages; source-level conversion can use denoland/dnt',
-        },
-        {
-          feature: 'deno-remote',
-          diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_REMOTE_SOURCE_TRANSFORM_REQUIRED`,
-          severity: 'warning',
-          rationale: 'Node-family locks cannot encode Deno remote modules; source-level conversion can use denoland/dnt',
-        },
-        ...structuralLosses,
-      ],
-      added: [],
-      passthrough: [],
-      reentrancy: 'asymmetric',
-      enrichRequired: ['manifests'],
-      fixtureSubset: ['deno-npm-only', 'simple'],
-    }
-    const unsupportedReason =
-      'npm-family -> deno requires synthesising Deno native npm ids and peer suffixes that no pinned Deno producer has validated'
-    const unsupported = (from: FormatId, to: FormatId): ConversionContract => ({
-      from,
-      to,
-      unsupportedReason,
-      preserved: [],
-      lost: [],
-      added: [],
-      passthrough: [],
-      reentrancy: 'asymmetric',
-    })
-    return [denoForward, unsupported(format, 'deno')]
-  }),
+  ...DENO_NODE_CONTRACTS,
+  ...DENO_INTRA_CONTRACTS,
 ]
 
 // Native Yarn writes every non-Berry workspace root with the producer sentinel

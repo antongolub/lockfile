@@ -15,6 +15,7 @@ import type {
 import {
   checkFormat,
   detectFormat,
+  formatAdapterStateCompatible,
   formatAdapterStateSubjects,
   hasFormatAdapterState,
   parseFormat,
@@ -126,7 +127,8 @@ export function stringifyProjected(
 ): ProjectionResult {
   const emittedDiagnostics: Diagnostic[] = []
   const lineage = adapterMutationLineageOf(graph)
-  if (lineage !== undefined && format !== lineage.sourceFormat) {
+  if (lineage !== undefined
+    && !formatAdapterStateCompatible(lineage.sourceFormat, format)) {
     for (const subject of lineage.adapterStateSubjects) {
       emittedDiagnostics.push(assessedDiagnostic(
         'COMPLETENESS_ADAPTER_STATE_LOST',

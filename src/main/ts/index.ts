@@ -18,6 +18,7 @@ export type {
   PackageMetadataField,
 } from './graph.ts'
 export type {
+  DenoFormatId,
   FormatId,
   ParseOptions,
   StringifyOptions,
