@@ -122,7 +122,6 @@ dist
 
 # Bundles
 target
-docs
 
 # Manual testing
 tmp
@@ -132,20 +131,20 @@ synp
 # Spec (early iteration) — spec/formats, spec/pm and spec/registry *.md are
 # tracked (promoted reference); everything else under spec/ is
 # contributor-private until promoted.
-spec/*
-!spec/formats/
-spec/formats/*
-!spec/formats/*.md
-!spec/pm/
-spec/pm/*
-!spec/pm/*.md
-!spec/registry/
-spec/registry/*
-!spec/registry/*.md
-!spec/decisions/
-spec/decisions/*
-!spec/decisions/0038-conversion-completeness-model.md
-!spec/decisions/0039-target-pm-compatibility-overlays.md
+docs/spec/*
+!docs/spec/formats/
+docs/spec/formats/*
+!docs/spec/formats/*.md
+!docs/spec/pm/
+docs/spec/pm/*
+!docs/spec/pm/*.md
+!docs/spec/registry/
+docs/spec/registry/*
+!docs/spec/registry/*.md
+!docs/spec/decisions/
+docs/spec/decisions/*
+!docs/spec/decisions/0038-conversion-completeness-model.md
+!docs/spec/decisions/0039-target-pm-compatibility-overlays.md
 
 # Internal interactions / per-project artel runtime
 .artel

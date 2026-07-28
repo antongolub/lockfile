@@ -32,6 +32,8 @@ export interface DenoStringifyOptions {
   onDiagnostic?: (diagnostic: Diagnostic) => void
 }
 
+// === TYPES AND NATIVE SHAPES ================================================
+
 type DenoVersion = '2' | '3' | '4' | '5'
 type JsonObject = Record<string, unknown>
 
@@ -93,6 +95,8 @@ interface DenoParseContext {
   readonly rootManifest?: Manifest
 }
 
+// === ADAPTER STATE / SIDECAR ================================================
+
 const sidecarByGraph = new WeakMap<Graph, DenoSidecar>()
 
 export function hasAdapterState(graph: Graph): boolean {
@@ -139,6 +143,8 @@ export function rebindAdapterState(
   rememberSidecar(target, next)
   return { graph: target, invalidated: invalidated.sort() }
 }
+
+// === PUBLIC API ==============================================================
 
 export function check(input: string): boolean {
   if (hasConflictMarkers(input)) {
@@ -203,6 +209,8 @@ export function stringify(
   }
   return emitMutatedDocument(graph, sidecar, options)
 }
+
+// === EMIT ===================================================================
 
 function emitMutatedDocument(
   graph: Graph,
@@ -465,6 +473,8 @@ function npmTargetNameFromSpecifier(request: string): string | undefined {
 function emitFailure(message: string): LockfileError {
   return new LockfileError({ code: 'IRREDUCIBLE_LOSS', message: `deno emitter: ${message}` })
 }
+
+// === PARSE ==================================================================
 
 function parseLayout(input: string): DenoLayout {
   let value: unknown
@@ -765,6 +775,10 @@ function addRootSpecifierEdges(context: DenoParseContext): void {
   }
 }
 
+// === MANIFEST EVIDENCE ======================================================
+// Manifest scope is mandatory evidence: absence fails closed rather than
+// defaulting dependencies to production.
+
 interface DenoManifestDependency {
   readonly alias: string
   readonly targetName: string
@@ -989,6 +1003,8 @@ function addEdgeOnce(
   context.builder.addEdge(src, dst, kind, Object.keys(attrs ?? {}).length === 0 ? undefined : attrs)
 }
 
+// === SEAL AND SIDECAR REMAP =================================================
+
 function sealDenoGraph(context: DenoParseContext, input: string): Graph {
   for (const diagnostic of context.diagnostics) context.builder.diagnostic(diagnostic)
   try {
@@ -1163,6 +1179,10 @@ function rewriteNativePackageId(
   }
 }
 
+// === NATIVE NPM ID GRAMMAR ==================================================
+// The raw peer suffix is authoritative on emit; parsed peer semantics are
+// one-way, discardable evidence.
+
 function sameNativeTree(a: DenoNpmPackageId, b: DenoNpmPackageId): boolean {
   return a.name === b.name
     && a.version === b.version
@@ -1268,6 +1288,8 @@ function defaultNpmTarballUrl(name: string, version: string): string {
   return `https://registry.npmjs.org/${name}/-/${unscoped}-${version}.tgz`
 }
 
+// === VALIDATION AND STRUCTURAL GUARDS =======================================
+
 function validateNonNpmIntegrity(layout: DenoLayout): void {
   for (const [name, value] of Object.entries(layout.jsr)) {
     if (!isObject(value) || typeof value.integrity !== 'string' || !/^[0-9a-f]{64}$/.test(value.integrity)) {
@@ -1324,6 +1346,8 @@ function validateStringArray(value: unknown, path: string): string[] {
   }
   return [...value]
 }
+
+// === HELPERS ================================================================
 
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

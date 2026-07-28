@@ -34,7 +34,7 @@ yarn add lockgraph
 **First public release.** Every format below parses and stringifies. Cross-family
 conversion is *semantically equivalent*, not byte-identical (see [Concept](#concept)),
 and **fail-closed by default** — a lossy projection throws rather than silently dropping
-data (`strict: false` opts out). [SCHEMAS.md](./SCHEMAS.md) maps each format id to the
+data (`strict: false` opts out). [SCHEMAS.md](./docs/arch/SCHEMAS.md) maps each format id to the
 package-manager versions that emit it; [Known limitations](#known-limitations) lists what
 a point release will close.
 
@@ -137,7 +137,7 @@ convert(input: string, opts: ConvertOptions): string   // parse(from) → string
 
 `Graph` is the canonical, package-manager-independent model; `FormatId` is a
 string-literal union (the [Status](#status) table lists every id, and
-[SCHEMAS.md](./SCHEMAS.md) maps each to the package-manager versions behind it).
+[SCHEMAS.md](./docs/arch/SCHEMAS.md) maps each to the package-manager versions behind it).
 
 ### Frozen-certified conversion
 
@@ -180,7 +180,7 @@ and unsuccessful certification returns no final artifacts.
 > pinned binaries. Third-party `frozen-verified` results are only as trustworthy
 > as the authority that produced the receipt (or a future signed attestation).
 
-See [CONVERT.md](./CONVERT.md#frozen-candidate-and-certification-lifecycle) for
+See [CONVERT.md](./docs/arch/CONVERT.md#frozen-candidate-and-certification-lifecycle) for
 the candidate gates, oracle bounds, and Berry-checksum exception.
 
 ### Operating on the graph
@@ -390,13 +390,13 @@ evidence, and transformation events use the non-throwing `Diagnostic` channel
 diagnostics become `ENRICH_REQUIRED` or `IRREDUCIBLE_LOSS` with structured
 `losses[].remedy` guidance.
 
-See [ERRORS.md](./ERRORS.md) for the complete exception and diagnostic
+See [ERRORS.md](./docs/arch/ERRORS.md) for the complete exception and diagnostic
 taxonomy, causes, and remedies.
 
 ## Schemas
 
 Every recognised lockfile schema is enumerated in
-[SCHEMAS.md](./SCHEMAS.md), with adapter ids, the schema-marker each
+[SCHEMAS.md](./docs/arch/SCHEMAS.md), with adapter ids, the schema-marker each
 carries, the package-manager versions that emit it by default, and
 permalinked sources. Use that table as the index when calling
 `parse({ format })` or `stringify({ format })`.

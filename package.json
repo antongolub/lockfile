@@ -62,8 +62,8 @@
   "files": [
     "dist",
     "README.md",
-    "ERRORS.md",
-    "SCHEMAS.md",
+    "docs/arch/ERRORS.md",
+    "docs/arch/SCHEMAS.md",
     "LICENSE"
   ],
   "engines": {
