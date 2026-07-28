@@ -1,9 +1,8 @@
 # `deno` — Deno runtime as a package manager
 
-> Status: **frontier** (research-grade; search-only, not live-probed) —
-> research-derived from docs.deno.com, JSR docs, and Deno release notes; **no**
-> adapter exists; cross-referenced `spec/formats/deno.lock.md` is not yet written.
-> Updated: 2026-06-17.
+> Status: **preview** — behavior research is backed by live v3/v4/v5 producer
+> oracles and an implemented v2-v5 same-format npm-section adapter.
+> Updated: 2026-07-27.
 > Family: **non-Node** — the single most divergent entry in `spec/pm/`. Deno is a
 > runtime first, PM second; its native model replaces, rather than extends, the
 > Node resolver.
@@ -21,11 +20,11 @@ an **import map** (`deno.json` `imports`). The Node model (`node_modules`,
 hoisting, `package.json` `main`/`exports` walk, lifecycle scripts) is reached only
 through an explicit, opt-in **npm-compatibility layer**.
 
-Deno is scoped as foundational-but-frontier (the most divergent from the
-Node/npm model). The six family axes are all covered, but several are "Deno has no
-equivalent" rather than a delta from `_common.md`, and the lockfile section
-cross-references a format spec that does not yet exist (`deno.lock` is a stub in
-`spec/formats/`). Treat byte-level claims as **research-grade, not probe-grade**.
+Deno is the most divergent family from the Node/npm model. The six family axes
+are all covered, but several are "Deno has no equivalent" rather than a delta
+from `_common.md`. Byte-level lockfile behavior is specified in
+[`spec/formats/deno.md`](../formats/deno.md); broader runtime behavior
+which is not called out as measured remains research-grade.
 
 > **Version sensitivity is high.** Deno 1 → Deno 2 (Oct 2024) changed defaults
 > across nearly every axis: `deno cache` → `deno install`, `deno install` became
@@ -118,9 +117,10 @@ for the registry contract; the resolution-relevant facts:
 - **Semver** range resolution (`^`, `~`, `1`, `1.0`, exact) — JSR serves a
   versions/meta document; Deno picks the max satisfying version and pins it in
   `deno.lock`.
-- Native JSR checksums are **sha256** per file (not the npm sha512 tarball SRI) —
-  see [`jsr.md`](../registry/jsr.md) §"Metadata deltas"; this is mirrored in
-  `deno.lock`'s `jsr` section (Axis 6).
+- Native JSR releases carry **sha256** hashes for individual source files in
+  metadata, while the `deno.lock` `jsr` entry stores a package-level metadata
+  lock checksum (not the npm sha512 tarball SRI). See
+  [`jsr.md`](../registry/jsr.md) §"Metadata deltas" and Axis 6.
 - JSR modules are **served as source** (TS/JS), not tarballs, when consumed
   natively by Deno; the `npm.jsr.io` compat tarball face is for the *other* PMs,
   not for Deno.
@@ -139,9 +139,11 @@ import { z } from "npm:zod@^3.23";
 - Semver resolution + tarball fetch + sha512 SRI integrity, **same registry
   protocol as npm** — but the *consumption* model differs (Axis 2/3): by default
   the tarball is unpacked into the **global cache**, not a project `node_modules`.
-- **Deno has no concept of peer dependencies** the way npm/pnpm do — a documented
-  limitation; `peerDependencies` declared by npm packages are not auto-installed
-  and are not virtualised. ([questions.deno.com — peer dependency], [deno.com/learn/nodes-complexity-problem])
+- Deno's npm resolver does model peer contexts. Native package identities carry
+  suffixes such as `react-dom@19.1.1_react@19.1.1`; different peer contexts can
+  therefore remain distinct even without npm's `node_modules` placement model.
+  The adapter projects those suffixes into peer edges one-way and keeps the raw
+  native suffix authoritative for replay.
 
 ### 1.5 Unprefixed names & the install commands
 
@@ -442,23 +444,22 @@ default in the family. Trust state has no `deno.lock` field analogous to bun's
 
 ### 6.1 `deno.lock`
 
-> **Format spec status:** there is **no** `spec/formats/deno.lock.md` — this is the
-> frontier stub. Sketch below is research-grade (from real `deno.lock` corpora +
-> the `deno_lockfile` crate, now folded into `denoland/deno`); promote to a full
-> format spec before any byte-exact round-trip work.
+> **Format spec:** [`spec/formats/deno.md`](../formats/deno.md) is the
+> byte-level contract. The summary below explains the package-manager behavior;
+> the format document owns exact layouts, adapter scope, and oracle gates.
 
 - **Filename:** `deno.lock`, auto-created next to `deno.json(c)` since **Deno
   1.28**. Disable with `deno.json` `"lock": false` or CLI `--no-lock`. Frozen mode:
   `"lock": { "frozen": true }` (Deno 1.46+) or `--frozen[=true]`.
   ([docs.deno.com/runtime/reference/cli/install], [migration guide])
-- **Version history** (the `"version"` top-level field — research-grade dating):
-  - **v1/v2** — early flat URL→hash maps (Deno 1.x).
-  - **v3** — ~Deno 1.36–1.38 (the long-lived 1.x format; many third-party tools
-    pinned to it).
-  - **v4** — **Deno 2.0**; "more concise, minimises diffs," introduces the
-    `specifiers` indirection + structured `jsr`/`npm` sections.
-  - **v5** — **Deno 2.3**; adds extra npm metadata to speed resolution/install.
-    (Deno auto-migrates older lockfiles forward.) ([deno.com/blog/v2.0-release-candidate], [deno.com/blog/v2.3])
+- **Version history** (the `"version"` top-level field):
+  - **v1** — obsolete and not accepted by the adapter.
+  - **v2** — accepted from measured corpora and round-tripped, without a
+    separately pinned producer oracle.
+  - **v3** — producer-verified with Deno **1.44.4**.
+  - **v4** — producer-verified with Deno **2.2.8**.
+  - **v5** — producer-verified with Deno **2.9.4**.
+    Deno migrates older lockfiles forward when permitted.
 
 **v4 schema sketch** (sections; a file carries only those that apply):
 
@@ -502,10 +503,10 @@ default in the family. Trust state has no `deno.lock` field analogous to bun's
 
 Load-bearing format facts (cross-cut with [`formats/_common.md` §3 integrity model](../formats/_common.md#3-integrity-model)):
 
-- **Two integrity models in one file.** `jsr` + `remote` use **sha256 bare-hex**
-  (per-file source hashes — JSR is source-served, URL modules are single files);
-  `npm` uses **sha512 SRI** (tarball, the `_common.md`/`npm.md` model). A converter
-  must **not** cross them.
+- **Distinct integrity domains in one file.** `remote` uses bare-hex SHA-256 of
+  fetched module bytes. `jsr` uses a bare-hex package metadata lock checksum.
+  `npm` uses **sha512 SRI** for registry tarballs. A converter must **not** cross
+  or normalize these domains.
 - The `specifiers` indirection (v4+) separates the *requested range* from the
   *resolved version* — diff-minimising; the `jsr`/`npm` keys are the resolved
   identities.
@@ -531,8 +532,11 @@ content against those hashes on subsequent runs**.
   run on another machine must see byte-identical source or it is rejected.
   ([docs.deno.com/runtime/manual/basics/modules/integrity_checking], accessed
   2026-06-17)
-- **`jsr`** — per-package **sha256** integrity entries (JSR is source-served, so the
-  hash covers source, not a tarball). ([deno.com/blog/v1.45], accessed 2026-06-17)
+- **`jsr`** — per-package **sha256** metadata lock checksum. A measured
+  `@std/assert@1.0.19` proof shows that the exact raw `_meta.json` body hashes to
+  the lock value; an explicit `lockfile_checksum` is authoritative when present,
+  with raw metadata-body SHA-256 as the fallback. Per-file source hashes live
+  inside the metadata and are a different claim.
 - **`npm`** — per-package **sha512 Subresource-Integrity** entries, i.e. the npm
   `dist.integrity` tarball SRI (`sha512-…`), the same model as `npm.md`.
   ([deno.com/blog/v1.45], accessed 2026-06-17)
@@ -569,13 +573,21 @@ from the current upstream) or to regenerate the lockfile.
 ([docs.deno.com/runtime/manual/basics/modules/integrity_checking], accessed
 2026-06-17; [questions.deno.com — deno.lock conflict], accessed 2026-06-17)
 
-> **Open (frontier):** the precise wording/format of the integrity-failure
-> diagnostic, and whether `jsr`/`npm`/`remote` are verified by exactly the same code
-> path and at exactly the same lifecycle point (fetch vs cache-read vs
-> type-check), are **not** byte-confirmed here — doc-derived, **not** live-probed.
-> The mismatch-vs-out-of-date distinction (a *changed* hash raises an integrity
-> error; a *missing/new* entry under `--frozen` raises a frozen-lockfile error) is
-> stated from the docs but not exercised against a current Deno build.
+Pinned frozen probes distinguish clean, tampered, and restored npm integrity:
+Deno 1.44.4/v3 and 2.2.8/v4 return 10 for the cold-cache tamper; Deno 2.9.4/v5
+returns 1. Clean and restored runs return 0 and preserve the lock bytes.
+The tamper leg must use a fresh empty `DENO_DIR`: a warm cache can bypass the
+fetch that would expose the corrupted integrity. For Deno 2.9.4, the full
+`deno install --frozen` is required; `--lockfile-only --frozen` does not prove
+artifact discrimination.
+
+### Merge-conflict behavior
+
+Deno's producer behavior for a same-key conflict was measured to choose the
+"ours" value. The adapter deliberately does not inherit that policy: it detects
+all four line-start diff3 markers (`<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`)
+and diagnoses and rejects the file before mutation. Choosing one side would be
+choosing a supply-chain claim without evidence.
 
 ### 6.2 Registries
 
@@ -585,7 +597,7 @@ Deno is **multi-registry by construction**, and each maps to an existing
 | Source | Protocol | Integrity | Registry spec |
 |---|---|---|---|
 | `npm:` specifiers | npm registry protocol (default `registry.npmjs.org`) | sha512 SRI (`dist.integrity`) | [`spec/registry/npm.md`](../registry/npm.md) + [`_common.md`](../registry/_common.md) |
-| `jsr:` specifiers | **native JSR** (`jsr.io`), source + meta API | sha256 per file | [`spec/registry/jsr.md`](../registry/jsr.md) (consult the **native** face, not `npm.jsr.io`) |
+| `jsr:` specifiers | **native JSR** (`jsr.io`), source + meta API | package metadata lock checksum; per-file hashes inside metadata | [`spec/registry/jsr.md`](../registry/jsr.md) (consult the **native** face, not `npm.jsr.io`) |
 | URL imports | plain HTTPS GET (`deno.land/x`, `esm.sh`, any host) | sha256 per file in `remote` | n/a — not a registry; arbitrary web |
 
 - Note the asymmetry vs [`jsr.md`](../registry/jsr.md): the **other** PMs consume
@@ -631,9 +643,9 @@ fix, no `--force` — is [`audit-fix.md §4.6`](./audit-fix.md#46-deno--native-c
 | Global content-addressed cache | ✓ | `DENO_DIR`; hard-link/clonefile, pnpm-like |
 | Import map resolution | ✓ | `deno.json` `imports`/`scopes` (Import Maps std) |
 | URL imports | ✓ | sha256-pinned in `deno.lock` `remote` |
-| JSR (`jsr:`) native | ✓ | source-served, sha256 |
+| JSR (`jsr:`) native | ✓ | source-served; metadata lock checksum + per-file sha256 |
 | npm (`npm:`) | ✓ | npm registry, sha512 SRI, via compat resolver |
-| Peer dependencies | **✗** | no peer-dep concept (documented gap) |
+| Peer dependencies | ✓ (npm) | native npm identities encode virtualized peer suffixes |
 | Overrides / resolutions | ~ | npm-style `overrides` **Deno 2.7+**; else import-map / vendor patch |
 | Lifecycle scripts | **✗ default** | opt-in `--allow-scripts` + needs a `node_modules` |
 | Workspaces / monorepo | ✓ | `deno.json` `workspace` (Deno 1.45+) |
@@ -649,8 +661,9 @@ fix, no `--force` — is [`audit-fix.md §4.6`](./audit-fix.md#46-deno--native-c
 - **No tree by default** — the single biggest divergence. A `deno.lock` with only
   `specifiers`/`jsr`/`remote` and **no `node_modules`** is the normal, complete
   state; absence of a layout is not "incomplete."
-- **Two integrity models in one lockfile** — sha256 bare-hex (`jsr`, `remote`) vs
-  sha512 SRI (`npm`). Do not normalise across them.
+- **Multiple integrity domains in one lockfile** — JSR metadata checksum and
+  remote-module SHA-256 are bare hex; npm tarball integrity is SHA-512 SRI. Do
+  not normalise across them.
 - **JSR consumed natively, not via `npm.jsr.io`** — opposite of every other PM; the
   `@jsr/scope__name` mangling from [`jsr.md`](../registry/jsr.md) does **not** apply
   to Deno-native resolution.
@@ -659,8 +672,9 @@ fix, no `--force` — is [`audit-fix.md §4.6`](./audit-fix.md#46-deno--native-c
 - **`nodeModulesDir` default flipped** for `package.json` projects: `auto`(Deno 1)
   → `manual`(Deno 2); boolean form deprecated for the tri-state string.
 - **Unprefixed `deno add` name = npm**, not JSR — JSR needs the explicit `jsr:`.
-- **No peer deps** — npm packages relying on peer auto-install behave differently
-  than under npm/pnpm.
+- **Peer context is identity, not layout** — npm peer combinations are encoded
+  in native lock keys even though Deno does not reproduce npm's default
+  `node_modules` placement.
 - **Lifecycle scripts need a `node_modules`** — `--allow-scripts` is a no-op in the
   default no-`node_modules` mode.
 - **`deno.land/x` is legacy** — URL imports still work but new code is steered to
@@ -670,25 +684,29 @@ fix, no `--force` — is [`audit-fix.md §4.6`](./audit-fix.md#46-deno--native-c
 
 ## Adapter mapping
 
-No adapter exists. If one is ever built, the shape is **unlike** the Node-family
+The public `deno` adapter is intentionally narrower than the Node-family
 adapters:
 
 | Concern | Setting / note |
 |---|---|
-| Manifest parse | `deno.json`/`deno.jsonc` (`imports`/`scopes`/`workspace`) **+** optional `package.json` |
-| Graph model | **fuse two graphs** — URL/JSR module graph (no Node analog) + npm sub-graph (`_common.md`-shaped) |
-| Integrity | dual model — sha256 bare-hex for `jsr`/`remote`, sha512 SRI for `npm` |
+| Manifest parse | out of scope for this increment; requested specifiers come from the lock |
+| Graph model | project the npm subgraph only; retain URL/JSR/redirect/workspace material in a native sidecar |
+| Integrity | preserve distinct JSR metadata, remote-module, and npm-tarball domains; mutate only proven npm SHA-512 SRI |
 | Layout | usually **none**; if `nodeModulesDir` ≠ `none`, an isolated (`.deno/`) or hoisted Node layout |
-| Registry | per-edge: [`npm.md`](../registry/npm.md) for `npm:`, native [`jsr.md`](../registry/jsr.md) for `jsr:`, raw HTTPS for URL |
+| Peer identity | project native npm suffixes to semantic peer edges one-way; raw suffix remains authoritative |
+| Emission | exact byte replay when unchanged; version-preserving v2-v5 JSON emission for npm-section mutation |
+| Cross-format | all 32 Deno-touching ordered pairs explicitly fail closed; same-format npm audit/fix only |
+| Registry | npm registry evidence for projected nodes; JSR and raw HTTPS state is preserved, not projected |
 | Advisories | native `deno audit`/`fix` already constraint-aware — project value-add is breadth, not remediation |
 
 ---
 
 ## Sources
 
-All research-grade (docs + release notes; **not** live-probed). Dated 2026-06-16
-(integrity-verification, workspace focused-install and resolver/PnP-contrast
-additions accessed 2026-06-17).
+Runtime behavior is sourced from docs and release notes. Lockfile layout,
+integrity, conflict, and frozen-install statements explicitly labeled measured
+were live-probed on 2026-07-27 with pinned binaries; other claims remain
+research-grade.
 
 - **Resolution / modules / cache:** [docs.deno.com/runtime/fundamentals/modules](https://docs.deno.com/runtime/fundamentals/modules/) ·
   [docs.deno.com/runtime/packages](https://docs.deno.com/runtime/packages/) ·
@@ -728,22 +746,15 @@ additions accessed 2026-06-17).
 - **Cross-refs (this repo):** [`spec/pm/_common.md`](./_common.md) (Node substrate) ·
   [`spec/registry/jsr.md`](../registry/jsr.md) · [`spec/registry/npm.md`](../registry/npm.md) ·
   [`spec/registry/_common.md`](../registry/_common.md) · [`spec/formats/_common.md` §3 integrity](../formats/_common.md#3-integrity-model) ·
-  `spec/formats/deno.lock.md` *(does not exist — frontier stub)*
+  [`spec/formats/deno.md`](../formats/deno.md)
 
 ## Open questions
 
-> **Open (frontier):**
-> - `deno.lock` v5's exact added npm metadata fields — not pinned; needs a v5
->   corpus diff against v4. The v4 sketch above is corroborated by real files; v5
->   deltas are not.
-> - The full `npm` section sub-shape (per-package `dependencies` map, optional
->   deps, `os`/`cpu`, bin) — only the top-level structure is pinned here.
+> **Open beyond the implemented adapter slice:**
 > - Whether `--allow-scripts` / `deno approve-scripts` approvals are **persisted**
 >   (config? lockfile? a sidecar?) or are per-invocation — unconfirmed.
 > - `nodeModulesLinker` `"hoisted"` (2.8) on-disk layout — exact hoist algorithm vs
 >   the `"isolated"` `.deno/` default not characterised.
 > - npm `overrides` (2.7) precise grammar in `deno.json` — npm-shaped assumed, not
 >   verified.
-> - Every byte-level claim here is **research-grade**; nothing in this doc is
->   live-probed. Before any `deno.lock` round-trip work, promote §6.1 to a real
->   `spec/formats/deno.lock.md` and probe a current Deno (2.8/2.9) emit.
+> - A separately pinned producer for v2, if cheap and still reproducible.

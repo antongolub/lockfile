@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CONTRACTS } from './_matrix.ts'
 import type { FormatId } from './_types.ts'
+import { convert } from './_dispatch.ts'
 import { runIntraFamily } from './intra-family/_runner.ts'
 
 const FORMAT_IDS: FormatId[] = [
@@ -20,7 +21,12 @@ const FORMAT_IDS: FormatId[] = [
   'pnpm-v6',
   'pnpm-v9',
   'bun-text',
+  'deno',
 ]
+
+const DENO_UNSUPPORTED_PAIRS = new Set(FORMAT_IDS
+  .filter(format => format !== 'deno')
+  .flatMap(format => [`deno -> ${format}`, `${format} -> deno`]))
 
 const EXPECTED_REMAINING_PAIRS = new Set([
   ...[
@@ -57,16 +63,37 @@ describe('interop: complete conversion-matrix coverage', () => {
       `${contract.from} -> ${contract.to}`))).toEqual(EXPECTED_REMAINING_PAIRS)
   })
 
-  it('covers every ordered pair among all 16 supported formats exactly once', () => {
+  it('covers every ordered pair among all 17 public formats exactly once', () => {
     const registered = new Set(CONTRACTS.map(contract =>
       `${contract.from} -> ${contract.to}`))
 
-    expect(CONTRACTS).toHaveLength(240)
-    expect(registered).toHaveLength(240)
+    expect(CONTRACTS).toHaveLength(272)
+    expect(registered).toHaveLength(272)
     for (const from of FORMAT_IDS) {
       for (const to of FORMAT_IDS) {
         if (from !== to) expect(registered).toContain(`${from} -> ${to}`)
       }
+    }
+  })
+
+  it('registers all 32 deno-touching pairs as explicit fail-closed contracts', () => {
+    const denoContracts = CONTRACTS.filter(contract =>
+      DENO_UNSUPPORTED_PAIRS.has(`${contract.from} -> ${contract.to}`))
+    expect(denoContracts).toHaveLength(32)
+    expect(new Set(denoContracts.map(contract =>
+      `${contract.from} -> ${contract.to}`))).toEqual(DENO_UNSUPPORTED_PAIRS)
+
+    for (const contract of denoContracts) {
+      expect(contract.unsupportedReason).toBe(
+        'deno is limited to same-format npm-section audit-fix; JSR/remote dependencies require source transformation via https://github.com/denoland/dnt before npm-family conversion, and that composed path is not certified by lockgraph',
+      )
+      expect(() => convert({
+        from: contract.from,
+        to: contract.to,
+        source: 'this must not be parsed',
+      })).toThrow(
+        `convert: unsupported ${contract.from} -> ${contract.to}: ${contract.unsupportedReason}`,
+      )
     }
   })
 })

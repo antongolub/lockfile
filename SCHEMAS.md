@@ -76,6 +76,17 @@ responsibility, not ours.
 locks fail closed; an unreleased Rust-rewrite v2 is queued as a distinct future
 schema and is not detected as v1.
 
+## deno
+
+| Adapter id | Marker | Verified writers | Scope |
+|------------|--------|------------------|-------|
+| `deno` | top-level `version: "2"` … `"5"` | Deno 1.44.4 (v3), 2.2.8 (v4), 2.9.4 (v5) | same-format npm-section audit/fix |
+
+One adapter accepts the versioned v2-v5 layouts and preserves the input version
+when it emits a mutation. V1 is rejected. Unchanged input replays byte-exactly;
+JSR, remote, redirect, and workspace sections remain native sidecar state.
+Cross-format Deno projection is not certified and fails closed.
+
 ## Sources
 
 Where each schema is canonically defined. Permalinks pinned at specific

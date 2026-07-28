@@ -15,7 +15,7 @@
 // declarative: filter `CONTRACTS` by FormatId prefix, hand the array к
 // `runIntraFamily(name, contracts)`.
 
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { assertConversionContract } from '../_assert.ts'
 import { convert, parseFormat, stringifyFormat } from '../_dispatch.ts'
 import { fixtureLockfile } from '../_fixtures.ts'
@@ -37,6 +37,19 @@ export function runIntraFamily(
       const fixtures = contract.fixtureSubset ?? []
 
       describe(`${contract.from} -> ${contract.to}`, () => {
+        if (contract.unsupportedReason !== undefined) {
+          it('fails closed with the declared unsupported reason before parsing', () => {
+            expect(() => convert({
+              from: contract.from,
+              to: contract.to,
+              source: 'this must not be parsed',
+              mode: 'naive',
+            })).toThrow(
+              `convert: unsupported ${contract.from} -> ${contract.to}: ${contract.unsupportedReason}`,
+            )
+          })
+          return
+        }
         it.each(fixtures)('%s fixture satisfies the declared contract', fixtureName => {
           const sourceLockfile = fixtureLockfile(fixtureName, contract.from)
           const result = convert({

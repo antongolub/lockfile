@@ -1,6 +1,6 @@
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { assertConversionContract } from '../_assert.ts'
-import { parseFormat, stringifyFormat } from '../_dispatch.ts'
+import { convert, parseFormat, stringifyFormat } from '../_dispatch.ts'
 import { CONTRACTS, type ConversionContract } from '../_matrix.ts'
 import { activeContract, observeInteropDiagnostics } from '../_observe.ts'
 import { emptyGraph } from '../_snapshot.ts'
@@ -14,7 +14,21 @@ describe('interop adversarial §8.1 — empty graph conversion', () => {
   const graph = emptyGraph()
 
   for (const contract of CONTRACTS) {
-    it(`${contract.from} -> ${contract.to} keeps the graph empty and emits no spurious interop diagnostics`, () => {
+    const title = contract.unsupportedReason === undefined
+      ? `${contract.from} -> ${contract.to} keeps the graph empty and emits no spurious interop diagnostics`
+      : `${contract.from} -> ${contract.to} fails closed before attempting empty-graph projection`
+    it(title, () => {
+      if (contract.unsupportedReason !== undefined) {
+        expect(() => convert({
+          from: contract.from,
+          to: contract.to,
+          source: 'this must not be parsed',
+          mode: 'naive',
+        })).toThrow(
+          `convert: unsupported ${contract.from} -> ${contract.to}: ${contract.unsupportedReason}`,
+        )
+        return
+      }
       const sourceLockfile = stringifyEmpty(contract.from).lockfile
       const emitted = stringifyEmpty(contract.to, graph)
       const destinationGraph = parseFormat(contract.to, emitted.lockfile)

@@ -270,6 +270,15 @@ async function prepareConversionRuntime(
   }
   const prepared = await prepareConvertInput(input, options, { detect }, dependencies)
   for (const diagnostic of prepared.diagnostics) report(diagnostic)
+  if (
+    prepared.source !== options.to
+    && (prepared.source === 'deno' || options.to === 'deno')
+  ) {
+    throw new LockfileError({
+      code: 'CAPABILITY_LACK',
+      message: `convert: ${prepared.source} -> ${options.to} is unsupported; deno is limited to same-format npm-section audit-fix. JSR/remote dependencies require source transformation (for example Deno's https://github.com/denoland/dnt) before npm-family conversion; lockgraph does not invoke or certify dnt`,
+    })
+  }
   const sources = mergedEnrichSources(prepared, options)
   let graph = parse(prepared.source, prepared.lockfile, {
     workspaceRoot: options.workspaceRoot,
@@ -342,6 +351,7 @@ function targetLockPath(format: FormatId): string {
   if (format.startsWith('yarn-')) return 'yarn.lock'
   if (format.startsWith('pnpm-')) return 'pnpm-lock.yaml'
   if (format === 'bun-text') return 'bun.lock'
+  if (format === 'deno') return 'deno.lock'
   return 'lockgraph.lockgraph'
 }
 

@@ -1,7 +1,7 @@
 # `spec/pm/` — package-manager behavior specs
 
-> Status: **preview** (reference family; deno frontier) — grounded in official docs, not all live-probed — see [§ Grounding](#grounding--status).
-> Updated: 2026-06-17.
+> Status: **preview** — grounded in official docs and measured producer oracles; some runtime behavior remains research-grade — see [§ Grounding](#grounding--status).
+> Updated: 2026-07-28.
 > Provenance: **External** — these document how the *real* package managers behave; this library reads/writes their artefacts.
 > Family: foundational reference — git-tracked and published alongside [`spec/formats/`](../formats/) and [`spec/registry/`](../registry/).
 
@@ -43,7 +43,7 @@ follows.
 | [`yarn.md`](./yarn.md) | yarn **berry** | **PnP** (default, no `node_modules`) / `node-modules` / `pnpm` linkers | **REPLACED** — `.pnp.cjs` is the resolver | `yarn.lock` v2+ | `yarn node` / `node -r .pnp.cjs` |
 | [`pnpm.md`](./pnpm.md) | pnpm | **symlink farm** — content-addressed store + `.pnpm/` symlinks | **none** — stock Node + `realpath` ⇒ strictness | `pnpm-lock.yaml` v5/6/9 | `node` |
 | [`bun.md`](./bun.md) | bun | flat-hoisted (or **isolated** ≥1.3) | installer: none · **runtime: bun's OWN resolver** | `bun.lockb` → `bun.lock` | `bun` (own) / `node` |
-| [`deno.md`](./deno.md) | deno *(frontier)* | **none by default** — URL / `jsr:` / `npm:` cache; `node_modules` opt-in | **REPLACED** — URL + import-map + specifier resolver | `deno.lock` | `deno` (own) |
+| [`deno.md`](./deno.md) | deno *(preview adapter)* | **none by default** — URL / `jsr:` / `npm:` cache; `node_modules` opt-in | **REPLACED** — URL + import-map + specifier resolver | `deno.lock` v2-v5 | `deno` (own) |
 
 Cross-PM behavior that creates lock facts absent from registry metadata is
 specified in [`derived-entries.md`](./derived-entries.md). Its first
@@ -72,7 +72,7 @@ How each PM narrows an install to part of a workspace. Details + citations in ea
 | yarn berry | — | **`yarn workspaces focus [--production] [--all]`** (deps closure of selected workspaces only) | — |
 | pnpm | **`--filter <selector>...`** (dependents / dependencies / path / since selectors) | via `--filter … install` | **`pnpm deploy`** (isolated, dependency-closure-inlined dir) |
 | bun | **`--filter <pattern>`** | — (open) | — |
-| deno *(frontier)* | `--filter` / `--recursive` (command dispatch) | `deno install --entrypoint <file>` (import-graph reachability) | — |
+| deno *(preview adapter)* | `--filter` / `--recursive` (command dispatch) | `deno install --entrypoint <file>` (import-graph reachability) | — |
 
 ## Integrity verification
 
@@ -85,7 +85,7 @@ How each PM checks that fetched bytes match the lock. Details + citations in eac
 | yarn berry | `sha512`, cacheKey-prefixed | `checksum` (`<cacheKey>/<hex>`) | on cache-zip access (incl. zero-install) | `.yarn/cache/*.zip` | `YN0018`; tunable via `checksumBehavior` |
 | pnpm | SRI `sha512` | `pnpm-lock.yaml` `resolution.integrity` | fetch → store, store → link (`verify-store-integrity`) | content-addressed store objects | unlink + refetch, then error |
 | bun | SRI `sha512` | `bun.lock` / `bun.lockb` | pre-extraction (`skip_verify` gate) | fetched / cached tarball | `IntegrityCheckFailed` |
-| deno *(frontier)* | `sha256` (remote / `jsr:`), SRI `sha512` (`npm:`) | `deno.lock` | on fetch / cache-read; `--frozen` / `deno ci` | fetched source / tarball | lockfile verification error |
+| deno *(preview adapter)* | `sha256` (remote / `jsr:`), SRI `sha512` (`npm:`) | `deno.lock` | on fetch / cache-read; `--frozen` / `deno ci` | fetched source / tarball | lockfile verification error |
 
 ## Remediation — `audit fix` (the driver feature)
 
@@ -124,8 +124,9 @@ this repo's own format/registry specs — with inline citations.
 
 Caveats, by design:
 - **Grounding varies.** npm / bun / `_common` / yarn / pnpm were largely
-  fetched from primary docs/source; **deno is the lightest** (search-grade, no
-  live byte-probe) and is marked **frontier** throughout.
+  fetched from primary docs/source. Deno's lockfile claims are backed by
+  pinned v3/v4/v5 producer and frozen-install oracles; runtime behavior outside
+  the implemented v2-v5 same-format npm-section slice remains research-grade.
 - **Forward-looking / version-specific claims are hedged**, not asserted —
   notably npm's announced default script-blocking, pnpm v11 defaults, bun ≥1.3
   isolated-linker defaults, and deno lockfile internals. Verify against a pinned

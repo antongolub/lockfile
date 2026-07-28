@@ -20,6 +20,7 @@ const fixture = (relative: string): string => readFileSync(
 )
 
 const NPM = fixture('simple/npm-3.lock')
+const DENO = fixture('simple/deno.lock')
 const PNPM = fixture('simple/pnpm-v9.lock')
 const BERRY_PATCH = fixture('patch-yarn/yarn-berry-v9.lock')
 const CLASSIC = `# yarn lockfile v1
@@ -116,6 +117,27 @@ const inaccessibleFileSystem: ConvertFileSystem = {
 }
 
 describe('convert input normalization', () => {
+  it('allows byte-exact same-format deno conversion', async () => {
+    await expect(convert(DENO, {
+      from: 'deno',
+      to: 'deno',
+      strict: false,
+    })).resolves.toBe(DENO)
+  })
+
+  it('fails closed on every cross-format deno conversion direction', async () => {
+    await expect(convert(DENO, { from: 'deno', to: 'npm-3', strict: false }))
+      .rejects.toMatchObject({
+        code: 'CAPABILITY_LACK',
+        message: expect.stringContaining('https://github.com/denoland/dnt'),
+      })
+    await expect(convert(NPM, { from: 'npm-3', to: 'deno', strict: false }))
+      .rejects.toMatchObject({
+        code: 'CAPABILITY_LACK',
+        message: expect.stringContaining('https://github.com/denoland/dnt'),
+      })
+  })
+
   it('treats a bare string as lockfile content and never as a path', async () => {
     await expect(convert('package-lock.json', {
       to: 'npm-3',

@@ -100,7 +100,7 @@ export interface EvidenceRef {
   readonly verification?: OracleVerification
 }
 
-export type TargetManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'lockgraph'
+export type TargetManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'deno' | 'lockgraph'
 
 export interface EvidenceLedger {
   readonly source?: Readonly<{

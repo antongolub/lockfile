@@ -135,6 +135,7 @@ export type ReentrancyClass = 'lossless-reentrant' | 'one-way-lossy' | 'asymmetr
 export type ConversionContract = {
   from: FormatId
   to: FormatId
+  unsupportedReason?: string
   preserved: PreservedFeature[]
   lost: LossEntry[]
   added: AdditionEntry[]
@@ -3401,6 +3402,38 @@ const RAW_CONTRACTS: ConversionContract[] = [
   ...PRE_SPARSE_CLOSURE_CONTRACTS,
   ...SPARSE_BERRY_CONTRACTS,
   ...SPARSE_NPM_PNPM_CONTRACTS,
+  ...([
+    'yarn-berry-v4',
+    'yarn-berry-v5',
+    'yarn-berry-v6',
+    'yarn-berry-v7',
+    'yarn-berry-v8',
+    'yarn-berry-v9',
+    'yarn-berry-v10',
+    'yarn-classic',
+    'npm-1',
+    'npm-2',
+    'npm-3',
+    'npm-4',
+    'pnpm-v5',
+    'pnpm-v6',
+    'pnpm-v9',
+    'bun-text',
+  ] as const satisfies readonly Exclude<FormatId, 'deno'>[]).flatMap(format => {
+    const unsupportedReason =
+      'deno is limited to same-format npm-section audit-fix; JSR/remote dependencies require source transformation via https://github.com/denoland/dnt before npm-family conversion, and that composed path is not certified by lockgraph'
+    const unsupported = (from: FormatId, to: FormatId): ConversionContract => ({
+      from,
+      to,
+      unsupportedReason,
+      preserved: [],
+      lost: [],
+      added: [],
+      passthrough: [],
+      reentrancy: 'asymmetric',
+    })
+    return [unsupported('deno', format), unsupported(format, 'deno')]
+  }),
 ]
 
 // ADR-0031 — integrity is origin-scoped: a tarball SRI (npm / pnpm / bun /

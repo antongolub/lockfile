@@ -183,7 +183,12 @@ export function authoritativePolicyOverridesOf(
   state: InternalEvidenceState,
 ): readonly OverrideConstraint[] | undefined {
   const manager = state.source?.manager
-  if (manager === undefined || manager === 'lockgraph' || hasConflict(state, 'resolutionPolicy')) {
+  if (
+    manager === undefined
+    || manager === 'lockgraph'
+    || manager === 'deno'
+    || hasConflict(state, 'resolutionPolicy')
+  ) {
     return undefined
   }
   const manifestOverrides = canonicalManifestOverrides(rootManifest(state), manager)
@@ -207,7 +212,7 @@ export function completionPolicyAuthorityOf(
 ): CompletionPolicyAuthority {
   const manager = state.source?.manager
   if (hasConflict(state, 'resolutionPolicy')) return { status: 'conflict' }
-  if (manager === undefined || manager === 'lockgraph') {
+  if (manager === undefined || manager === 'lockgraph' || manager === 'deno') {
     const manifest = rootManifest(state)
     const configs = state.pmConfigs
     if (configs.length > 1) return { status: 'conflict' }
@@ -596,7 +601,7 @@ function policyCarrierConflicts(
   if (observed === undefined) return required && authority.length > 0
   if (!observed.present) return required && authority.length > 0
   const manager = state.source?.manager
-  if (manager === undefined || manager === 'lockgraph') return true
+  if (manager === undefined || manager === 'lockgraph' || manager === 'deno') return true
   return !equalOverrides(observed.overrides, authority, manager)
 }
 
@@ -643,7 +648,7 @@ function applyPolicyEvidence(
   diagnostics: Diagnostic[],
 ): void {
   const manager = state.source?.manager
-  if (manager === undefined || manager === 'lockgraph' || !repositoryComplete
+  if (manager === undefined || manager === 'lockgraph' || manager === 'deno' || !repositoryComplete
     || hasConflict(state, 'resolutionPolicy')) return
 
   const manifestOverrides = canonicalManifestOverrides(rootManifest(state), manager)

@@ -26,6 +26,7 @@ describe('targetProfileOf', () => {
     expect(targetProfileOf({ format: 'yarn-berry-v9' }).manager).toBe('yarn')
     expect(targetProfileOf({ format: 'pnpm-v9' }).manager).toBe('pnpm')
     expect(targetProfileOf({ format: 'bun-text' }).manager).toBe('bun')
+    expect(targetProfileOf({ format: 'deno' }).manager).toBe('deno')
     expect(targetProfileOf({ format: 'lockgraph' }).manager).toBe('lockgraph')
 
     const pnpm = targetProfileOf({ format: 'pnpm-v9' })
@@ -66,6 +67,10 @@ describe('targetProfileOf', () => {
     })).toThrowError('incompatible with pnpm-v6')
     expect(targetProfileOf({ format: 'yarn-berry-v6' }).capabilities.catalogs).toBe(false)
     expect(targetProfileOf({ format: 'yarn-berry-v8' }).capabilities.catalogs).toBe(true)
+    expect(targetProfileOf({
+      format: 'deno',
+      managerVersion: '2.9.4',
+    }).capabilities.peerRepresentation).toBe('virtualized')
   })
 })
 

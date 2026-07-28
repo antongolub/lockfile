@@ -23,6 +23,7 @@ const OTHER_FORMATS: FormatId[] = [
   'pnpm-v6',
   'pnpm-v9',
   'bun-text',
+  'deno',
 ]
 
 const incidentContracts = CONTRACTS.filter(contract =>
@@ -44,16 +45,16 @@ const NON_BERRY_FORMATS: FormatId[] = [
 ]
 
 describe('interop: yarn-berry-v10 incident-pair coverage', () => {
-  it('registers all 30 ordered incident pairs exactly once', () => {
-    expect(incidentContracts).toHaveLength(30)
+  it('registers all 32 ordered incident pairs exactly once', () => {
+    expect(incidentContracts).toHaveLength(32)
     expect(new Set(incidentContracts.map(contract =>
-      `${contract.from} -> ${contract.to}`))).toHaveLength(30)
+      `${contract.from} -> ${contract.to}`))).toHaveLength(32)
   })
 
-  it('remains part of the complete 240/240 ordered-pair matrix without duplicates', () => {
-    expect(CONTRACTS).toHaveLength(240)
+  it('remains part of the complete 272/272 ordered-pair matrix without duplicates', () => {
+    expect(CONTRACTS).toHaveLength(272)
     expect(new Set(CONTRACTS.map(contract =>
-      `${contract.from} -> ${contract.to}`))).toHaveLength(240)
+      `${contract.from} -> ${contract.to}`))).toHaveLength(272)
   })
 
   it('covers both directions for every other supported format', () => {

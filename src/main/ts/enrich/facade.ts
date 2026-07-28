@@ -192,6 +192,7 @@ const SOURCE_ADAPTER_REGISTRY: Readonly<Record<FormatId, SourceAdapterContract>>
       return bunText.enrich(graph, manifestOptions)
     },
   },
+  deno: { enrich: graph => ({ graph, diagnostics: [] }) },
   'npm-1': {
     enrich(graph, { manifests }) {
       const manifestOptions = manifests === undefined ? {} : { manifests }

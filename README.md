@@ -1,8 +1,9 @@
 # lockgraph
 
-> Universal lockfile model and converter for **npm**, **yarn**, **pnpm**, **bun**.
+> Universal lockfile model and converter for **npm**, **yarn**, **pnpm**, **bun**,
+> with same-format Deno npm-graph audit/fix.
 
-<p><img alt="lockgraph — universal lockfile model and converter for npm, yarn, pnpm, bun" src="./pics/lockfile.svg" align="right" width="300">
+<p><img alt="lockgraph — universal lockfile model and converter for npm, yarn, pnpm, bun, and Deno" src="./pics/lockfile.svg" align="right" width="300">
 
 Each package manager brings its own philosophy of how to describe, store and
 control project dependencies. Inside a single repo it's invisible to the
@@ -48,10 +49,12 @@ a point release will close.
 | `yarn-berry-v4` … `yarn-berry-v10`| ✓ | ✓ | ✓ |
 | `pnpm-v5` · `pnpm-v6` · `pnpm-v9`  | ✓ | ✓ | ✓ |
 | `bun-text`                        | ✓ | ✓ | ✓ |
+| `deno` (`deno.lock` v2-v5)        | ✓ | ✓ | ✓ (same-format only) |
 
 Graph-level operations apply to **any** parsed graph, regardless of source
-format: `convert` (parse any → stringify any), `modify` (audit-fix,
-override-pin, license-filter), and `optimize` (orphan GC / dedup).
+format: `modify` (audit-fix, override-pin, license-filter) and `optimize`
+(orphan GC / dedup). `convert` supports all Node-family format pairs; Deno is
+currently limited to same-format npm-section operations.
 
 ### Known limitations
 
@@ -76,6 +79,10 @@ emitting a lock it cannot prove. All are point-release targets.
 - **Bun text schema coverage is v1-only.** Released early
   `lockfileVersion: 0` files currently fail closed; an unreleased Rust-rewrite
   v2 is queued behind a released producer and frozen oracle.
+- **Deno is same-format only.** `deno.lock` v2-v5 parses and re-emits for
+  npm-section audit/fix while preserving native JSR/remote/workspace state. All
+  32 Deno-to-foreign and foreign-to-Deno pairs are explicit fail-closed
+  contracts; cross-format projection is not yet certified.
 
 ## Concept
 

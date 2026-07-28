@@ -52,6 +52,7 @@ const ALL_FORMATS: FixturedFormatId[] = [
   'pnpm-v6',
   'pnpm-v9',
   'bun-text',
+  'deno',
 ]
 
 const FIXTURE_FILE: Record<FixturedFormatId, string> = {
@@ -70,6 +71,7 @@ const FIXTURE_FILE: Record<FixturedFormatId, string> = {
   'pnpm-v6':       'pnpm-v6.lock',
   'pnpm-v9':       'pnpm-v9.lock',
   'bun-text':      'bun-text.lock',
+  deno:            'deno.lock',
 }
 
 describe('public surface — parse', () => {

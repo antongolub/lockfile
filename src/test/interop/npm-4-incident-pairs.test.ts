@@ -50,10 +50,10 @@ function npm4NativeFixture(name: 'patch' | 'npm-extension'): {
 }
 
 describe('interop: npm-4 incident-pair coverage', () => {
-  it('registers all 28 ordered incident pairs exactly once', () => {
-    expect(incidentContracts).toHaveLength(28)
+  it('registers all 30 ordered incident pairs exactly once', () => {
+    expect(incidentContracts).toHaveLength(30)
     expect(new Set(incidentContracts.map(contract =>
-      `${contract.from} -> ${contract.to}`))).toHaveLength(28)
+      `${contract.from} -> ${contract.to}`))).toHaveLength(30)
   })
 
   it.each(OTHER_FORMATS)(

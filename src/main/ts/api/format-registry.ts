@@ -21,6 +21,7 @@ import {
 } from '../formats/_yarn-berry-core.ts'
 
 import * as bunText from '../formats/bun-text.ts'
+import * as deno from '../formats/deno.ts'
 import * as npm1 from '../formats/npm-1.ts'
 import * as npm2 from '../formats/npm-2.ts'
 import * as npm3 from '../formats/npm-3.ts'
@@ -167,6 +168,7 @@ const FORMAT_STATE_REGISTRY = {
   'pnpm-v6': pnpmFlatStateAdapter,
   'pnpm-v9': pnpmFlatStateAdapter,
   'bun-text': bunText,
+  deno,
   lockgraph: undefined,
 } as const satisfies Readonly<Record<FormatId, AdapterStateContract | undefined>>
 
@@ -221,6 +223,14 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
       overrides: context.overrides,
     }),
   },
+  deno: {
+    check: deno.check,
+    parse: input => deno.parse(input),
+    stringify: (graph, context) => deno.stringify(graph, {
+      lineEnding: context.lineEnding,
+      onDiagnostic: context.onDiagnostic,
+    }),
+  },
   lockgraph: {
     check: lockgraph.check,
     parse: input => lockgraph.parse(input),
@@ -235,6 +245,7 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
 export const DETECTION_ORDER = [
   'lockgraph',
   'bun-text',
+  'deno',
   'yarn-berry-v10',
   'yarn-berry-v9',
   'yarn-berry-v8',

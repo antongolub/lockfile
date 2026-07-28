@@ -418,6 +418,7 @@ function targetManagerOf(format: FormatId): TargetManager {
   if (format.startsWith('yarn-')) return 'yarn'
   if (format.startsWith('pnpm-')) return 'pnpm'
   if (format === 'bun-text') return 'bun'
+  if (format === 'deno') return 'deno'
   return 'lockgraph'
 }
 

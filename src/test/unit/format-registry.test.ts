@@ -24,6 +24,7 @@ const fixture = (file: string): string => readFileSync(
 
 const EXPECTED_FORMATS = [
   'bun-text',
+  'deno',
   'lockgraph',
   'npm-1',
   'npm-2',
@@ -45,6 +46,7 @@ const EXPECTED_FORMATS = [
 const EXPECTED_DETECTION_ORDER = [
   'lockgraph',
   'bun-text',
+  'deno',
   'yarn-berry-v10',
   'yarn-berry-v9',
   'yarn-berry-v8',

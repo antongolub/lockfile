@@ -114,6 +114,19 @@ const bunText: Readonly<CompletenessProfile> = Object.freeze({
   verification: 'unverified',
 })
 
+const deno: Readonly<CompletenessProfile> = Object.freeze({
+  projectTopology: 'partial',
+  resolvedGraph: 'partial',
+  edgeKinds: 'partial',
+  peerModel: 'virtualized',
+  resolutionPolicy: 'outcome-only',
+  manifestKnowledge: 'faithful',
+  packageMetadata: 'partial',
+  artifacts: 'identified',
+  layout: 'none',
+  verification: 'unverified',
+})
+
 const lockgraph: Readonly<CompletenessProfile> = Object.freeze({
   projectTopology: 'complete',
   resolvedGraph: 'complete',
@@ -184,6 +197,8 @@ export function sourceCapabilitiesOf(
       return { floor: pnpmV9, ambiguousDimensions: noAmbiguity() }
     case 'bun-text':
       return { floor: bunText, ambiguousDimensions: noAmbiguity() }
+    case 'deno':
+      return { floor: deno, ambiguousDimensions: noAmbiguity() }
     case 'lockgraph':
       return { floor: lockgraph, ambiguousDimensions: noAmbiguity() }
   }

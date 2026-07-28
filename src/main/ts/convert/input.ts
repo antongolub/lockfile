@@ -22,7 +22,7 @@ const CONFIG_NAMES = ['pnpm-workspace.yaml', '.npmrc', '.yarnrc.yml'] as const
 // === TYPES ==================================================================
 
 type FileRole =
-  | { readonly kind: 'lock'; readonly family: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'lockgraph' }
+  | { readonly kind: 'lock'; readonly family: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'deno' | 'lockgraph' }
   | { readonly kind: 'manifest' }
   | { readonly kind: 'config' }
   | { readonly kind: 'other' }
@@ -115,6 +115,7 @@ function classify(filename: string): FileRole {
   if (basename === 'yarn.lock') return { kind: 'lock', family: 'yarn' }
   if (basename === 'pnpm-lock.yaml') return { kind: 'lock', family: 'pnpm' }
   if (basename === 'bun.lock') return { kind: 'lock', family: 'bun' }
+  if (basename === 'deno.lock') return { kind: 'lock', family: 'deno' }
   if (basename.endsWith('.lockgraph')) return { kind: 'lock', family: 'lockgraph' }
   if (basename === 'package.json') return { kind: 'manifest' }
   if (CONFIG_NAMES.some(name => name === basename)) return { kind: 'config' }
@@ -126,6 +127,7 @@ function familyOf(format: FormatId): Extract<FileRole, { kind: 'lock' }>['family
   if (format.startsWith('yarn-')) return 'yarn'
   if (format.startsWith('pnpm-')) return 'pnpm'
   if (format === 'bun-text') return 'bun'
+  if (format === 'deno') return 'deno'
   return 'lockgraph'
 }
 

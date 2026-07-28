@@ -100,41 +100,46 @@ Formats and the package-manager versions behind them:
 | yarn berry | `yarn-berry-v4` … `yarn-berry-v10` | yarn 2/3/4 (`__metadata.version` 4–10) | `yarn.lock` |
 | pnpm | `pnpm-v5`, `pnpm-v6`, `pnpm-v9` | pnpm 3–7 / 7–8 / 9+ | `pnpm-lock.yaml` |
 | bun | `bun-text` | bun 1.2+ (textual `bun.lock`; binary `bun.lockb` is unsupported and must be migrated first) | `bun.lock` |
+| deno | `deno` | Deno 1.x/2.x (`deno.lock` v2-v5); same-format npm-section audit/fix only | `deno.lock` |
 | lockgraph | `lockgraph` | — (the L2 graph serialized; lossless round-trip) | — |
 
 The table above records parser/emitter support, not a claim that every
-cross-format pair is lossless. The interop contract matrix backs **all 240 of
-240 ordered non-identity pairs (100%)** across the 16 concrete formats. Every
-claimed pair is contract-tested against a real shared fixture intersection and
-must either preserve its declared graph subset or report each accepted loss;
-there are no assumed or untested cells.
+cross-format pair is lossless. The interop contract matrix represents **all 272
+of 272 ordered non-identity cells (100%)** across the 17 concrete formats:
+240 supported conversion contracts are tested against their real shared fixture
+intersections, while all 32 cells touching Deno are explicit unsupported
+contracts that must fail closed. There are no assumed or untested cells.
 
 ## Expressiveness — what each family can represent
 
 A target loses a feature exactly when it is `✗` for that target but present in the
 source. `~` = representable only with `manifests`, or in a degraded form.
 
-| Feature | npm-1 | npm-2/3 | npm-4 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text |
-| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| Project root in lock | ✗ | ✓ (`""`) | ✓ (`""`) | ✗ (rootless) | ✓ (`root@workspace:.`) | ✓ (`importers`) | ✓ (`importers['.']`) | ✓ (`workspaces[""]`) |
-| Workspaces (members) | ✗ | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ✓ | ✓ |
-| `workspace:` protocol | ✗ | ~ (`*` + `link`) | ~ (`*` + `link`) | ✗ | ✓ | ✓ | ✓ | ✓ |
-| Peer virtualization | ✗ | ✗ | ✗ | ✗ | ✓ (`virtual:`) | ✓ (key suffix) | ✓ (snapshot key) | ✗ |
-| `dev` / `peer` edge distinction | ~ (flags) | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ~ (from reachability) | ✓ |
-| `optional` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `peerDependenciesMeta` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ~ (declarative) |
-| Overrides / resolutions block | ✗ | ✗ (manifest-only) | ✗ (manifest-only) | ✗ (rewrites entry key) | ✗ (manifest-only) | ✓ (`overrides:`) | ✓ | ✓ (npm-shaped) |
-| Native patch carrier | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✓ (per-node) | ✓ | ✓ | ~ (top-level map only) |
-| Manifest-extension fingerprint / applied provenance | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✗ | ✗ | ✗ | ✗ |
-| `conditions` (os/cpu/libc gate) | ✗ | ✗ | ✗ | ✗ | ✓ (v5+) | ✗ | ✗ | ✗ |
-| `catalog:` protocol | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (9.5+) | ✗ |
-| Integrity form | tarball SRI | tarball SRI | tarball SRI + raw patch SRI | tarball SRI | **berry-zip** checksum | tarball SRI | tarball SRI | tarball SRI |
-| Bundled deps | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Feature | npm-1 | npm-2/3 | npm-4 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text | deno |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Project root in lock | ✗ | ✓ (`""`) | ✓ (`""`) | ✗ (rootless) | ✓ (`root@workspace:.`) | ✓ (`importers`) | ✓ (`importers['.']`) | ✓ (`workspaces[""]`) | ~ (native sidecar) |
+| Workspaces (members) | ✗ | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ✓ | ✓ | ~ (native sidecar) |
+| `workspace:` protocol | ✗ | ~ (`*` + `link`) | ~ (`*` + `link`) | ✗ | ✓ | ✓ | ✓ | ✓ | ~ (native sidecar) |
+| Peer virtualization | ✗ | ✗ | ✗ | ✗ | ✓ (`virtual:`) | ✓ (key suffix) | ✓ (snapshot key) | ✗ | ✓ (npm key suffix) |
+| `dev` / `peer` edge distinction | ~ (flags) | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ~ (from reachability) | ✓ | ✗ `dev`; ✓ peer suffix |
+| `optional` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (npm) |
+| `peerDependenciesMeta` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ~ (declarative) | ✓ (`optionalPeers`) |
+| Overrides / resolutions block | ✗ | ✗ (manifest-only) | ✗ (manifest-only) | ✗ (rewrites entry key) | ✗ (manifest-only) | ✓ (`overrides:`) | ✓ | ✓ (npm-shaped) | ✗ (config-only) |
+| Native patch carrier | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✓ (per-node) | ✓ | ✓ | ~ (top-level map only) | ✗ |
+| Manifest-extension fingerprint / applied provenance | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `conditions` (os/cpu/libc gate) | ✗ | ✗ | ✗ | ✗ | ✓ (v5+) | ✗ | ✗ | ✗ | ~ (`os`/`cpu`, npm) |
+| `catalog:` protocol | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (9.5+) | ✗ | ✗ |
+| Integrity form | tarball SRI | tarball SRI | tarball SRI + raw patch SRI | tarball SRI | **berry-zip** checksum | tarball SRI | tarball SRI | tarball SRI | npm SRI + JSR/remote SHA-256 |
+| Bundled deps | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
 Notes: npm-1 predates workspaces and the `packages` block, so it also has no
 `peerDependenciesMeta` / `hasInstallScript` / `engines`-`os`-`cpu` / overrides.
 yarn-classic's `~` cells are the **manifest-blindness axis** (below). The berry
-integrity form is the single most consequential cross-family break.
+integrity form is the single most consequential supported cross-family break.
+Deno's `~` cells are preserved native state, not projected portable graph facts;
+the current adapter exposes only same-format npm-section audit/fix. A
+`deno.lock` has no dev/prod declaration distinction: determining whether a
+vulnerability is dev-only requires the sibling `deno.json` or `package.json`.
 
 ## Lost / breaks — the conversion loss table
 
@@ -143,6 +148,8 @@ Organised by feature axis. "Direction" is the family boundary that loses it;
 
 | Feature lost | Direction (source → target) | Runtime diagnostic | Recoverable? |
 | --- | --- | --- | --- |
+| **Deno native graph boundary** | deno ↔ every other concrete format | `CAPABILITY_LACK` | Not representable at the lockfile layer in this increment. All 32 ordered pairs fail closed and preserve JSR/remote/redirect/workspace state only for same-format replay. A source-level path exists: Deno's official [`denoland/dnt`](https://github.com/denoland/dnt) transforms a Deno module into an npm package, rewriting specifiers or localising remote modules; its emitted `package.json` can then enter the normal npm-family conversion pipeline. Lockgraph does not invoke or certify that source transformation. |
+| **Deno dev/prod declaration scope** | `deno.lock` → audit/fix classification | — source fact absent | Yes, but only from the sibling `deno.json` or `package.json`; the lock alone cannot prove that a vulnerability is dev-only. |
 | **Integrity — berry-zip ↔ tarball SRI** | berry → npm / yarn-classic / pnpm / bun (and back) | `RECIPE_INTEGRITY_INCOMPLETE` | Only from an authoritative target checksum or by obtaining artifact bytes and **recomputing** the target's hash. Never fabricated; mutable install may refill it, but immutable/frozen install can reject the omission. |
 | **Peer virtualization** | berry / pnpm → npm / yarn-classic / bun | `YARN_CLASSIC_PEER_VIRT_FLATTENED` / `NPM_V1_PEER_VIRT_FLATTENED` / `BUN_TEXT_PEER_VIRT_FLATTENED` (per target adapter) | No — flat targets model one instance per (name, version); peer-context forks collapse. |
 | **Berry virtual peer payload → yarn-classic** | yarn-berry-v10 → yarn-classic | `PROJECTION_LOSS` plus adapter-specific peer/virtual diagnostics | Classic flattens virtual node identities and edges and cannot retain Berry peer-declaration tarball metadata. The v10 incident contract therefore does not claim node/edge/tarball preservation on peer-bearing inputs. |
@@ -197,14 +204,16 @@ lockfile bytes structurally cannot.
 
 | Needed for | Which manifest | If omitted |
 | --- | --- | --- |
+| **Deno dev/prod vulnerability scope** | sibling `deno.json` or `package.json` | Scope remains unknown; a lock-only audit must not report a package as dev-only. |
 | **yarn-classic project root** (rootless source) | `manifests['']` | A top-of-DAG dependency is promoted to the `""` root and its own installable node vanishes → fails `npm ci`. |
 | **yarn-classic workspace members** (independent members absent from the lock) | `manifests[<memberPath>]` (every member) | Members are dropped; unhoistable versions leak into `.lockfile-…` keys. |
 | **`dev` classification** (any → yarn-classic; workspace-member edges any family) | `manifests[<path>]` | `dev` collapses to `dep`; only `dep`/`optional` are lockfile-derivable. **`peer` is never recovered from a yarn-classic source** — its manifest synthesis reads only `dependencies`. |
 | **Non-satisfying `resolutions`/overrides pin** | `manifests['']` (`native.yarnResolutions` / `overrides`) | A pin forcing a version the declared range does not satisfy, with ≥2 candidates, has no unique semver target — without the overrides the edge drops and the dependency disappears. |
 
-Every other family (npm, berry, pnpm, bun) encodes its own root and workspace
-members in the lock, so `manifests` is optional for them and only refines
-`dev`/`peer`/`optional` classification of workspace-member edges.
+Every supported Node-family source (npm, berry, pnpm, bun) encodes its own root
+and workspace members in the lock, so `manifests` is optional for them and only
+refines `dev`/`peer`/`optional` classification of workspace-member edges. Deno
+workspace state is preserved only in its native same-format sidecar.
 
 ## Project companion projection
 
@@ -221,6 +230,7 @@ creating intermediate containers while preserving sibling fields.
 | pnpm ≤10 | `package.json` → `/pnpm/overrides` |
 | pnpm ≥11 | `pnpm-workspace.yaml` → `/overrides` |
 | Bun | `package.json` → `/overrides` |
+| Deno | none in the current same-format npm-section slice |
 
 The result is gated independently from full project conversion: a proven
 companion plan may be returned while the broader `project` contract remains

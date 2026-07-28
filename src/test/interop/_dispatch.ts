@@ -58,6 +58,7 @@ const PARSERS: Record<FormatId, ((lockfile: string) => Graph) | undefined> = {
   'pnpm-v6': parsePnpmV6,
   'pnpm-v9': parsePnpmV9,
   'bun-text': parseBunText,
+  'deno': undefined,
 }
 
 const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
@@ -77,6 +78,7 @@ const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
   'pnpm-v6': { kind: 'classic', emit: stringifyPnpmV6 },
   'pnpm-v9': { kind: 'classic', emit: stringifyPnpmV9 },
   'bun-text': { kind: 'classic', emit: stringifyBunText },
+  'deno': undefined,
 }
 
 const BERRY_CACHE_KEYS: Record<Extract<FormatId, `yarn-berry-${string}`>, string> = {
@@ -151,6 +153,12 @@ export function convert(input: ConvertInput): ConvertResult {
   const mode: ConvertMode = input.mode ?? 'naive'
   const options = input.options ?? {}
   const cacheKey = options.cacheKey ?? berryCacheKeyForFormat(input.to)
+  const contract = findContract(input.from, input.to)
+  if (contract?.unsupportedReason !== undefined) {
+    throw new Error(
+      `convert: unsupported ${input.from} -> ${input.to}: ${contract.unsupportedReason}`,
+    )
+  }
 
   const parsedSource = parseFormat(input.from, input.source)
   const sourceGraph = prepareSourceGraph(parsedSource, input, mode, options)
@@ -161,7 +169,6 @@ export function convert(input: ConvertInput): ConvertResult {
   })
   const destinationGraph = parseFormat(input.to, stringified.lockfile)
 
-  const contract = findContract(input.from, input.to)
   const interopDiagnostics = contract === undefined ? [] : observeInteropDiagnostics(contract, {
     sourceGraph,
     destinationGraph,

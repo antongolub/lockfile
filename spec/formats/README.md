@@ -1,6 +1,6 @@
 # Format specifications
 
-> Updated: 2026-07-26.
+> Updated: 2026-07-27.
 
 Per-adapter specs. Each document follows [`_template.md`](./_template.md) and
 captures: compatibility, filename/encoding, sources, schema sketch, capability
@@ -45,6 +45,7 @@ Every spec declares its provenance to set expectations:
 | `pnpm-v9`          | `lockfileVersion: '9.0'`    | Source-only         | [pnpm-v9.md](./pnpm-v9.md) |
 | `bun-text`         | `bun.lock` filename + JSONC | Official            | [bun-text.md](./bun-text.md) |
 | `bun-binary`       | `bun.lockb` filename + magic | Reverse-engineered | [bun-binary.md](./bun-binary.md) |
+| `deno`             | top-level `version: "2"` … `"5"` | External producer + measured oracles | [deno.md](./deno.md) |
 | `lockgraph`        | `@lockgraph` magic (first token) | **Native**     | [lockgraph.md](./lockgraph.md) |
 
 > **`lockgraph` is not a package-manager lockfile.** It is this project's own
@@ -103,6 +104,18 @@ treat as design intent until validated by the [test bench](../08-test-bench.md).
 [`bun-binary.md`](./bun-binary.md). Users with `bun.lockb` files must
 migrate via `bun install --save-text-lockfile` (bun-side; the library
 does not shell out).
+
+### deno
+
+| Deno semver | `deno` adapter | Native lock version | Notes |
+|-------------|----------------|---------------------|-------|
+| Deno 1.44.4 | RW | v3 | producer- and frozen-verified |
+| Deno 2.2.8 | RW | v4 | producer- and frozen-verified |
+| Deno 2.9.4 | RW | v5 | producer- and frozen-verified |
+
+The adapter also accepts v2 from the measured corpus. RW here means
+same-format npm-section audit/fix with native JSR/remote/workspace replay; all
+Deno-to-foreign and foreign-to-Deno pairs are explicitly unsupported.
 
 > **Open:** several "opt-in" rows above are educated guesses about the exact
 > CLI flags and PM versions where the capability appeared. Validate each one

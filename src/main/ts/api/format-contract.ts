@@ -22,6 +22,7 @@ export type FormatId =
   | 'pnpm-v6'
   | 'pnpm-v9'
   | 'bun-text'
+  | 'deno'
   | 'lockgraph'
 
 export interface ParseOptions {
