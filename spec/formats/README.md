@@ -1,6 +1,6 @@
 # Format specifications
 
-> Updated: 2026-07-27.
+> Updated: 2026-07-28.
 
 Per-adapter specs. Each document follows [`_template.md`](./_template.md) and
 captures: compatibility, filename/encoding, sources, schema sketch, capability
@@ -113,9 +113,10 @@ does not shell out).
 | Deno 2.2.8 | RW | v4 | producer- and frozen-verified |
 | Deno 2.9.4 | RW | v5 | producer- and frozen-verified |
 
-The adapter also accepts v2 from the measured corpus. RW here means
-same-format npm-section audit/fix with native JSR/remote/workspace replay; all
-Deno-to-foreign and foreign-to-Deno pairs are explicitly unsupported.
+The adapter also accepts v2 from the measured corpus. RW includes same-format
+npm-section audit/fix with native JSR/remote/workspace replay. With sibling
+manifest evidence, the npm subgraph projects to all 16 Node-family formats;
+the 16 reverse directions remain explicitly unsupported.
 
 > **Open:** several "opt-in" rows above are educated guesses about the exact
 > CLI flags and PM versions where the capability appeared. Validate each one

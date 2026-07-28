@@ -18,7 +18,7 @@
 import { describe, expect, it } from 'vitest'
 import { assertConversionContract } from '../_assert.ts'
 import { convert, parseFormat, stringifyFormat } from '../_dispatch.ts'
-import { fixtureLockfile } from '../_fixtures.ts'
+import { denoManifestsForFixture, fixtureLockfile } from '../_fixtures.ts'
 import { type ConversionContract } from '../_matrix.ts'
 import { activeContract } from '../_observe.ts'
 
@@ -57,6 +57,9 @@ export function runIntraFamily(
             to:     contract.to,
             source: sourceLockfile,
             mode:   'naive',
+            ...(contract.from === 'deno'
+              ? { options: { manifests: denoManifestsForFixture(fixtureName) } }
+              : {}),
           })
           const observedContract = activeContract(contract, {
             sourceGraph:         result.sourceGraph,

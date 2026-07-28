@@ -29,7 +29,9 @@ describe('interop adversarial §8.1 — empty graph conversion', () => {
         )
         return
       }
-      const sourceLockfile = stringifyEmpty(contract.from).lockfile
+      const sourceLockfile = contract.from === 'deno'
+        ? '{\n  "version": "4",\n  "specifiers": {},\n  "npm": {}\n}\n'
+        : stringifyEmpty(contract.from).lockfile
       const emitted = stringifyEmpty(contract.to, graph)
       const destinationGraph = parseFormat(contract.to, emitted.lockfile)
       const interopDiagnostics = observeInteropDiagnostics(contract, {

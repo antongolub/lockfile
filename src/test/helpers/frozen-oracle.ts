@@ -30,7 +30,7 @@ export interface FrozenOracleAdapter {
   readonly binName: 'npm' | 'yarn' | 'pnpm' | 'bun'
   readonly runtime?: 'node' | 'native'
   readonly nativeLockfileVersion?: 1 | 2 | 3 | 4
-  readonly nativeYarnLockfileVersion?: 1 | 4 | 5 | 6 | 7 | 8 | 9
+  readonly nativeYarnLockfileVersion?: 1 | 4 | 5 | 6 | 7 | 8 | 9 | 10
   readonly nativePnpmLockfileVersion?: '5.3' | '5.4' | '6.0' | '9.0'
   readonly nativeBunLockfileVersion?: 1
   readonly nodeRange?: string
@@ -114,6 +114,10 @@ export const FROZEN_ORACLE_MATRIX: readonly FrozenOracleAdapter[] = Object.freez
     nativeYarnLockfileVersion: 9, nodeRange: '>=18.12.0',
   },
   {
+    family: 'yarn-berry', format: 'yarn-berry-v10', version: '4.17.1', alias: 'pm-yarn-berry-v10', binName: 'yarn',
+    nativeYarnLockfileVersion: 10, nodeRange: '>=18.12.0',
+  },
+  {
     family: 'pnpm',
     format: 'pnpm-v5',
     version: '6.35.1',
@@ -157,6 +161,7 @@ const LOCK_PATH: Readonly<Partial<Record<FormatId, string>>> = Object.freeze({
   'yarn-berry-v7': 'yarn.lock',
   'yarn-berry-v8': 'yarn.lock',
   'yarn-berry-v9': 'yarn.lock',
+  'yarn-berry-v10': 'yarn.lock',
   'pnpm-v5': 'pnpm-lock.yaml',
   'pnpm-v6': 'pnpm-lock.yaml',
   'pnpm-v9': 'pnpm-lock.yaml',

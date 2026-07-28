@@ -3,7 +3,8 @@
 > Status: stable schema target (adapter + round-trip tested; frozen certification contract available; emitted by stable Yarn 4.17.1).
 > Updated: 2026-07-26
 > Provenance: **Source-only** (Yarn 4.17.1 producer source).
-> Frozen certification: `prepareFrozen` / `certifyFrozen`; this schema has no bundled calibrated producer, so certification requires an external native-PM oracle receipt from the exact target manager version.
+> Frozen certification: bundled pinned Yarn 4.17.1 producer plus
+> `prepareFrozen` / `certifyFrozen` native-PM receipt contract.
 
 The completeness contract — stringify, modify, enrich, optimize —
 inherits from [yarn-berry-v9](./yarn-berry-v9.md): the shared,
@@ -122,12 +123,12 @@ blocking evidence/remedies are supplied.
 
 ## Fixtures
 
-> Stable Yarn 4.17.1 is not yet bundled in the calibrated producer matrix.
-> The 30-pair interop suite synthesizes v10 fixtures from the calibrated v9
-> corpus by changing only the `version: 10` marker (per
-> [yarn-berry-v7](./yarn-berry-v7.md) precedent). This covers eight shared
-> graph fixtures in both directions; a native 4.17.1 corpus remains the
-> provenance upgrade.
+> Stable Yarn 4.17.1 is bundled as the calibrated `pm-yarn-berry-v10`
+> producer. The 30-pair interop suite still synthesizes its shared fixture
+> intersections from the calibrated v9 corpus by changing only the
+> `version: 10` marker (per [yarn-berry-v7](./yarn-berry-v7.md) precedent).
+> A separate native frozen-conversion oracle proves a Deno-projected v10
+> candidate byte-stable under Yarn 4.17.1 `install --immutable`.
 
 ## Open questions
 

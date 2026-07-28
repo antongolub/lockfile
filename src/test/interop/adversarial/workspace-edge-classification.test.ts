@@ -29,7 +29,7 @@ describe('interop adversarial §8.3 — workspace-edge classification', () => {
     const emitted = stringifyFormat('yarn-berry-v9', normalizeGraphForBerry(enriched.graph))
     const destinationGraph = parseFormat('yarn-berry-v9', emitted.lockfile)
 
-    expect(destinationGraph.getNode('case-workspaces-basic@0.0.0')?.workspacePath).toBe('')
+    expect(destinationGraph.getNode('case-workspaces-basic@0.0.0-use.local')?.workspacePath).toBe('')
     expect(destinationGraph.getNode('@case-ws/a@0.0.0-use.local')?.workspacePath).toBe('packages/a')
     expect(destinationGraph.getNode('@case-ws/b@0.0.0-use.local')?.workspacePath).toBe('packages/b')
 
@@ -38,7 +38,7 @@ describe('interop adversarial §8.3 — workspace-edge classification', () => {
     // parse-side marking pass (ADR-0014 §4.F4 — populate `attrs.workspace`
     // + canonical `workspaceRange` whenever the range carries the
     // `workspace:` protocol AND the target carries `workspacePath`).
-    expect(destinationGraph.out('case-workspaces-basic@0.0.0').map(edge => ({
+    expect(destinationGraph.out('case-workspaces-basic@0.0.0-use.local').map(edge => ({
       dst: edge.dst,
       kind: edge.kind,
       range: edge.attrs?.range,
@@ -52,7 +52,7 @@ describe('interop adversarial §8.3 — workspace-edge classification', () => {
     // Re-enrich is a no-op for workspace markers now (parse already set
     // them); the assertion preserves the post-enrich invariant.
     const reEnriched = enrichBerryV9(destinationGraph).graph
-    expect(reEnriched.out('case-workspaces-basic@0.0.0').map(edge => ({
+    expect(reEnriched.out('case-workspaces-basic@0.0.0-use.local').map(edge => ({
       dst: edge.dst,
       kind: edge.kind,
       range: edge.attrs?.range,

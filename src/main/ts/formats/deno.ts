@@ -12,15 +12,20 @@ import {
   serializeNodeId,
   type Diagnostic,
   type EdgeAttrs,
+  type EdgeKind,
   type Graph,
+  type Manifest,
   type MutateResult,
   type Mutator,
   type Node,
+  type TarballPayload,
 } from '../graph.ts'
 import { LockfileError } from '../api/errors.ts'
 import { emitSri, isEmptyIntegrity, parseSri } from '../recipe/integrity.ts'
 
-export interface DenoParseOptions {}
+export interface DenoParseOptions {
+  manifests?: Readonly<Record<string, Manifest>>
+}
 
 export interface DenoStringifyOptions {
   lineEnding?: 'lf' | 'crlf'
@@ -71,6 +76,8 @@ interface DenoSidecar {
   readonly dirtyNative: ReadonlySet<string>
   readonly exactReplay: boolean
   readonly unrepresentable: readonly string[]
+  readonly jsrCount: number
+  readonly remoteCount: number
 }
 
 interface DenoParseContext {
@@ -83,12 +90,22 @@ interface DenoParseContext {
   readonly nodeByNative: Map<string, string>
   readonly nativeByName: Map<string, string[]>
   readonly unrepresentable: string[]
+  readonly rootManifest?: Manifest
 }
 
 const sidecarByGraph = new WeakMap<Graph, DenoSidecar>()
 
 export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
+}
+
+export function nonNpmSectionCounts(
+  graph: Graph,
+): Readonly<{ jsr: number; remote: number }> | undefined {
+  const sidecar = sidecarByGraph.get(graph)
+  return sidecar === undefined
+    ? undefined
+    : Object.freeze({ jsr: sidecar.jsrCount, remote: sidecar.remoteCount })
 }
 
 function rememberSidecar(graph: Graph, sidecar: DenoSidecar): void {
@@ -151,7 +168,7 @@ export function check(input: string): boolean {
     || isObject(value.workspace)
 }
 
-export function parse(input: string, _options: DenoParseOptions = {}): Graph {
+export function parse(input: string, options: DenoParseOptions = {}): Graph {
   if (hasConflictMarkers(input)) {
     throw failure(
       'DENO_MERGE_CONFLICT: deno.lock contains unresolved git conflict markers; resolve the merge before mutation',
@@ -159,7 +176,7 @@ export function parse(input: string, _options: DenoParseOptions = {}): Graph {
   }
   const layout = parseLayout(input)
   validateNonNpmIntegrity(layout)
-  const context = createParseContext(layout)
+  const context = createParseContext(layout, options.manifests?.[''])
   registerNpmNodes(context)
   addNpmEdges(context)
   addRootSpecifierEdges(context)
@@ -494,7 +511,10 @@ function parseLayout(input: string): DenoLayout {
   }
 }
 
-function createParseContext(layout: DenoLayout): DenoParseContext {
+function createParseContext(
+  layout: DenoLayout,
+  rootManifest: Manifest | undefined,
+): DenoParseContext {
   return {
     builder: newBuilder(),
     layout,
@@ -505,6 +525,7 @@ function createParseContext(layout: DenoLayout): DenoParseContext {
     nodeByNative: new Map(),
     nativeByName: new Map(),
     unrepresentable: [],
+    rootManifest,
   }
 }
 
@@ -541,27 +562,19 @@ function registerNpmNodes(context: DenoParseContext): void {
     context.builder.addNode(node)
     context.nativeByNode.set(nodeId, nativeId)
     context.nodeByNative.set(nativeId, nodeId)
-    recordTarball(context, node, nativeId, entry)
+    recordTarball(context, node, parsed, nativeId, entry)
   }
 }
 
 function recordTarball(
   context: DenoParseContext,
   node: Node,
+  parsed: DenoNpmPackageId,
   nativeId: string,
   entry: DenoNpmPackageEntry,
 ): void {
   const tarball = entry.tarball ?? defaultNpmTarballUrl(node.name, node.version)
-  const payload: {
-    integrity?: ReturnType<typeof parseSri>
-    resolution: { type: 'tarball'; url: string }
-    nativeResolution?: string
-    os?: string[]
-    cpu?: string[]
-    deprecated?: string
-    hasInstallScript?: boolean
-    bin?: string
-  } = {
+  const payload: TarballPayload = {
     resolution: { type: 'tarball', url: tarball },
   }
   if (entry.tarball !== undefined) payload.nativeResolution = entry.tarball
@@ -584,6 +597,11 @@ function recordTarball(
   if (entry.deprecated === true) payload.deprecated = 'deprecated'
   if (entry.scripts === true) payload.hasInstallScript = true
   if (entry.bin === true) payload.bin = ''
+  if (parsed.peers.length > 0) {
+    payload.peerDependencies = Object.fromEntries(
+      parsed.peers.map(peer => [peer.name, peer.version]),
+    )
+  }
   context.builder.setTarball({ name: node.name, version: node.version }, payload)
 }
 
@@ -614,7 +632,7 @@ function addNpmEdges(context: DenoParseContext): void {
       if (dstId === undefined) {
         throw failure(`deno adapter: npm ${nativeId} peer ${peerNativeId} is missing`)
       }
-      addEdgeOnce(context, srcId, dstId, 'peer')
+      addEdgeOnce(context, srcId, dstId, 'peer', { range: peer.version })
     }
   }
 }
@@ -682,7 +700,11 @@ function addDependencyBlock(
       continue
     }
     const target = context.parsedByNative.get(ref.nativeId)!
-    const attrs: EdgeAttrs = {}
+    const attrs: EdgeAttrs = {
+      range: ref.alias === target.name
+        ? target.version
+        : `npm:${target.name}@${target.version}`,
+    }
     if (ref.alias !== target.name) attrs.alias = ref.alias
     if (kind === 'optional') attrs.optional = true
     addEdgeOnce(context, srcId, dstId, kind, attrs)
@@ -714,7 +736,17 @@ function dependencyRefFromCompact(
 
 function addRootSpecifierEdges(context: DenoParseContext): void {
   if (Object.keys(context.layout.specifiers).length === 0) return
-  const root: Node = { id: '@0.0.0', name: '', version: '0.0.0', peerContext: [], workspacePath: '' }
+  if (context.rootManifest !== undefined) {
+    addManifestRootEdges(context, context.rootManifest)
+    return
+  }
+  const root: Node = {
+    id: '@0.0.0',
+    name: '',
+    version: '0.0.0',
+    peerContext: [],
+    workspacePath: '',
+  }
   context.builder.addNode(root)
   const seen = new Set<string>()
   for (const [request, resolved] of Object.entries(context.layout.specifiers).sort(compareEntries)) {
@@ -733,6 +765,187 @@ function addRootSpecifierEdges(context: DenoParseContext): void {
   }
 }
 
+interface DenoManifestDependency {
+  readonly alias: string
+  readonly targetName: string
+  readonly requestRange: string
+  readonly targetRange: string
+  readonly kind: Extract<EdgeKind, 'dep' | 'dev' | 'optional' | 'peer'>
+}
+
+interface DenoRootSpecifier {
+  readonly request: string
+  readonly ref: { readonly nativeId: string; readonly alias?: string }
+  readonly alias: string
+  readonly targetName: string
+  readonly requestRange: string
+}
+
+function addManifestRootEdges(context: DenoParseContext, manifest: Manifest): void {
+  const version = manifest.version ?? '0.0.0'
+  const name = manifest.name ?? ''
+  const root: Node = {
+    id: name === '' ? `@${version}` : serializeNodeId(name, version, []),
+    name,
+    version,
+    peerContext: [],
+    workspacePath: '',
+  }
+  context.builder.addNode(root)
+  const specifiers = npmRootSpecifiers(context)
+  const usedRequests = new Set<string>()
+  for (const declaration of manifestNpmDependencies(manifest)) {
+    const matches = specifiers.filter(specifier =>
+      specifier.alias === declaration.alias
+      && specifier.targetName === declaration.targetName
+      && specifier.requestRange === declaration.requestRange)
+    if (matches.length !== 1) {
+      throw failure(
+        `DENO_MANIFEST_DEP_UNRESOLVED: manifest ${declaration.kind} `
+          + `${declaration.alias}@${declaration.targetRange} matched ${matches.length} deno.lock npm specifiers`,
+      )
+    }
+    const match = matches[0]!
+    usedRequests.add(match.request)
+    const dstId = context.nodeByNative.get(match.ref.nativeId)
+    if (dstId === undefined) {
+      throw failure(
+        `DENO_MANIFEST_DEP_UNRESOLVED: manifest ${declaration.alias} references `
+          + `missing npm package ${match.ref.nativeId}`,
+      )
+    }
+    const attrs: EdgeAttrs = { range: declaration.targetRange }
+    if (declaration.alias !== declaration.targetName) attrs.alias = declaration.alias
+    if (declaration.kind === 'optional') attrs.optional = true
+    addEdgeOnce(context, root.id, dstId, declaration.kind, attrs)
+  }
+  const unmatched = specifiers
+    .filter(specifier => !usedRequests.has(specifier.request))
+    .map(specifier => specifier.request)
+  if (unmatched.length > 0) {
+    throw failure(
+      `DENO_MANIFEST_SCOPE_UNRESOLVED: sibling deno.json/package.json does not classify `
+        + `deno.lock npm specifier${unmatched.length === 1 ? '' : 's'} ${unmatched.join(', ')}`,
+    )
+  }
+}
+
+function npmRootSpecifiers(context: DenoParseContext): DenoRootSpecifier[] {
+  const output: DenoRootSpecifier[] = []
+  for (const [request, resolved] of Object.entries(context.layout.specifiers).sort(compareEntries)) {
+    const ref = nativeIdFromSpecifier(context.layout.version, request, resolved)
+    if (ref === undefined) continue
+    const target = context.parsedByNative.get(ref.nativeId)
+    if (target === undefined) {
+      throw failure(`deno adapter: specifier ${request} references missing npm package ${ref.nativeId}`)
+    }
+    const descriptor = npmRequestDescriptor(context.layout.version, request, target.name, ref.alias)
+    if (descriptor === undefined) {
+      throw failure(`deno adapter: npm specifier ${request} has no classifiable manifest descriptor`)
+    }
+    output.push({ request, ref, ...descriptor })
+  }
+  return output
+}
+
+function npmRequestDescriptor(
+  version: DenoVersion,
+  request: string,
+  targetName: string,
+  projectedAlias: string | undefined,
+): { alias: string; targetName: string; requestRange: string } | undefined {
+  const body = version === '2'
+    ? request
+    : request.startsWith('npm:')
+      ? request.slice('npm:'.length)
+      : undefined
+  if (body === undefined) return undefined
+  const outer = splitNameAndTail(body)
+  if (outer === undefined) {
+    return {
+      alias: projectedAlias ?? targetName,
+      targetName,
+      requestRange: '*',
+    }
+  }
+  if (outer.tail.startsWith('npm:')) {
+    const inner = splitNameAndTail(outer.tail.slice('npm:'.length))
+    if (inner === undefined) return undefined
+    return { alias: outer.name, targetName: inner.name, requestRange: inner.tail }
+  }
+  return {
+    alias: projectedAlias ?? outer.name,
+    targetName,
+    requestRange: outer.tail,
+  }
+}
+
+function manifestNpmDependencies(manifest: Manifest): DenoManifestDependency[] {
+  const primary = new Map<string, DenoManifestDependency>()
+  const addPrimary = (
+    block: Readonly<Record<string, string>> | undefined,
+    kind: Extract<EdgeKind, 'dep' | 'dev' | 'optional'>,
+    replace: boolean,
+  ): void => {
+    for (const [alias, value] of Object.entries(block ?? {}).sort(compareEntries)) {
+      const declaration = npmManifestDependency(alias, value, kind)
+      if (declaration === undefined) continue
+      if (replace || !primary.has(alias)) primary.set(alias, declaration)
+    }
+  }
+  addPrimary(manifest.dependencies, 'dep', false)
+  addPrimary(manifest.devDependencies, 'dev', false)
+  addPrimary(manifest.optionalDependencies, 'optional', true)
+  const peer = Object.entries(manifest.peerDependencies ?? {})
+    .sort(compareEntries)
+    .flatMap(([alias, value]) => {
+      const declaration = npmManifestDependency(alias, value, 'peer')
+      return declaration === undefined ? [] : [declaration]
+    })
+  return [...primary.values(), ...peer].sort((left, right) =>
+    compareStrings(left.alias, right.alias) || compareStrings(left.kind, right.kind))
+}
+
+function npmManifestDependency(
+  alias: string,
+  value: string,
+  kind: DenoManifestDependency['kind'],
+): DenoManifestDependency | undefined {
+  if (
+    value.startsWith('jsr:')
+    || value.startsWith('http:')
+    || value.startsWith('https:')
+    || value.startsWith('file:')
+    || value.startsWith('workspace:')
+  ) return undefined
+  if (!value.startsWith('npm:')) {
+    return {
+      alias,
+      targetName: alias,
+      requestRange: value,
+      targetRange: value,
+      kind,
+    }
+  }
+  const target = splitNameAndTail(value.slice('npm:'.length))
+  if (target === undefined) {
+    return {
+      alias,
+      targetName: value.slice('npm:'.length),
+      requestRange: '*',
+      targetRange: '*',
+      kind,
+    }
+  }
+  return {
+    alias,
+    targetName: target.name,
+    requestRange: target.tail,
+    targetRange: alias === target.name ? target.tail : value,
+    kind,
+  }
+}
+
 function nativeIdFromSpecifier(
   version: DenoVersion,
   request: string,
@@ -748,22 +961,26 @@ function nativeIdFromSpecifier(
   if (!request.startsWith('npm:')) return undefined
   const requestBody = request.slice('npm:'.length)
   const requestParts = splitNameAndTail(requestBody)
-  const name = requestParts?.name ?? requestBody
+  const alias = requestParts?.name ?? requestBody
+  const name = requestParts?.tail.startsWith('npm:')
+    ? splitNameAndTail(requestParts.tail.slice('npm:'.length))?.name
+    : alias
+  if (name === undefined) return undefined
   if (version === '3') {
     const nativeId = resolved.startsWith('npm:') ? resolved.slice('npm:'.length) : resolved
     const target = splitNameAndTail(nativeId)
     if (target === undefined) return undefined
-    return target.name === name ? { nativeId } : { nativeId, alias: name }
+    return target.name === alias ? { nativeId } : { nativeId, alias }
   }
   const nativeId = `${name}@${resolved}`
-  return { nativeId }
+  return name === alias ? { nativeId } : { nativeId, alias }
 }
 
 function addEdgeOnce(
   context: DenoParseContext,
   src: string,
   dst: string,
-  kind: 'dep' | 'optional' | 'peer',
+  kind: Extract<EdgeKind, 'dep' | 'dev' | 'optional' | 'peer'>,
   attrs?: EdgeAttrs,
 ): void {
   const key = `${src}\0${dst}\0${kind}\0${attrs?.alias ?? ''}`
@@ -787,6 +1004,8 @@ function sealDenoGraph(context: DenoParseContext, input: string): Graph {
       dirtyNative: new Set(),
       exactReplay: true,
       unrepresentable: [...new Set(context.unrepresentable)].sort(),
+      jsrCount: Object.keys(context.layout.jsr).length,
+      remoteCount: Object.keys(context.layout.remote).length,
     }
     return withSidecarPropagation(graph, sidecar)
   } catch (error) {

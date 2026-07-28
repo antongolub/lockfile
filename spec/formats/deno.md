@@ -1,6 +1,7 @@
 # `deno.lock` — Deno's native lockfile
 
-> Status: implemented preview adapter; same-format npm-section mutation only.
+> Status: implemented preview adapter; same-format npm-section mutation and
+> manifest-backed npm-subgraph projection to all 16 Node-family formats.
 > Updated: 2026-07-28.
 > Provenance: **External** — emitted and frozen-verified by pinned Deno binaries.
 
@@ -10,13 +11,15 @@ redirects, and workspace data in a same-format native sidecar. An unchanged
 graph replays the original bytes exactly. A graph mutation is emitted as
 canonical two-space JSON while preserving the input lockfile version.
 
-This deliberately is not a general Deno-to-Node conversion surface. Every one
-of the 32 ordered cross-format pairs touching `deno` is represented in the
-interop matrix as explicitly unsupported and fails closed with
-`CAPABILITY_LACK`. The supported operation is:
+This deliberately is not a general Deno ecosystem conversion surface. The
+interop matrix supports all 16 `deno` → Node-family directions for the npm
+resolution subgraph when a sibling manifest is supplied. The 16 reverse
+directions remain explicitly unsupported and fail closed with
+`CAPABILITY_LACK`. The supported operations are:
 
 ```text
 deno.lock v2-v5 → npm subgraph audit/fix → same deno.lock version
+deno.lock v2-v5 + sibling manifest → npm subgraph → Node-family lock
 ```
 
 This is a lockfile-layer boundary, not an ecosystem dead end. Deno's official
@@ -79,9 +82,11 @@ canonical graph:
 
 JSR packages, remote URL modules, redirects, and workspace configuration have
 no equivalent Node-package identity at the lockfile layer in this graph. They
-remain native sidecar state and are replayed without manufacturing fake package
-nodes. Converting JSR/remote dependencies to Node requires transforming the
-source graph, for which Deno's official
+remain native sidecar state for same-format replay and are not manufactured as
+fake package nodes. A Node-family projection emits
+`DENO_JSR_PACKAGES_DROPPED` / `DENO_REMOTE_PACKAGES_DROPPED` with exact counts.
+Converting those dependencies requires transforming the source graph, for
+which Deno's official
 [`denoland/dnt`](https://github.com/denoland/dnt) is the supported external
 path. A same-format mutation changes only the npm/specifier material required
 by that mutation and retains those native sections.
@@ -90,7 +95,11 @@ by that mutation and retains those native sections.
 or production declaration. The lock alone therefore cannot establish that a
 vulnerable package is dev-only, and the adapter deliberately does not infer
 that scope from reachability. An audit or fix that needs the distinction must
-also receive the sibling `deno.json` or `package.json` as manifest evidence.
+also receive the sibling `deno.json`/`deno.jsonc` or `package.json` as manifest
+evidence. Cross-format conversion always requires that evidence and fails
+closed with `DENO_MANIFEST_REQUIRED` when it is absent. Declarations classify
+root npm edges as `dep`, `dev`, `optional`, or `peer`; unresolved declarations
+or unclassified lockfile roots are rejected rather than guessed.
 
 An unresolved mandatory npm reference marks the native state unrepresentable.
 Exact replay remains safe, but any structural mutation fails with
@@ -189,7 +198,10 @@ The unit and interop suites cover:
 - tarball presence policy and integrity-domain validation;
 - all diff3 markers;
 - producer-compatible v5 emission;
-- all 32 Deno-touching matrix cells as explicit unsupported conversions.
+- all 16 manifest-backed `deno` → Node-family matrix cells as supported
+  conversions and all 16 reverse cells as explicit unsupported conversions;
+- pinned native frozen acceptance for every supported target generation,
+  including a dedicated npm-4/Node-26 gate and bundled Yarn 4.17.1/v10.
 
 Behavioral context is documented in [`spec/pm/deno.md`](../pm/deno.md);
 integrity terminology follows [`_common.md`](./_common.md).

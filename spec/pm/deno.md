@@ -1,7 +1,8 @@
 # `deno` — Deno runtime as a package manager
 
 > Status: **preview** — behavior research is backed by live v3/v4/v5 producer
-> oracles and an implemented v2-v5 same-format npm-section adapter.
+> oracles and an implemented v2-v5 adapter with same-format npm-section
+> mutation plus manifest-backed npm-subgraph projection to Node-family targets.
 > Updated: 2026-07-27.
 > Family: **non-Node** — the single most divergent entry in `spec/pm/`. Deno is a
 > runtime first, PM second; its native model replaces, rather than extends, the
@@ -689,13 +690,13 @@ adapters:
 
 | Concern | Setting / note |
 |---|---|
-| Manifest parse | out of scope for this increment; requested specifiers come from the lock |
+| Manifest parse | sibling `deno.json`/`deno.jsonc` and `package.json` declarations classify root npm edges; cross-format conversion requires this evidence |
 | Graph model | project the npm subgraph only; retain URL/JSR/redirect/workspace material in a native sidecar |
 | Integrity | preserve distinct JSR metadata, remote-module, and npm-tarball domains; mutate only proven npm SHA-512 SRI |
 | Layout | usually **none**; if `nodeModulesDir` ≠ `none`, an isolated (`.deno/`) or hoisted Node layout |
 | Peer identity | project native npm suffixes to semantic peer edges one-way; raw suffix remains authoritative |
 | Emission | exact byte replay when unchanged; version-preserving v2-v5 JSON emission for npm-section mutation |
-| Cross-format | all 32 Deno-touching ordered pairs explicitly fail closed; same-format npm audit/fix only |
+| Cross-format | 16 manifest-backed `deno` → Node-family pairs project the npm subgraph with declared JSR/remote loss; 16 reverse pairs fail closed |
 | Registry | npm registry evidence for projected nodes; JSR and raw HTTPS state is preserved, not projected |
 | Advisories | native `deno audit`/`fix` already constraint-aware — project value-add is breadth, not remediation |
 

@@ -2013,7 +2013,8 @@ function createYarnBerryStringifyContext(
 ): YarnBerryStringifyContext {
   const sidecar = sidecarByGraph.get(graph) ?? EMPTY_SIDECAR
   const diagnostics: Diagnostic[] = []
-  const cacheKey = options.cacheKey ?? asString(sidecar.metadata?.cacheKey)
+  const observedCacheKey = asString(sidecar.metadata?.cacheKey)
+  const cacheKey = options.cacheKey ?? observedCacheKey
   const metadata = createYarnBerryStringifyMetadata(config, sidecar, cacheKey)
   return {
     graph,
@@ -2292,7 +2293,10 @@ function entryOfNode(
 ): SymlMap {
   const payload = graph.tarballOf(node.id)
   const entry: SymlMap = {
-    version: node.version,
+    // Yarn never stores the package.json version for a workspace entry. Its
+    // native locator is represented by this fixed sentinel instead; preserving
+    // a foreign root version makes `yarn install --immutable` rewrite the lock.
+    version: node.workspacePath === undefined ? node.version : '0.0.0-use.local',
     resolution: resolutionOfNode(node, payload?.resolution, payload?.nativeResolution, emitDiagnostic),
   }
 

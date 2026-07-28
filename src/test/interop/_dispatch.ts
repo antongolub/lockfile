@@ -1,4 +1,4 @@
-import type { Diagnostic, Graph } from '../../main/ts/graph.ts'
+import type { Diagnostic, Graph, Manifest } from '../../main/ts/graph.ts'
 import { parse as parseClassic, stringify as stringifyClassic } from '../../main/ts/formats/yarn-classic.ts'
 import { parse as parseV4, stringify as stringifyV4 } from '../../main/ts/formats/yarn-berry-v4.ts'
 import { parse as parseV5, stringify as stringifyV5 } from '../../main/ts/formats/yarn-berry-v5.ts'
@@ -15,7 +15,7 @@ import { parse as parsePnpmV5, stringify as stringifyPnpmV5 } from '../../main/t
 import { parse as parsePnpmV6, stringify as stringifyPnpmV6 } from '../../main/ts/formats/pnpm-v6.ts'
 import { parse as parsePnpmV9, stringify as stringifyPnpmV9 } from '../../main/ts/formats/pnpm-v9.ts'
 import { parse as parseBunText, stringify as stringifyBunText } from '../../main/ts/formats/bun-text.ts'
-import type { YarnClassicManifest } from '../../main/ts/formats/yarn-classic.ts'
+import { parse as parseDeno } from '../../main/ts/formats/deno.ts'
 import { CONTRACTS } from './_matrix.ts'
 import type { ConversionContract, FormatId } from './_matrix.ts'
 import { enrichClassicGraph, normalizeGraphForBerry } from './_normalize.ts'
@@ -58,7 +58,7 @@ const PARSERS: Record<FormatId, ((lockfile: string) => Graph) | undefined> = {
   'pnpm-v6': parsePnpmV6,
   'pnpm-v9': parsePnpmV9,
   'bun-text': parseBunText,
-  'deno': undefined,
+  'deno': parseDeno,
 }
 
 const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
@@ -91,7 +91,12 @@ const BERRY_CACHE_KEYS: Record<Extract<FormatId, `yarn-berry-${string}`>, string
   'yarn-berry-v10': '10c0',
 }
 
-export function parseFormat(format: FormatId, lockfile: string): Graph {
+export function parseFormat(
+  format: FormatId,
+  lockfile: string,
+  manifests?: Readonly<Record<string, Manifest>>,
+): Graph {
+  if (format === 'deno') return parseDeno(lockfile, { manifests })
   const parser = PARSERS[format]
   if (parser === undefined) throw new Error(`parseFormat: unsupported format ${format}`)
   return parser(lockfile)
@@ -125,7 +130,7 @@ export type ConvertMode = 'naive' | 'enrich-aware'
 export type ConvertInputOptions = {
   cacheKey?: string
   lineEnding?: 'lf' | 'crlf'
-  manifests?: Record<string, YarnClassicManifest>
+  manifests?: Record<string, Manifest>
 }
 
 export type ConvertInput = {
@@ -160,7 +165,7 @@ export function convert(input: ConvertInput): ConvertResult {
     )
   }
 
-  const parsedSource = parseFormat(input.from, input.source)
+  const parsedSource = parseFormat(input.from, input.source, options.manifests)
   const sourceGraph = prepareSourceGraph(parsedSource, input, mode, options)
 
   const stringified = stringifyFormat(input.to, sourceGraph, {

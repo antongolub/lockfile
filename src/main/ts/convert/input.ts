@@ -17,7 +17,13 @@ import type {
 
 const WINDOWS_DRIVE_RE = /^[A-Za-z]:([\\/]|$)/
 const decoder = new TextDecoder('utf-8', { fatal: true })
-const CONFIG_NAMES = ['pnpm-workspace.yaml', '.npmrc', '.yarnrc.yml'] as const
+const CONFIG_NAMES = [
+  'pnpm-workspace.yaml',
+  '.npmrc',
+  '.yarnrc.yml',
+  'deno.json',
+  'deno.jsonc',
+] as const
 
 // === TYPES ==================================================================
 
@@ -229,6 +235,117 @@ export function parseProjectManifest(
   return manifest
 }
 
+function stripJsoncExtensions(input: string): string {
+  const output: string[] = []
+  let index = 0
+  let inString = false
+  let escaped = false
+  while (index < input.length) {
+    const character = input[index]!
+    if (inString) {
+      output.push(character)
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      index++
+      continue
+    }
+    if (character === '"') {
+      inString = true
+      output.push(character)
+      index++
+      continue
+    }
+    if (character === '/' && input[index + 1] === '/') {
+      index += 2
+      while (index < input.length && input[index] !== '\n') index++
+      continue
+    }
+    if (character === '/' && input[index + 1] === '*') {
+      index += 2
+      while (
+        index + 1 < input.length
+        && !(input[index] === '*' && input[index + 1] === '/')
+      ) index++
+      if (index + 1 >= input.length) throw invalid('deno.jsonc: unterminated block comment')
+      index += 2
+      continue
+    }
+    if (character === ',') {
+      let lookahead = index + 1
+      while (lookahead < input.length && /\s/.test(input[lookahead]!)) lookahead++
+      if (input[lookahead] === '}' || input[lookahead] === ']') {
+        index++
+        continue
+      }
+    }
+    output.push(character)
+    index++
+  }
+  return output.join('')
+}
+
+function parseDenoProjectManifest(content: string, filename: string): Manifest {
+  let value: unknown
+  try {
+    value = JSON.parse(
+      filename.endsWith('.jsonc') ? stripJsoncExtensions(content) : content,
+    )
+  } catch (cause) {
+    throw invalid(`${filename}: Deno config parse failed`, cause)
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw invalid(`${filename}: Deno config root must be an object`)
+  }
+  const raw = value as Record<string, unknown>
+  const manifest: Manifest = {}
+  if (raw.name !== undefined) {
+    if (typeof raw.name !== 'string') throw invalid(`${filename}.name must be a string`)
+    manifest.name = raw.name
+  }
+  if (raw.version !== undefined) {
+    if (typeof raw.version !== 'string') throw invalid(`${filename}.version must be a string`)
+    manifest.version = raw.version
+  }
+  const imports = stringRecord(raw.imports, `${filename}.imports`)
+  if (imports !== undefined) manifest.dependencies = imports
+  return manifest
+}
+
+function mergeDenoManifestEvidence(
+  packageManifest: Manifest | undefined,
+  denoManifest: Manifest,
+): Manifest {
+  if (packageManifest === undefined) return denoManifest
+  const declaredNames = new Set([
+    ...Object.keys(packageManifest.dependencies ?? {}),
+    ...Object.keys(packageManifest.devDependencies ?? {}),
+    ...Object.keys(packageManifest.optionalDependencies ?? {}),
+    ...Object.keys(packageManifest.peerDependencies ?? {}),
+  ])
+  const denoOnlyDependencies = Object.fromEntries(
+    Object.entries(denoManifest.dependencies ?? {})
+      .filter(([name]) => !declaredNames.has(name)),
+  )
+  return {
+    ...packageManifest,
+    ...(packageManifest.name !== undefined || denoManifest.name === undefined
+      ? {}
+      : { name: denoManifest.name }),
+    ...(packageManifest.version !== undefined || denoManifest.version === undefined
+      ? {}
+      : { version: denoManifest.version }),
+    ...(Object.keys(denoOnlyDependencies).length === 0
+      ? {}
+      : {
+          dependencies: {
+            ...denoOnlyDependencies,
+            ...packageManifest.dependencies,
+          },
+        }),
+  }
+}
+
 export function materializeOverrides(
   overrides: readonly OverrideConstraint[],
 ): OverrideConstraint[] {
@@ -348,6 +465,7 @@ function prepareProjectFiles(
         'pnpm-workspace.yaml',
       )
   const manifests: Record<string, Manifest> = {}
+  const denoManifests: Record<string, Manifest> = {}
   for (const file of normalized) {
     const role = classify(file.path)
     if (role.kind === 'other') continue
@@ -356,13 +474,22 @@ function prepareProjectFiles(
     }
     const rebased = root === '' ? file.path : file.path.slice(prefix.length)
     if (role.kind === 'config') {
-      decodeText(file.content, file.path)
+      const content = decodeText(file.content, file.path)
+      const basename = path.posix.basename(rebased)
+      if (source === 'deno' && (basename === 'deno.json' || basename === 'deno.jsonc')) {
+        const directory = path.posix.dirname(rebased)
+        const key = directory === '.' ? '' : directory
+        denoManifests[key] = parseDenoProjectManifest(content, rebased)
+      }
       continue
     }
     if (role.kind !== 'manifest') continue
     const directory = path.posix.dirname(rebased)
     const key = directory === '.' ? '' : directory
     manifests[key] = parseProjectManifest(decodeText(file.content, file.path), rebased, source)
+  }
+  for (const [key, denoManifest] of Object.entries(denoManifests)) {
+    manifests[key] = mergeDenoManifestEvidence(manifests[key], denoManifest)
   }
   if (pnpmWorkspaces !== undefined) {
     manifests[''] = { ...manifests[''], workspaces: pnpmWorkspaces }

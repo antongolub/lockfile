@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import semver from 'semver'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { convert } from '../../main/ts/index.ts'
 import { parse, stringify } from '../../main/ts/formats/npm-4.ts'
 import {
   createNativeLock,
@@ -19,6 +21,10 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url))
 const tarballPath = resolve(here, '../resources/fixtures/tarballs/ms-2.1.3.tgz')
+const denoNpmOnlyPath = resolve(
+  here,
+  '../resources/fixtures/lockfiles/deno-npm-only/deno.lock',
+)
 const registryScript = resolve(here, '../helpers/frozen-registry.mjs')
 const nodeRange = '^22.22.2 || ^24.15.0 || >=26.0.0'
 
@@ -64,6 +70,64 @@ beforeEach(context => {
 const runnable = semver.satisfies(process.versions.node, nodeRange) ? it : it.skip
 
 describe('infra: npm-4 native npm 12 oracle', () => {
+  runnable(
+    'npm 12 frozen mode accepts a Deno-projected plain v4 lock without a patch extension',
+    async () => {
+      const manifest = {
+        name: 'lockgraph-frozen-oracle-case',
+        version: '1.0.0',
+        private: true,
+        packageManager: 'npm@12.0.1',
+        dependencies: { ms: '2.1.3' },
+      }
+      const source = JSON.parse(readFileSync(denoNpmOnlyPath, 'utf8')) as {
+        npm: Record<string, { tarball?: string }>
+      }
+      source.npm['ms@2.1.3']!.tarball =
+        `${registry!.registry!.replace(/\/$/, '')}/ms/-/ms-2.1.3.tgz`
+      const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
+        from: 'deno',
+        to: 'npm-4',
+        strict: false,
+        targetVersion: adapter.version,
+        manifests: {
+          '': {
+            name: manifest.name,
+            version: manifest.version,
+            dependencies: manifest.dependencies,
+            overrides: [],
+          },
+        },
+      })
+      expect(JSON.parse(lockfile).lockfileVersion).toBe(4)
+      const projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify({
+        target: { format: adapter.format, managerVersion: adapter.version },
+        lockfile,
+        companions: [],
+      })).digest('hex')}`
+      const candidate: FrozenOracleCandidate = Object.freeze({
+        protocol: 'lockgraph-frozen-projection/v1',
+        target: Object.freeze({
+          format: adapter.format,
+          managerVersion: adapter.version,
+        }),
+        projectionDigest,
+        lockfile,
+        companions: Object.freeze([]),
+      })
+      const frozen = runFrozenOracle(candidate, adapter, {
+        'package.json': `${JSON.stringify(manifest, null, 2)}\n`,
+      })
+      expect(frozen.reason).toBeUndefined()
+      expect(frozen.receipt).toMatchObject({
+        target: candidate.target,
+        projectionDigest,
+        verification: 'frozen-verified',
+      })
+    },
+    60_000,
+  )
+
   runnable(
     `npm 12 creates v4 only for a patch trigger and accepts byte-stable mutable/frozen replay`
       + (semver.satisfies(process.versions.node, nodeRange)

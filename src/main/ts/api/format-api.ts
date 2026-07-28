@@ -204,6 +204,7 @@ export function parse(format: FormatId, input: string, options: ParseOptions = {
   let graph = parseFormat(format, input, {
     workspaceRoot: options.workspaceRoot,
     overrides,
+    manifests: options.manifests,
   })
   if (format === 'yarn-classic' && options.manifests !== undefined) {
     const enriched = yarnClassic.enrich(graph, undefined, {
@@ -388,11 +389,21 @@ export function canonicalGraphSnapshot(
   projectedResolutions?: ReadonlyMap<string, ResolutionCanonical>,
   projectedIntegrities?: ReadonlyMap<string, Integrity | undefined>,
   projectedMetadataDrops?: ReadonlyMap<string, ReadonlySet<PackageMetadataField>>,
+  projectNativeBerryWorkspaceRoot = false,
 ): string {
+  const projectedRootIds = new Map<string, string>()
+  if (projectNativeBerryWorkspaceRoot) {
+    for (const node of graph.nodes()) {
+      if (node.workspacePath === '') {
+        projectedRootIds.set(node.id, `${node.name}@0.0.0-use.local`)
+      }
+    }
+  }
+  const projectedNodeId = (id: string): string => projectedRootIds.get(id) ?? id
   const nodes = sortByStableJson([...graph.nodes()].map(node => stableValue({
-    id: node.id,
+    id: projectedNodeId(node.id),
     name: node.name,
-    version: node.version,
+    version: projectedRootIds.has(node.id) ? '0.0.0-use.local' : node.version,
     peerContext: node.peerContext,
     ...(node.patch === undefined ? {} : { patch: node.patch }),
     ...(node.source === undefined ? {} : { source: node.source }),
@@ -416,8 +427,8 @@ export function canonicalGraphSnapshot(
           )?.to
         : undefined
       return stableValue({
-        src: edge.src,
-        dst: edge.dst,
+        src: projectedNodeId(edge.src),
+        dst: projectedNodeId(edge.dst),
         kind: edge.kind,
         ...(edge.attrs === undefined ? {} : {
           attrs: {
@@ -478,7 +489,7 @@ export function canonicalGraphSnapshot(
   return JSON.stringify({
     nodes,
     edges,
-    roots: [...graph.roots()].sort(),
+    roots: [...graph.roots()].map(projectedNodeId).sort(),
     tarballs,
   })
 }
@@ -520,6 +531,7 @@ export function canonicalProjectionGraphSnapshot(
     projectedResolutions,
     projectedIntegrities,
     projectedMetadataDrops,
+    target.startsWith('yarn-berry-'),
   )
 }
 

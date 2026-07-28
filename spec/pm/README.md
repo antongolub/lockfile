@@ -126,7 +126,8 @@ Caveats, by design:
 - **Grounding varies.** npm / bun / `_common` / yarn / pnpm were largely
   fetched from primary docs/source. Deno's lockfile claims are backed by
   pinned v3/v4/v5 producer and frozen-install oracles; runtime behavior outside
-  the implemented v2-v5 same-format npm-section slice remains research-grade.
+  the implemented v2-v5 same-format and manifest-backed npm-subgraph projection
+  slice remains research-grade.
 - **Forward-looking / version-specific claims are hedged**, not asserted —
   notably npm's announced default script-blocking, pnpm v11 defaults, bun ≥1.3
   isolated-linker defaults, and deno lockfile internals. Verify against a pinned

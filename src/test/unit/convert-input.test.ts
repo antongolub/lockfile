@@ -21,6 +21,32 @@ const fixture = (relative: string): string => readFileSync(
 
 const NPM = fixture('simple/npm-3.lock')
 const DENO = fixture('simple/deno.lock')
+const NODE_FAMILY_FORMATS = [
+  'npm-1',
+  'npm-2',
+  'npm-3',
+  'npm-4',
+  'yarn-classic',
+  'yarn-berry-v4',
+  'yarn-berry-v5',
+  'yarn-berry-v6',
+  'yarn-berry-v7',
+  'yarn-berry-v8',
+  'yarn-berry-v9',
+  'yarn-berry-v10',
+  'pnpm-v5',
+  'pnpm-v6',
+  'pnpm-v9',
+  'bun-text',
+] as const
+const DENO_MANIFESTS = {
+  '': {
+    name: 'case-deno',
+    version: '1.0.0',
+    dependencies: { 'react-dom': '^19.1.0' },
+    overrides: [],
+  },
+} satisfies Record<string, Manifest>
 const PNPM = fixture('simple/pnpm-v9.lock')
 const BERRY_PATCH = fixture('patch-yarn/yarn-berry-v9.lock')
 const CLASSIC = `# yarn lockfile v1
@@ -125,17 +151,70 @@ describe('convert input normalization', () => {
     })).resolves.toBe(DENO)
   })
 
-  it('fails closed on every cross-format deno conversion direction', async () => {
+  it('requires manifest evidence before deno -> npm-family conversion', async () => {
     await expect(convert(DENO, { from: 'deno', to: 'npm-3', strict: false }))
       .rejects.toMatchObject({
-        code: 'CAPABILITY_LACK',
-        message: expect.stringContaining('https://github.com/denoland/dnt'),
+        code: 'INVALID_INPUT',
+        message: expect.stringContaining('deno.json/package.json'),
       })
+  })
+
+  it.each(NODE_FAMILY_FORMATS)(
+    'converts the manifest-classified Deno npm subgraph to %s',
+    async target => {
+      const diagnostics: Diagnostic[] = []
+      const output = await convert(DENO, {
+        from: 'deno',
+        to: target,
+        strict: false,
+        manifests: DENO_MANIFESTS,
+        onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+      })
+      expect(check(target, output)).toBe(true)
+      expect(diagnostics.map(diagnostic => diagnostic.code))
+        .toContain('DENO_JSR_PACKAGES_DROPPED')
+    },
+  )
+
+  it('blocks Deno JSR loss in strict mode and allows it only explicitly', async () => {
+    await expect(convert(DENO, {
+      from: 'deno',
+      to: 'npm-3',
+      manifests: DENO_MANIFESTS,
+    })).rejects.toMatchObject({
+      code: 'IRREDUCIBLE_LOSS',
+      message: expect.stringContaining('deno:jsr'),
+    })
+  })
+
+  it('keeps npm-family -> deno explicitly unsupported', async () => {
     await expect(convert(NPM, { from: 'npm-3', to: 'deno', strict: false }))
       .rejects.toMatchObject({
         code: 'CAPABILITY_LACK',
-        message: expect.stringContaining('https://github.com/denoland/dnt'),
+        message: expect.stringContaining('native npm ids and peer suffixes'),
       })
+  })
+
+  it('uses deno.jsonc imports as Deno root-scope evidence', async () => {
+    const output = await convert({
+      files: {
+        'deno.lock': DENO,
+        'deno.jsonc': `{
+          // npm imports become production declarations.
+          "name": "case-deno",
+          "version": "1.0.0",
+          "imports": {
+            "react-dom": "npm:react-dom@^19.1.0",
+          },
+        }\n`,
+      },
+    }, {
+      to: 'npm-3',
+      strict: false,
+    })
+    expect(check('npm-3', output)).toBe(true)
+    const parsed = JSON.parse(output)
+    expect(parsed.packages[''].dependencies).toEqual({ 'react-dom': '^19.1.0' })
   })
 
   it('treats a bare string as lockfile content and never as a path', async () => {

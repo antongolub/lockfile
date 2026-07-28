@@ -493,6 +493,8 @@ function diagnosticLossClass(
     return 'enrichable'
   }
   if (code === 'RECIPE_FEATURE_DROPPED'
+    || code === 'DENO_JSR_PACKAGES_DROPPED'
+    || code === 'DENO_REMOTE_PACKAGES_DROPPED'
     || code === 'COMPLETENESS_ADAPTER_STATE_LOST'
     || code === 'RECIPE_WORKSPACE_RESOLVED'
     || code === 'RECIPE_WORKSPACE_COLLAPSED'

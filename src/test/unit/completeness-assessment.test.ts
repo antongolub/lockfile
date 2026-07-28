@@ -68,6 +68,14 @@ describe('targetProfileOf', () => {
     expect(targetProfileOf({ format: 'yarn-berry-v6' }).capabilities.catalogs).toBe(false)
     expect(targetProfileOf({ format: 'yarn-berry-v8' }).capabilities.catalogs).toBe(true)
     expect(targetProfileOf({
+      format: 'yarn-berry-v10',
+      managerVersion: '4.17.1',
+    }).capabilities.catalogs).toBe(true)
+    expect(() => targetProfileOf({
+      format: 'yarn-berry-v10',
+      managerVersion: '4.16.2',
+    })).toThrowError('incompatible with yarn-berry-v10')
+    expect(targetProfileOf({
       format: 'deno',
       managerVersion: '2.9.4',
     }).capabilities.peerRepresentation).toBe('virtualized')

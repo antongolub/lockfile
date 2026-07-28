@@ -23,11 +23,10 @@ const here = dirname(fileURLToPath(import.meta.url))
 const fixture = (scenario: string, file: string): string =>
   readFileSync(resolve(here, '../resources/fixtures/lockfiles', scenario, file), 'utf8')
 
-// `yarn-berry-v10` is a forward-compat preview adapter (yarn 5 dev branch)
-// — no canonical fixture exists in the matrix yet (see spec/formats/
-// yarn-berry-v10.md). Excluded from this fixture-based dispatcher sweep;
-// the dedicated v10 unit test (src/test/unit/yarn-berry-v10.test.ts)
-// exercises the dispatcher path via synthesised content.
+// `yarn-berry-v10` is produced by stable Yarn 4.17.1, but the shared `simple`
+// corpus still has no checked-in native v10 fixture. Excluded from this
+// fixture-based dispatcher sweep; its dedicated unit and pinned native frozen
+// tests exercise the dispatcher/emitter path.
 //
 // `lockgraph` is the native graph-serialization format (#101), not a
 // hand-authored PM lockfile — there is no on-disk `simple/lockgraph.lock`

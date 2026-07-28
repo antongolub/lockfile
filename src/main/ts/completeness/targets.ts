@@ -274,7 +274,12 @@ function assertCompatible(format: FormatId, version: ManagerVersion | undefined)
             : format === 'yarn-berry-v8' ? major >= 4 && version.prerelease === undefined
               : format === 'yarn-berry-v9' ? major > 4
                 || (major === 4 && (minor ?? -1) >= 14 && version.prerelease === undefined)
-                : format === 'yarn-berry-v10' ? major >= 5
+                : format === 'yarn-berry-v10' ? major > 4
+                  || (
+                    major === 4
+                    && (minor ?? -1) >= 17
+                    && version.prerelease === undefined
+                  )
                   : false
   const compatible =
     format === 'npm-1' ? major >= 5 && major <= 6

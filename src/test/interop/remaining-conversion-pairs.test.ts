@@ -24,9 +24,11 @@ const FORMAT_IDS: FormatId[] = [
   'deno',
 ]
 
-const DENO_UNSUPPORTED_PAIRS = new Set(FORMAT_IDS
-  .filter(format => format !== 'deno')
-  .flatMap(format => [`deno -> ${format}`, `${format} -> deno`]))
+const NODE_FAMILY_FORMATS = FORMAT_IDS.filter(format => format !== 'deno')
+const DENO_FORWARD_PAIRS = new Set(NODE_FAMILY_FORMATS
+  .map(format => `deno -> ${format}`))
+const DENO_REVERSE_PAIRS = new Set(NODE_FAMILY_FORMATS
+  .map(format => `${format} -> deno`))
 
 const EXPECTED_REMAINING_PAIRS = new Set([
   ...[
@@ -55,6 +57,11 @@ const incidentContracts = CONTRACTS.filter(contract =>
   EXPECTED_REMAINING_PAIRS.has(`${contract.from} -> ${contract.to}`))
 
 runIntraFamily('interop: final sparse conversion-matrix closure', incidentContracts)
+runIntraFamily(
+  'interop: deno -> npm-family manifest-backed conversion',
+  CONTRACTS.filter(contract =>
+    DENO_FORWARD_PAIRS.has(`${contract.from} -> ${contract.to}`)),
+)
 
 describe('interop: complete conversion-matrix coverage', () => {
   it('registers the final 54 ordered incident pairs exactly once', () => {
@@ -69,6 +76,10 @@ describe('interop: complete conversion-matrix coverage', () => {
 
     expect(CONTRACTS).toHaveLength(272)
     expect(registered).toHaveLength(272)
+    expect(CONTRACTS.filter(contract =>
+      contract.unsupportedReason === undefined)).toHaveLength(256)
+    expect(CONTRACTS.filter(contract =>
+      contract.unsupportedReason !== undefined)).toHaveLength(16)
     for (const from of FORMAT_IDS) {
       for (const to of FORMAT_IDS) {
         if (from !== to) expect(registered).toContain(`${from} -> ${to}`)
@@ -76,16 +87,24 @@ describe('interop: complete conversion-matrix coverage', () => {
     }
   })
 
-  it('registers all 32 deno-touching pairs as explicit fail-closed contracts', () => {
-    const denoContracts = CONTRACTS.filter(contract =>
-      DENO_UNSUPPORTED_PAIRS.has(`${contract.from} -> ${contract.to}`))
-    expect(denoContracts).toHaveLength(32)
-    expect(new Set(denoContracts.map(contract =>
-      `${contract.from} -> ${contract.to}`))).toEqual(DENO_UNSUPPORTED_PAIRS)
+  it('registers 16 manifest-backed deno outputs and 16 fail-closed deno inputs', () => {
+    const forward = CONTRACTS.filter(contract =>
+      DENO_FORWARD_PAIRS.has(`${contract.from} -> ${contract.to}`))
+    expect(forward).toHaveLength(16)
+    expect(forward.every(contract =>
+      contract.unsupportedReason === undefined
+      && contract.enrichRequired?.includes('manifests') === true,
+    )).toBe(true)
 
-    for (const contract of denoContracts) {
+    const reverse = CONTRACTS.filter(contract =>
+      DENO_REVERSE_PAIRS.has(`${contract.from} -> ${contract.to}`))
+    expect(reverse).toHaveLength(16)
+    expect(new Set(reverse.map(contract =>
+      `${contract.from} -> ${contract.to}`))).toEqual(DENO_REVERSE_PAIRS)
+
+    for (const contract of reverse) {
       expect(contract.unsupportedReason).toBe(
-        'deno is limited to same-format npm-section audit-fix; JSR/remote dependencies require source transformation via https://github.com/denoland/dnt before npm-family conversion, and that composed path is not certified by lockgraph',
+        'npm-family -> deno requires synthesising Deno native npm ids and peer suffixes that no pinned Deno producer has validated',
       )
       expect(() => convert({
         from: contract.from,

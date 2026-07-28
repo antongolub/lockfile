@@ -73,6 +73,10 @@ const MATRIX: PmEntry[] = [
     nodeRange: '>=18.12.0',
   },
   {
+    alias: 'pm-yarn-berry-v10', binName: 'yarn', expectedVersion: '4.17.1', runtime: 'node',
+    nodeRange: '>=18.12.0',
+  },
+  {
     alias: 'pm-pnpm-6', binName: 'pnpm', expectedVersion: '6.35.1', runtime: 'node',
     nodeRange: '>=12.17',
   },

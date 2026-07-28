@@ -62,6 +62,7 @@ import {
   type PnpmWorkspacePeerProjection,
   type PnpmWorkspacePeerProjectionEvidence,
 } from '../formats/_pnpm-flat-core.ts'
+import * as deno from '../formats/deno.ts'
 import { enrich as enrichGraph, type EnrichSources } from '../enrich/facade.ts'
 import {
   yarnBerryPluginCompatGapDiagnostics,
@@ -270,21 +271,56 @@ async function prepareConversionRuntime(
   }
   const prepared = await prepareConvertInput(input, options, { detect }, dependencies)
   for (const diagnostic of prepared.diagnostics) report(diagnostic)
+  const sources = mergedEnrichSources(prepared, options)
   if (
     prepared.source !== options.to
-    && (prepared.source === 'deno' || options.to === 'deno')
+    && options.to === 'deno'
   ) {
     throw new LockfileError({
       code: 'CAPABILITY_LACK',
-      message: `convert: ${prepared.source} -> ${options.to} is unsupported; deno is limited to same-format npm-section audit-fix. JSR/remote dependencies require source transformation (for example Deno's https://github.com/denoland/dnt) before npm-family conversion; lockgraph does not invoke or certify dnt`,
+      message: `convert: ${prepared.source} -> deno is unsupported; lockgraph has not producer-certified synthesis of Deno native npm ids and peer suffixes. Source-level package transformation may use Deno's https://github.com/denoland/dnt, but lockgraph does not invoke or certify dnt`,
     })
   }
-  const sources = mergedEnrichSources(prepared, options)
+  if (
+    prepared.source === 'deno'
+    && prepared.source !== options.to
+    && sources.manifests?.[''] === undefined
+  ) {
+    const diagnostic: Diagnostic = {
+      code: 'DENO_MANIFEST_REQUIRED',
+      severity: 'error',
+      message: `convert: deno -> ${options.to} requires sibling deno.json/package.json manifest evidence because deno.lock does not encode root dev/production scope`,
+    }
+    report(diagnostic)
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: diagnostic.message,
+    })
+  }
   let graph = parse(prepared.source, prepared.lockfile, {
     workspaceRoot: options.workspaceRoot,
     manifests: sources.manifests === undefined ? undefined : { ...sources.manifests },
     onDiagnostic: report,
   })
+  if (prepared.source === 'deno' && prepared.source !== options.to) {
+    const counts = deno.nonNpmSectionCounts(graph)
+    if ((counts?.jsr ?? 0) > 0) {
+      report({
+        code: 'DENO_JSR_PACKAGES_DROPPED',
+        severity: 'warning',
+        message: `convert: deno -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.jsr} JSR package${counts!.jsr === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
+        data: { feature: 'deno:jsr', count: counts!.jsr },
+      })
+    }
+    if ((counts?.remote ?? 0) > 0) {
+      report({
+        code: 'DENO_REMOTE_PACKAGES_DROPPED',
+        severity: 'warning',
+        message: `convert: deno -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.remote} remote module${counts!.remote === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
+        data: { feature: 'deno:remote', count: counts!.remote },
+      })
+    }
+  }
   for (const diagnostic of patchByteDiagnostics(prepared, graph)) report(diagnostic)
   const enriched = await enrichGraph(graph, sources, {
     target: {

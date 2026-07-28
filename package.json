@@ -113,6 +113,7 @@
     "pm-pnpm-9": "npm:pnpm@9.15.9",
     "pm-yarn-1": "npm:yarn@1.22.22",
     "pm-yarn-2": "npm:yarn@2.4.3",
+    "pm-yarn-berry-v10": "npm:@yarnpkg/cli-dist@4.17.1",
     "pm-yarn-berry-v5": "npm:@yarnpkg/cli-dist@3.1.1",
     "pm-yarn-berry-v6": "npm:@yarnpkg/cli-dist@3.8.7",
     "pm-yarn-berry-v7": "npm:@yarnpkg/cli-dist@4.0.0-rc.46",

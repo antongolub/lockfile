@@ -1,5 +1,6 @@
 import semver from 'semver'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -22,6 +23,10 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url))
 const tarballPath = resolve(here, '../resources/fixtures/tarballs/ms-2.1.3.tgz')
+const denoNpmOnlyPath = resolve(
+  here,
+  '../resources/fixtures/lockfiles/deno-npm-only/deno.lock',
+)
 const registryScript = resolve(here, '../helpers/frozen-registry.mjs')
 let registry: FrozenRegistryProcess | undefined
 
@@ -74,7 +79,9 @@ function projectFiles(adapter: FrozenOracleAdapter): Readonly<Record<string, str
     'package.json': `${JSON.stringify(manifest, null, 2)}\n`,
     ...(adapter.family === 'yarn-berry'
       ? {
-          '.yarnrc.yml': 'nodeLinker: node-modules\nenableScripts: false\nunsafeHttpWhitelist:\n  - 127.0.0.1\n',
+          '.yarnrc.yml': 'nodeLinker: node-modules\nenableScripts: false\n'
+            + 'unsafeHttpWhitelist:\n  - 127.0.0.1\n'
+            + (adapter.format === 'yarn-berry-v10' ? 'npmMinimalAgeGate: 0\n' : ''),
         }
       : {}),
   }
@@ -138,6 +145,42 @@ function nativeCandidate(adapter: FrozenOracleAdapter): {
     }),
     files,
   }
+}
+
+const DENO_FORWARD_ORACLE_ALIASES = Object.freeze([
+  'pm-npm-6',
+  'pm-npm-8',
+  'pm-npm-11',
+  'pm-yarn-1',
+  'pm-yarn-2',
+  'pm-yarn-berry-v5',
+  'pm-yarn-berry-v6',
+  'pm-yarn-berry-v7',
+  'pm-yarn-berry-v8',
+  'pm-yarn-berry-v9',
+  'pm-yarn-berry-v10',
+  'pm-pnpm-7',
+  'pm-pnpm-8',
+  'pm-pnpm-10',
+  'bun',
+] as const)
+
+function denoForwardCandidate(
+  adapter: FrozenOracleAdapter,
+  lockfile: string,
+): FrozenOracleCandidate {
+  const projectionDigest = `sha256:${createHash('sha256').update(JSON.stringify({
+    target: { format: adapter.format, managerVersion: adapter.version },
+    lockfile,
+    companions: [],
+  })).digest('hex')}`
+  return Object.freeze({
+    protocol: 'lockgraph-frozen-projection/v1',
+    target: Object.freeze({ format: adapter.format, managerVersion: adapter.version }),
+    projectionDigest,
+    lockfile,
+    companions: Object.freeze([]),
+  })
 }
 
 describe('infra: frozen conversion native oracle', () => {
@@ -220,6 +263,65 @@ describe('infra: frozen conversion native oracle', () => {
     expect(oracle.receipt).toBeDefined()
     expect(oracle.receipt!.configDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
   }, 60_000)
+
+  for (const alias of DENO_FORWARD_ORACLE_ALIASES) {
+    const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === alias)!
+    const runnable = runnableFor(adapter)
+    runnable.run(
+      `deno -> ${adapter.format} is accepted by ${adapter.alias} frozen mode${runnable.suffix}`,
+      async () => {
+        const files = createNativeLock(adapter, projectFiles(adapter))
+        const source = JSON.parse(readFileSync(denoNpmOnlyPath, 'utf8')) as unknown
+        const nativeLockfile = String(files[lockPath(adapter)]!)
+        const cacheKey = adapter.family === 'yarn-berry'
+          ? nativeLockfile.match(/^\s+cacheKey:\s+(\S+)\s*$/m)?.[1]
+          : undefined
+        const nativeBerryChecksum = adapter.alias === 'pm-yarn-berry-v7'
+          ? nativeLockfile.match(/^\s+checksum:\s+(\S+)\s*$/m)?.[1]
+          : undefined
+        const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
+          from: 'deno',
+          to: adapter.format,
+          strict: false,
+          targetVersion: adapter.version,
+          ...(cacheKey === undefined ? {} : { cacheKey }),
+          manifests: {
+            '': {
+              name: 'lockgraph-frozen-oracle-case',
+              version: '1.0.0',
+              dependencies: { ms: '2.1.3' },
+              overrides: [],
+            },
+          },
+          sources: {
+            artifacts: {
+              async tarball(name, version) {
+                return name === 'ms' && version === '2.1.3'
+                  ? readFileSync(tarballPath)
+                  : undefined
+              },
+              async berryChecksum(name, version, requestedCacheKey) {
+                return name === 'ms'
+                  && version === '2.1.3'
+                  && requestedCacheKey === cacheKey
+                  ? nativeBerryChecksum
+                  : undefined
+              },
+            },
+          },
+        })
+        const candidate = denoForwardCandidate(adapter, lockfile)
+        const oracle = runFrozenOracle(candidate, adapter, files)
+        expect(oracle.reason).toBeUndefined()
+        expect(oracle.receipt).toMatchObject({
+          target: candidate.target,
+          projectionDigest: candidate.projectionDigest,
+          verification: 'frozen-verified',
+        })
+      },
+      60_000,
+    )
+  }
 
   fullMatrixIt('materializes external Yarn patch files for frozen verification', () => {
     const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === 'pm-yarn-berry-v9')!

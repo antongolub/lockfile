@@ -52,7 +52,7 @@ the recorded SHA — provenance is verifiable, not approximate).
 | `backstage-backstage-master-b55138e` | `https://github.com/backstage/backstage` | 33k | `master` | `yarn-berry-v8` | Bug #2 — `link:` NodeId collision on multi-workspace links |
 | `babel-babel-main-ae57969` | `https://github.com/babel/babel` | 44k | `main` | `yarn-berry-v9` | Bug #2 — `link:` NodeId collision (`$repo-utils`) |
 | `facebook-jest-main-4c3091b` | `https://github.com/facebook/jest` | 45k | `main` | `yarn-berry-v10` | Bug #3 (aliased `metro-source-map`→`@babel/traverse`) + Bug #4 (published-self-link `jest-preset-angular`→`@jest/environment-jsdom-abstract`) |
-| `prettier-prettier-main-08c9bbd` | `https://github.com/prettier/prettier` | 52k | `main` | `yarn-berry-v10` | Bug #1 — `__metadata.version: 10` adapter (yarn 5 dev-branch) |
+| `prettier-prettier-main-08c9bbd` | `https://github.com/prettier/prettier` | 52k | `main` | `yarn-berry-v10` | Bug #1 — `__metadata.version: 10` adapter (stable Yarn 4.17.1) |
 | `yarnpkg-berry-master-6861e75` | `https://github.com/yarnpkg/berry` | 8k | `master` | `yarn-berry-v10` | Bug #1 — `__metadata.version: 10` adapter |
 | `highlight-highlight-main-7a297b5` | `https://github.com/highlight/highlight` | 9k | `main` | `yarn-berry-v8` | Bug #5 — YAML explicit `? key` / `:` block-mapping (over-long composite `typescript@patch:` descriptor, ~2 KB key) |
 

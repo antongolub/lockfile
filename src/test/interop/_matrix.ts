@@ -97,6 +97,8 @@ export type LossFeature =
   | 'edge-kinds'
   | 'tarballs'
   | 'resolved-url'
+  | 'deno-jsr'
+  | 'deno-remote'
 
 export type AdditionField =
   | '__metadata.version'
@@ -3420,8 +3422,90 @@ const RAW_CONTRACTS: ConversionContract[] = [
     'pnpm-v9',
     'bun-text',
   ] as const satisfies readonly Exclude<FormatId, 'deno'>[]).flatMap(format => {
+    const fromCode = (value: FormatId): string =>
+      value.replaceAll('-', '_').toUpperCase()
+    const pnpmTarget = format.startsWith('pnpm-')
+    const berryTarget = format.startsWith('yarn-berry-')
+    const classicTarget = format === 'yarn-classic'
+    const bunTarget = format === 'bun-text'
+    const peerIdentityDrops = !pnpmTarget
+    const preservedDrops = new Set<PreservedFeature>()
+    if (peerIdentityDrops) {
+      for (const feature of ['nodes', 'edges', 'edge-kinds', 'peer-virt'] as const) {
+        preservedDrops.add(feature)
+      }
+      if (!berryTarget) {
+        preservedDrops.add('integrity')
+      }
+      preservedDrops.add('resolved-url')
+      if (
+        berryTarget
+        || classicTarget
+        || bunTarget
+        || format === 'npm-1'
+      ) preservedDrops.add('tarballs')
+    }
+    if (pnpmTarget || classicTarget || bunTarget) {
+      preservedDrops.add('nodes')
+      preservedDrops.add('edges')
+      preservedDrops.add('edge-kinds')
+      preservedDrops.add('workspace-membership')
+    }
+    const structuralLosses: LossEntry[] = [
+      ...(peerIdentityDrops
+        ? [{
+            feature: 'peer-virt' as const,
+            diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_PEER_VIRT_FLATTENED`,
+            severity: 'warning' as const,
+            rationale: 'Deno peer suffix identity has no producer-certified target-native virtual locator; the installed peer requirement is projected but native virtualization is flattened',
+          }]
+        : []),
+      ...(pnpmTarget
+        ? [{
+            feature: 'workspace-rekey' as const,
+            diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_WORKSPACE_REKEY`,
+            severity: 'warning' as const,
+            rationale: 'pnpm importer identity is path-keyed and reparses the Deno manifest root as .@0.0.0',
+          }]
+        : []),
+      ...(classicTarget || bunTarget
+        ? [{
+            feature: 'workspace-root-version' as const,
+            diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_WORKSPACE_ROOT_VERSION_DROPPED`,
+            severity: 'warning' as const,
+            rationale: classicTarget
+              ? 'Yarn Classic lockfiles do not encode a root workspace entry'
+              : 'bun.lock preserves the root name and declarations but not its manifest version',
+          }]
+        : []),
+    ]
+    const denoForward: ConversionContract = {
+      from: 'deno',
+      to: format,
+      preserved: ALL_FEATURES.filter(feature => !preservedDrops.has(feature)),
+      lost: [
+        {
+          feature: 'deno-jsr',
+          diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_JSR_SOURCE_TRANSFORM_REQUIRED`,
+          severity: 'warning',
+          rationale: 'Node-family locks cannot encode Deno JSR packages; source-level conversion can use denoland/dnt',
+        },
+        {
+          feature: 'deno-remote',
+          diagnostic: `INTEROP_DENO_TO_${fromCode(format)}_REMOTE_SOURCE_TRANSFORM_REQUIRED`,
+          severity: 'warning',
+          rationale: 'Node-family locks cannot encode Deno remote modules; source-level conversion can use denoland/dnt',
+        },
+        ...structuralLosses,
+      ],
+      added: [],
+      passthrough: [],
+      reentrancy: 'asymmetric',
+      enrichRequired: ['manifests'],
+      fixtureSubset: ['deno-npm-only', 'simple'],
+    }
     const unsupportedReason =
-      'deno is limited to same-format npm-section audit-fix; JSR/remote dependencies require source transformation via https://github.com/denoland/dnt before npm-family conversion, and that composed path is not certified by lockgraph'
+      'npm-family -> deno requires synthesising Deno native npm ids and peer suffixes that no pinned Deno producer has validated'
     const unsupported = (from: FormatId, to: FormatId): ConversionContract => ({
       from,
       to,
@@ -3432,9 +3516,49 @@ const RAW_CONTRACTS: ConversionContract[] = [
       passthrough: [],
       reentrancy: 'asymmetric',
     })
-    return [unsupported('deno', format), unsupported(format, 'deno')]
+    return [denoForward, unsupported(format, 'deno')]
   }),
 ]
+
+// Native Yarn writes every non-Berry workspace root with the producer sentinel
+// `0.0.0-use.local`. That is not optional formatting: the exact v4-v10
+// producers require it for immutable installs. Model the resulting boundary
+// honestly for every non-Berry -> Berry contract instead of allowing individual
+// matrix cells to keep promising the pre-native root identity.
+//
+// Every non-Berry source keeps its own manifest/path-derived root version, so
+// the sentinel changes the root NodeId and subsumes the id-keyed graph features
+// below.
+const withNativeBerryWorkspaceBoundary = (
+  contract: ConversionContract,
+): ConversionContract => {
+  if (
+    contract.unsupportedReason !== undefined
+    || !contract.to.startsWith('yarn-berry-')
+    || contract.from.startsWith('yarn-berry-')
+  ) return contract
+
+  const dropped: PreservedFeature[] = [
+    'nodes',
+    'edges',
+    'edge-kinds',
+    'workspace-membership',
+  ]
+  const nativeBoundaryLoss: LossEntry = {
+    feature: 'workspace-rekey',
+    diagnostic: `INTEROP_${fromCode(contract.from)}_TO_${fromCode(contract.to)}_WORKSPACE_REKEY`,
+    severity: 'warning',
+    rationale: `${contract.to} native lockfiles require the root version sentinel \`0.0.0-use.local\`; the ${contract.from} manifest/path-version root is rekeyed to that producer identity, subsuming nodes, edges, edge-kinds, and workspace-membership in the id-keyed comparator`,
+  }
+
+  return {
+    ...contract,
+    preserved: contract.preserved.filter(candidate => !dropped.includes(candidate)),
+    lost: contract.lost.some(entry => entry.feature === 'workspace-rekey')
+      ? contract.lost
+      : [...contract.lost, nativeBoundaryLoss],
+  }
+}
 
 // ADR-0031 — integrity is origin-scoped: a tarball SRI (npm / pnpm / bun /
 // yarn-classic) and a yarn-berry zip-cache `checksum` are digests of DIFFERENT
@@ -3450,8 +3574,10 @@ const RAW_CONTRACTS: ConversionContract[] = [
 const isBerryFormat = (f: FormatId): boolean => f.startsWith('yarn-berry')
 const crossesOriginClass = (a: FormatId, b: FormatId): boolean => isBerryFormat(a) !== isBerryFormat(b)
 
-export const CONTRACTS: ConversionContract[] = RAW_CONTRACTS.map(contract =>
-  crossesOriginClass(contract.from, contract.to)
-    ? { ...contract, preserved: contract.preserved.filter(f => f !== 'integrity') }
-    : contract,
-)
+export const CONTRACTS: ConversionContract[] = RAW_CONTRACTS
+  .map(withNativeBerryWorkspaceBoundary)
+  .map(contract =>
+    crossesOriginClass(contract.from, contract.to)
+      ? { ...contract, preserved: contract.preserved.filter(f => f !== 'integrity') }
+      : contract,
+  )

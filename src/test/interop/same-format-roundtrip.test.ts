@@ -22,7 +22,7 @@ const corpora: FixtureCorpus[] = [
   },
   {
     directory: 'lockfiles',
-    expected: 114,
+    expected: 115,
     include: path => path.endsWith('.lock'),
     contract: 'generated adapter matrix',
   },
@@ -109,7 +109,7 @@ describe('same-format fidelity contract — every fixture lockfile', () => {
     120_000,
   )
 
-  it('keeps the explicit fixture census at 168 lockfiles', () => {
-    expect(corpora.reduce((total, corpus) => total + corpus.expected, 0)).toBe(168)
+  it('keeps the explicit fixture census at 169 lockfiles', () => {
+    expect(corpora.reduce((total, corpus) => total + corpus.expected, 0)).toBe(169)
   })
 })

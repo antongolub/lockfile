@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path'
 
 const MODIFIED_HEX = createHash('sha512').update('modified-ms-integrity').digest('hex')
 const MODIFIED_SRI = 'sha512-' + createHash('sha512').update('modified-ms-integrity').digest('base64')
-import { type Diagnostic, type Graph, type GraphDiff } from '../../main/ts/graph.ts'
+import { newBuilder, type Diagnostic, type Graph, type GraphDiff } from '../../main/ts/graph.ts'
 import { LockfileError } from '../../main/ts/api/errors.ts'
 import {
   check as checkV7,
@@ -179,6 +179,22 @@ describe('yarn-berry-v7 — stringify', () => {
     // v7 keeps the v4/v5/v6-era RAW hex shape — no `<cacheKey>/<hash>` prefix.
     expect(emitted).not.toContain(`checksum: 10/${PKG_HEX}`)
     expect(graphSnapshot(reparsed)).toEqual(graphSnapshot(original))
+  })
+
+  it('uses Yarn workspace sentinel version and supplied cacheKey for cross-format graphs', () => {
+    const builder = newBuilder()
+    builder.addNode({
+      id: 'foreign-root@1.0.0',
+      name: 'foreign-root',
+      version: '1.0.0',
+      peerContext: [],
+      workspacePath: '',
+    })
+
+    const emitted = stringifyV7(builder.seal(), { cacheKey: '10' })
+
+    expect(emitted).toContain('__metadata:\n  version: 7\n  cacheKey: 10\n')
+    expect(emitted).toContain('"foreign-root@workspace:.":\n  version: 0.0.0-use.local\n')
   })
 })
 

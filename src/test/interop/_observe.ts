@@ -136,6 +136,10 @@ function lossApplies(entry: LossEntry, context: ObservationContext): boolean {
     // observed` (graph-shape loss, ADR-0020 §2 honesty principle).
     case 'resolved-url':
       return resolvedUrlDegrades(context.sourceGraph, context.destinationGraph)
+    case 'deno-jsr':
+      return denoSectionCount(context.sourceLockfile, 'jsr') > 0
+    case 'deno-remote':
+      return denoSectionCount(context.sourceLockfile, 'remote') > 0
     default:
       return assertExhaustive(entry.feature, 'lossApplies')
   }
@@ -213,6 +217,10 @@ function lossObserved(entry: LossEntry, context: ObservationContext): boolean {
       return hasWorkspaceRekey(context.sourceGraph, context.destinationGraph)
     case 'resolved-url':
       return resolvedUrlDegrades(context.sourceGraph, context.destinationGraph)
+    case 'deno-jsr':
+      return denoSectionCount(context.sourceLockfile, 'jsr') > 0
+    case 'deno-remote':
+      return denoSectionCount(context.sourceLockfile, 'remote') > 0
     default:
       return assertExhaustive(entry.feature, 'lossObserved')
   }
@@ -255,6 +263,30 @@ function passthroughObserved(entry: PassthroughEntry, context: ObservationContex
 // is satisfied, kept for defence in depth.
 function assertExhaustive(value: never, scope: string): never {
   throw new Error(`${scope}: unreachable contract entry ${String(value)}`)
+}
+
+function denoSectionCount(
+  lockfile: string | undefined,
+  section: 'jsr' | 'remote',
+): number {
+  if (lockfile === undefined) return 0
+  let document: unknown
+  try {
+    document = JSON.parse(lockfile)
+  } catch {
+    return 0
+  }
+  if (document === null || typeof document !== 'object' || Array.isArray(document)) return 0
+  const record = document as Record<string, unknown>
+  const candidate = section === 'jsr' && record.version === '3'
+    && record.packages !== null
+    && typeof record.packages === 'object'
+    && !Array.isArray(record.packages)
+    ? (record.packages as Record<string, unknown>).jsr
+    : record[section]
+  return candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate)
+    ? Object.keys(candidate as Record<string, unknown>).length
+    : 0
 }
 
 // `edges` loss: kind-agnostic dst presence. Fires when an outgoing edge from

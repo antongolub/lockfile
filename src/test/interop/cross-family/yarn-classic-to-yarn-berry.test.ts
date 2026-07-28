@@ -81,7 +81,7 @@ describe('interop: yarn-classic -> yarn-berry (enrich-aware)', () => {
         const destinationGraph = parseFormat(target, emitted.lockfile)
 
         // §C item (1): root workspace node survives.
-        expect(destinationGraph.getNode('case-workspaces-basic@0.0.0')?.workspacePath).toBe('')
+        expect(destinationGraph.getNode('case-workspaces-basic@0.0.0-use.local')?.workspacePath).toBe('')
 
         // §C item (b): workspace member nodes carry workspacePath in the
         // destination graph, so downstream callers can apply attrs.workspace
@@ -92,7 +92,7 @@ describe('interop: yarn-classic -> yarn-berry (enrich-aware)', () => {
         // §C item (2): all three classified edges (dep/dev/optional) reach the
         // destination graph; the dev edge collapses to `dep` per §C's
         // source-of-truth table (yarn-berry has no devDependencies block).
-        const rootEdges = destinationGraph.out('case-workspaces-basic@0.0.0').map(edge => ({
+        const rootEdges = destinationGraph.out('case-workspaces-basic@0.0.0-use.local').map(edge => ({
           dst: edge.dst,
           kind: edge.kind,
           range: edge.attrs?.range,

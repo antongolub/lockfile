@@ -1,4 +1,4 @@
-import type { Graph, OverrideConstraint } from '../graph.ts'
+import type { Graph, Manifest, OverrideConstraint } from '../graph.ts'
 import type {
   FormatAdapterContract,
   FormatId,
@@ -42,6 +42,7 @@ import * as lockgraph from '../formats/lockgraph.ts'
 export interface ParseDispatchContext {
   readonly workspaceRoot?: string
   readonly overrides?: OverrideConstraint[]
+  readonly manifests?: Readonly<Record<string, Manifest>>
 }
 
 export type StringifyDispatchContext = StringifyOptions & {
@@ -225,7 +226,7 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
   },
   deno: {
     check: deno.check,
-    parse: input => deno.parse(input),
+    parse: (input, context) => deno.parse(input, { manifests: context.manifests }),
     stringify: (graph, context) => deno.stringify(graph, {
       lineEnding: context.lineEnding,
       onDiagnostic: context.onDiagnostic,

@@ -48,6 +48,24 @@ export const WORKSPACE_MANIFESTS: Record<string, YarnClassicManifest> = {
   },
 }
 
+export function denoManifestsForFixture(
+  fixtureName: string,
+): Record<string, YarnClassicManifest> {
+  return {
+    '': fixtureName === 'deno-npm-only'
+      ? {
+          name: 'lockgraph-frozen-oracle-case',
+          version: '1.0.0',
+          dependencies: { ms: '2.1.3' },
+        }
+      : {
+          name: 'case-deno',
+          version: '1.0.0',
+          dependencies: { 'react-dom': '^19.1.0' },
+        },
+  }
+}
+
 // Classic-compatible shared corpus:
 // - bundled-deps excluded because no yarn-classic fixture exists on disk
 // - patch-yarn excluded because yarn-classic cannot represent patch slots;
