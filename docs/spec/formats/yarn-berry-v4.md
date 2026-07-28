@@ -394,3 +394,14 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 > use a bare checksum, but real yarn-2.0 v4 locks write the prefixed
 > `checksum: 2/<hex>` form; the library round-trips either per-node
 > (`TarballPayload.berryChecksumCacheKey`). See Emit / Quirks.
+
+## Unknown `__metadata` keys
+
+Pinned Yarn 2.4.3 removes an unrecognised `__metadata` subkey during a mutable
+install. The same unstripped lock is rejected by `--immutable`, while the
+repaired lock is accepted. Accordingly non-strict emit removes the key and
+reports `YARN_BERRY_V4_UNKNOWN_METADATA_DROPPED` with the full
+`__metadata.<key>` path; strict emit fails closed. This producer-faithful repair
+can improve an input that was already invalid for immutable CI. `version` and
+`cacheKey` are the recognized metadata fields; the pinned producer also removes
+the legacy-looking `compressionLevel` subkey.

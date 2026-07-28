@@ -151,3 +151,11 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 > **Open:** is `engines`/`funding`/`license` data we can reasonably *not*
 > store, or is it required for emitting valid npm-2 lockfiles? Likely the
 > latter — nominate `meta` as an opt-in `parse({manifests})` source.
+
+## Unknown top-level extension keys
+
+Pinned npm 8.19.4 accepts and byte-preserves producer-extension values at the
+project root. The adapter therefore deep-clones unmodelled top-level values,
+replays them only for `npm-2`, and preserves their source key placement; modeled
+fields always win on collision. A detached-state or cross-format loss names
+each key as `top-level:<key>` and strict conversion fails closed.

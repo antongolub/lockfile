@@ -504,6 +504,7 @@ function diagnosticLossClass(
     || code === 'COMPLETENESS_TARGET_FEATURE_UNSUPPORTED'
     || code === 'COMPLETENESS_OUTPUT_GRAPH_MISMATCH'
     || code === 'COMPLETENESS_OUTPUT_FEATURE_MISMATCH'
+    || code.endsWith('_UNKNOWN_METADATA_DROPPED')
     || code.endsWith('_PEER_DROPPED')
     || code.endsWith('_PEER_VIRT_FLATTENED')
     || code.endsWith('_WORKSPACES_UNSAFE')

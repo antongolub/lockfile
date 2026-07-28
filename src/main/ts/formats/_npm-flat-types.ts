@@ -15,6 +15,7 @@
 //     `hooks` slot on `NpmFamilyConfig` so core never imports mirror.
 
 import { type Diagnostic, type EdgeKind, type Graph, type Node, type OverrideConstraint } from '../graph.ts'
+import type { UnknownTopLevelState } from './_unknown-top-level.ts'
 
 // === Tiny utilities =========================================================
 
@@ -75,8 +76,23 @@ const npmNiceOrder = (val: unknown): unknown => {
 // Serialise an npm lock object exactly as npm would: json-stringify-nice key
 // order, two-space indent, trailing newline. Drop-in for `JSON.stringify(out,
 // null, 2) + '\n'` at every npm-family emit site.
-export const stringifyNpmLock = (out: unknown): string =>
-  JSON.stringify(npmNiceOrder(out), null, 2) + '\n'
+export const stringifyNpmLock = (
+  out: unknown,
+  topLevelOrder?: readonly string[],
+): string => {
+  const ordered = npmNiceOrder(out)
+  if (topLevelOrder === undefined || !isPlainObject(ordered)) {
+    return JSON.stringify(ordered, null, 2) + '\n'
+  }
+  const root: Record<string, unknown> = {}
+  for (const key of topLevelOrder) {
+    if (Object.prototype.hasOwnProperty.call(ordered, key)) root[key] = ordered[key]
+  }
+  for (const [key, value] of Object.entries(ordered)) {
+    if (!Object.prototype.hasOwnProperty.call(root, key)) root[key] = value
+  }
+  return JSON.stringify(root, null, 2) + '\n'
+}
 
 export const NPM_EDGE_RANGE_ATTR = 'range'
 
@@ -336,4 +352,6 @@ export interface NpmSidecar {
   nodes: Map<string, NpmFlatSidecar>
   // Workspace member path lookup: workspacePath -> NodeId.
   workspaceByPath: Map<string, string>
+  /** Producer-tolerated, adapter-unknown project-level keys. Same-format only. */
+  unknownTopLevel?: UnknownTopLevelState
 }

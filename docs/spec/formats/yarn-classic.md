@@ -541,3 +541,12 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 > — see [Dependency classification](#dependency-classification-classic-specific).)
 > Probably not reliably. Mark unclassified deps as
 > `dep` with a `confidence: low` annotation, or refuse?
+
+## Producer-valid global directives
+
+Pinned Yarn 1.22.22 accepts and byte-preserves pre-entry global scalar
+directives. The adapter accepts only the measured `key value` scalar grammar,
+captures each line verbatim, and replays it only for `yarn-classic`; arbitrary
+malformed top-level text remains a parse error. Cross-format or detached-state
+loss names each carrier as `global-directive:<key>`, and strict conversion
+fails closed.

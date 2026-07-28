@@ -1582,3 +1582,11 @@ key-segment escape choice), plus a cosmetic slot-name call.
    so it is **not** tier-2 packument-recoverable and is lost on an `F`-section cut
    (see [§ Two-tier degradation](#two-tier-degradation)). This is the honest
    snapshot behavior.
+
+## Unknown record tags
+
+Generation 1 has no forward-compatible extension envelope. An unrecognised
+record tag is therefore a `PARSE_FAILED` error rather than an ignored record;
+the error names both the tag and its one-based source line. The same rule
+applies to unknown metadata records and trailing records after the optional
+`F` region.

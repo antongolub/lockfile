@@ -5,17 +5,20 @@ import type {
   StringifyOptions,
 } from './format-contract.ts'
 import {
+  adapterStateSubjects as pnpmFlatAdapterStateSubjects,
   hasAdapterState as hasPnpmFlatAdapterState,
   rebindAdapterState as rebindPnpmFlatAdapterState,
   stringifyFamily as stringifyPnpmFamily,
   type PnpmWorkspacePeerProjection,
 } from '../formats/_pnpm-flat-core.ts'
 import {
+  adapterStateSubjects as npmFlatAdapterStateSubjects,
   hasAdapterState as hasNpmFlatAdapterState,
   rebindAdapterState as rebindNpmFlatAdapterState,
 } from '../formats/_npm-core.ts'
 import { rebindNpm2MirrorState } from '../formats/_npm-2-mirror.ts'
 import {
+  adapterStateSubjects as yarnBerryAdapterStateSubjects,
   hasAdapterState as hasYarnBerryAdapterState,
   rebindAdapterState as rebindYarnBerryAdapterState,
 } from '../formats/_yarn-berry-core.ts'
@@ -63,6 +66,7 @@ interface AdapterStateRebindResult {
 
 interface AdapterStateContract {
   readonly hasAdapterState: (graph: Graph) => boolean
+  readonly adapterStateSubjects?: (graph: Graph) => readonly string[]
   readonly rebindAdapterState: (
     source: Graph,
     target: Graph,
@@ -124,21 +128,25 @@ const pnpmFlatAdapter = (
 })
 
 const yarnBerryStateAdapter = {
+  adapterStateSubjects: yarnBerryAdapterStateSubjects,
   hasAdapterState: hasYarnBerryAdapterState,
   rebindAdapterState: rebindYarnBerryAdapterState,
 } satisfies AdapterStateContract
 
 const npmFlatStateAdapter = {
+  adapterStateSubjects: npmFlatAdapterStateSubjects,
   hasAdapterState: hasNpmFlatAdapterState,
   rebindAdapterState: rebindNpmFlatAdapterState,
 } satisfies AdapterStateContract
 
 const pnpmFlatStateAdapter = {
+  adapterStateSubjects: pnpmFlatAdapterStateSubjects,
   hasAdapterState: hasPnpmFlatAdapterState,
   rebindAdapterState: rebindPnpmFlatAdapterState,
 } satisfies AdapterStateContract
 
 const npm2StateAdapter = {
+  adapterStateSubjects: npmFlatAdapterStateSubjects,
   hasAdapterState: hasNpmFlatAdapterState,
   rebindAdapterState(source, target): AdapterStateRebindResult {
     const flat = rebindNpmFlatAdapterState(source, target)
@@ -294,6 +302,12 @@ export function stringifyFormat(
 /** Whether the graph identity still carries its source adapter's native replay state. */
 export function hasFormatAdapterState(format: FormatId, graph: Graph): boolean {
   return FORMAT_STATE_REGISTRY[format]?.hasAdapterState(graph) ?? false
+}
+
+/** Key-addressable same-format carriers used by strict loss diagnostics. */
+export function formatAdapterStateSubjects(format: FormatId, graph: Graph): readonly string[] {
+  const adapter: AdapterStateContract | undefined = FORMAT_STATE_REGISTRY[format]
+  return adapter?.adapterStateSubjects?.(graph) ?? []
 }
 
 /** @internal Rebind source-format replay state after a graph transformation. */

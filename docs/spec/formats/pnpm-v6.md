@@ -119,3 +119,11 @@ npm/pnpm.
 
 > **Open:** is `settings.autoInstallPeers` resolution-affecting (it changes
 > what gets installed)? If yes, parsing without it loses information.
+
+## Unknown top-level extension keys
+
+Pinned pnpm 8.15.9 accepts and byte-preserves producer-extension values at the
+project root. The adapter deep-clones such values, replays them only for
+`pnpm-v6`, and preserves their source key placement; modeled fields always win
+on collision. Detached-state and cross-format losses name every
+`top-level:<key>` and strict conversion fails closed.

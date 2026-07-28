@@ -62,6 +62,11 @@ import {
 } from './_npm-flat-types.ts'
 import { optimizeUnreachable } from './_optimize.ts'
 import { derivePeerCandidates, pruneSidecar } from './_npm-core.ts'
+import {
+  captureUnknownTopLevel,
+  mergeUnknownTopLevel,
+  unknownTopLevelSubjects,
+} from './_unknown-top-level.ts'
 import { emitDropped as patchEmitDropped, emitDropped as recipeEmitDropped } from '../recipe/diagnostics.ts'
 import {
   isYarnBerryLocator,
@@ -187,6 +192,10 @@ export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
 }
 
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
+}
+
 function rememberSidecar(graph: Graph, sidecar: NpmSidecar): void {
   sidecarByGraph.set(graph, sidecar)
 }
@@ -231,8 +240,15 @@ export function stringify(graph: Graph, options: Npm1StringifyOptions = {}): str
   const context = createNpm1StringifyContext(graph, options)
   collectNpm1EmittableNodes(context)
   reportNpm1PeerEdgeDrops(context)
-  const out = buildNpm1Output(context)
-  return renderNpm1Output(out, options)
+  const out = mergeUnknownTopLevel(
+    buildNpm1Output(context),
+    context.sidecar?.unknownTopLevel,
+  )
+  return renderNpm1Output(
+    out,
+    options,
+    context.sidecar?.unknownTopLevel === undefined ? undefined : Object.keys(out),
+  )
 }
 
 export function enrich(
@@ -517,6 +533,10 @@ function sealNpm1Parse(context: Npm1ParseContext): Graph {
       edgeDeclaredNames: context.edgeDeclaredNames,
       nodes: context.nodeSidecar,
       workspaceByPath: new Map<string, string>(),
+      unknownTopLevel: captureUnknownTopLevel(
+        context.lf as Readonly<Record<string, unknown>>,
+        ['name', 'version', 'lockfileVersion', 'requires', 'dependencies', 'packages'],
+      ),
     })
     return graph
   } catch (error) {
@@ -767,8 +787,12 @@ function buildNpm1Output(context: Npm1StringifyContext): Record<string, unknown>
   return out
 }
 
-function renderNpm1Output(out: Record<string, unknown>, options: Npm1StringifyOptions): string {
-  const text = stringifyNpmLock(out)
+function renderNpm1Output(
+  out: Record<string, unknown>,
+  options: Npm1StringifyOptions,
+  topLevelOrder?: readonly string[],
+): string {
+  const text = stringifyNpmLock(out, topLevelOrder)
   return options.lineEnding === 'crlf' ? text.replace(/\n/g, '\r\n') : text
 }
 

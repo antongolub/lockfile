@@ -198,6 +198,7 @@ export interface YarnBerryFamilySidecar {
   // (the WeakMap is berry-local), so the cross-format key is rebuilt from edges.
   entryKeyDescriptors?: Map<string, string[]>
   metadata?: SymlMap
+  unknownMetadataKeys?: readonly string[]
 }
 
 export interface YarnBerryConditionsFeatureQuery {
@@ -393,6 +394,12 @@ interface PatchDescriptorCandidate {
 
 export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
+}
+
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return [...(sidecarByGraph.get(graph)?.unknownMetadataKeys ?? [])]
+    .sort(cmpStr)
+    .map(key => `__metadata.${key}`)
 }
 
 export function rememberSidecar(graph: Graph, sidecar: YarnBerryFamilySidecar): void {
@@ -1083,6 +1090,12 @@ function createYarnBerrySidecar(context: YarnBerryParseContext): YarnBerryFamily
   if (context.rawUnresolvedDeps.size > 0) sidecar.unresolvedDeps = context.rawUnresolvedDeps
   if (context.rawEntryKeyDescriptors.size > 0) sidecar.entryKeyDescriptors = context.rawEntryKeyDescriptors
   if (context.metadata !== undefined) sidecar.metadata = context.metadata
+  if (context.metadata !== undefined) {
+    const unknownMetadataKeys = Object.keys(context.metadata)
+      .filter(key => key !== 'cacheKey')
+      .sort(cmpStr)
+    if (unknownMetadataKeys.length > 0) sidecar.unknownMetadataKeys = unknownMetadataKeys
+  }
   return sidecar
 }
 
@@ -1185,7 +1198,12 @@ function effectiveMutationSidecar(
   remapped: YarnBerryFamilySidecar,
 ): YarnBerryFamilySidecar {
   return isEmptySidecar(remapped) && source.metadata !== undefined
-    ? { metadata: source.metadata }
+    ? {
+        metadata: source.metadata,
+        ...(source.unknownMetadataKeys === undefined
+          ? {}
+          : { unknownMetadataKeys: source.unknownMetadataKeys }),
+      }
     : remapped
 }
 
@@ -1989,19 +2007,30 @@ export function strippedPatchDescriptor(lookup: string): string | undefined {
   return paramsIdx < 0 ? lookup : lookup.slice(0, paramsIdx)
 }
 
-/** Rebuild frozen-compared metadata while preserving unknown source fields. */
+/** Rebuild frozen-compared metadata and apply Yarn's measured unknown-key repair. */
 function createYarnBerryStringifyMetadata(
   config: YarnBerryFamilyConfig,
   sidecar: YarnBerryFamilySidecar,
   cacheKey: string | undefined,
+  emitDiagnostic: (diagnostic: Diagnostic) => void,
 ): SymlMap {
   const metadata: SymlMap = { version: String(config.lockfileVersion) }
   if (cacheKey !== undefined) metadata['cacheKey'] = cacheKey
   if (sidecar.metadata === undefined) return metadata
   for (const key of Object.keys(sidecar.metadata).sort(cmpStr)) {
     if (key === 'version' || key === 'cacheKey') continue
-    const value = cloneSymlValue(sidecar.metadata[key])
-    if (value !== undefined) metadata[key] = value
+    if (!sidecar.unknownMetadataKeys?.includes(key)) {
+      const value = cloneSymlValue(sidecar.metadata[key])
+      if (value !== undefined) metadata[key] = value
+      continue
+    }
+    const subject = `__metadata.${key}`
+    emitDiagnostic({
+      code: `${config.codePrefix}_UNKNOWN_METADATA_DROPPED`,
+      severity: 'error',
+      subject,
+      message: `${subject} is not producer-valid for yarn-berry-v${config.lockfileVersion}; mutable Yarn removes it, so non-strict emit repairs the lock by dropping it`,
+    })
   }
   return metadata
 }
@@ -2013,19 +2042,20 @@ function createYarnBerryStringifyContext(
 ): YarnBerryStringifyContext {
   const sidecar = sidecarByGraph.get(graph) ?? EMPTY_SIDECAR
   const diagnostics: Diagnostic[] = []
+  const emitDiagnostic = (diagnostic: Diagnostic): void => {
+    diagnostics.push(diagnostic)
+    options.onDiagnostic?.(diagnostic)
+  }
   const observedCacheKey = asString(sidecar.metadata?.cacheKey)
   const cacheKey = options.cacheKey ?? observedCacheKey
-  const metadata = createYarnBerryStringifyMetadata(config, sidecar, cacheKey)
+  const metadata = createYarnBerryStringifyMetadata(config, sidecar, cacheKey, emitDiagnostic)
   return {
     graph,
     config,
     options,
     sidecar,
     diagnostics,
-    emitDiagnostic: diagnostic => {
-      diagnostics.push(diagnostic)
-      options.onDiagnostic?.(diagnostic)
-    },
+    emitDiagnostic,
     cacheKey,
     metadata,
     root: { __metadata: metadata },
@@ -3216,6 +3246,9 @@ function pruneSidecar(sidecar: YarnBerryFamilySidecar, nextGraph: Graph): YarnBe
   if (unresolvedDeps !== undefined) pruned.unresolvedDeps = unresolvedDeps
   if (entryKeyDescriptors !== undefined) pruned.entryKeyDescriptors = entryKeyDescriptors
   if (sidecar.metadata !== undefined) pruned.metadata = sidecar.metadata
+  if (sidecar.unknownMetadataKeys !== undefined) {
+    pruned.unknownMetadataKeys = sidecar.unknownMetadataKeys
+  }
 
   return pruned
 }
@@ -3507,6 +3540,9 @@ function remapSidecar(
   if (unresolvedDeps !== undefined) remapped.unresolvedDeps = unresolvedDeps
   if (entryKeyDescriptors !== undefined) remapped.entryKeyDescriptors = entryKeyDescriptors
   if (sidecar.metadata !== undefined) remapped.metadata = sidecar.metadata
+  if (sidecar.unknownMetadataKeys !== undefined) {
+    remapped.unknownMetadataKeys = sidecar.unknownMetadataKeys
+  }
 
   return remapped
 }

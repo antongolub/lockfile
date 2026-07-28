@@ -80,10 +80,9 @@ Inherits v9.
 ## Quirks
 
 - Brand-new in stable Yarn 4.17.1 — much of the ecosystem still writes v9.
-- The bump itself is mechanical; historical evidence (yarn 4 → 6
-  introduced cacheKey, yarn 4 → 8 added `compressionLevel`) suggests
-  v10 could still pair with a structural change in a later producer. Keep the
-  version-specific family config isolated.
+- The bump itself is mechanical. Native measurement corrects an older corpus
+  inference: `compressionLevel` is not a supported lock metadata field and is
+  removed by Yarn. Keep the version-specific family config isolated.
 - Real-world canary first observed at: yarnpkg/berry repo self-host,
   prettier upstream.
 - **Conditional-checksum policy — `conditions ∩ optionalBuilds`, version-independent.**
@@ -101,17 +100,18 @@ Inherits v9.
 Inherits v9. The interop matrix closes all 30 ordered pairs incident to v10
 (v10 ↔ every other supported concrete format):
 
-- v5–v9 ↔ v10 preserve the calibrated graph, conditions,
-  `compressionLevel`, and Berry zip checksum bytes; v10 → v4 additionally
-  drops `conditions` with `YARN_BERRY_V4_CONDITIONS_DROPPED`;
+- v5–v9 ↔ v10 preserve the calibrated graph, conditions, and Berry zip checksum
+  bytes while producer-faithfully removing `compressionLevel`; v10 → v4
+  additionally drops `conditions` with
+  `YARN_BERRY_V4_CONDITIONS_DROPPED`;
 - every Berry ↔ non-Berry boundary omits the source-origin checksum rather
   than relabelling it (`berry-zip` is not tarball SRI), reporting
   `RECIPE_INTEGRITY_INCOMPLETE` / the corresponding structured projection
   loss and requiring artifact bytes to fill the target checksum;
 - v10 → yarn-classic flattens peer virtualization, virtual identities and
   their incident edges, and cannot retain peer-declaration tarball metadata;
-  patch slots, conditions, workspace metadata, `cacheKey`, and
-  `compressionLevel` are likewise unsupported by classic;
+  patch slots, conditions, workspace metadata, and `cacheKey` are likewise
+  unsupported by classic;
 - npm, pnpm, and bun targets inherit their documented v9 cross-family graph
   losses (layout/rekeying, unsupported patch/condition/peer carriers), while
   conversion to v10 synthesizes only the v10 preamble and never fabricates
@@ -138,3 +138,12 @@ blocking evidence/remedies are supplied.
 > form in [`_common.md` §1](./_common.md#1-yarn-berry-emit-invariants-version-invariant)
 > is *our* canonical form; byte-identity to stable Yarn output is a bonus, not
 > a contract.
+
+## Unknown `__metadata` keys
+
+Pinned Yarn 4.17.1 removes an unrecognised `__metadata` subkey during a mutable
+install. The same unstripped lock is rejected by `--immutable`, while the
+repaired lock is accepted. `version` and `cacheKey` are the recognized metadata
+fields; the pinned producer also removes the legacy-looking `compressionLevel`
+subkey. Non-strict emit reports `YARN_BERRY_V10_UNKNOWN_METADATA_DROPPED` with
+the full `__metadata.<key>` path; strict emit fails closed.

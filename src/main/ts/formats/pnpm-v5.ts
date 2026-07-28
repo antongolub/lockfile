@@ -94,6 +94,12 @@ import {
 } from '../recipe/resolution.ts'
 import { readYaml, emitYaml, flowMap, type YamlMap } from './_pnpm-yaml.ts'
 import {
+  captureUnknownTopLevel,
+  mergeUnknownTopLevel,
+  unknownTopLevelSubjects,
+  type UnknownTopLevelState,
+} from './_unknown-top-level.ts'
+import {
   cmpStr,
   derivePeerCandidates,
   isPlainObject,
@@ -222,6 +228,7 @@ interface PnpmV5Sidecar {
   inboundSettings?: PnpmV5SettingsCrossVersion
   /** Top-level `overrides:` block, verbatim (pnpm 6–7 carry + frozen-compare it). */
   overrides?: Record<string, string>
+  unknownTopLevel?: UnknownTopLevelState
 }
 
 interface PnpmV5ParseContext {
@@ -276,6 +283,10 @@ const sidecarByGraph = new WeakMap<Graph, PnpmV5Sidecar>()
 
 export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
+}
+
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
 }
 
 function rememberSidecar(graph: Graph, sidecar: PnpmV5Sidecar): void {
@@ -347,7 +358,13 @@ export function stringify(
   writePnpmV5ImporterLayout(context, nodes.workspace, out)
   writePnpmV5Packages(context, nodes.resolved, out)
   assertResolveValid(graph, out, context.rootNode, nodes.resolved, context.emitDiagnostic)
-  const text = emitYaml(out, { topLevelOrder: TOP_LEVEL_ORDER, topLevelSectionKeys: TOP_LEVEL_SECTION_KEYS })
+  const merged = mergeUnknownTopLevel(out, context.sidecar?.unknownTopLevel)
+  const text = emitYaml(merged, {
+    topLevelOrder: context.sidecar?.unknownTopLevel === undefined
+      ? TOP_LEVEL_ORDER
+      : Object.keys(merged),
+    topLevelSectionKeys: TOP_LEVEL_SECTION_KEYS,
+  })
   return options.lineEnding === 'crlf' ? text.replace(/\n/g, '\r\n') : text
 }
 
@@ -432,6 +449,7 @@ function createPnpmV5ParseContext(yaml: YamlMap): PnpmV5ParseContext {
   const sidecar: PnpmV5Sidecar = {
     rootId: '', importerPaths: [], importerByPath: new Map(),
     importerSpecifiers: new Map(), nodes: new Map(), importerEdges: new Map(),
+    unknownTopLevel: captureUnknownTopLevel(yaml, TOP_LEVEL_ORDER),
   }
   if (yaml.overrides !== undefined && typeof yaml.overrides === 'object') {
     sidecar.overrides = { ...(yaml.overrides as Record<string, string>) }

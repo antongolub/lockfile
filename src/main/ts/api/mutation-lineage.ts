@@ -14,6 +14,7 @@ import type { FormatId } from './format-contract.ts'
 export interface AdapterMutationLineage {
   readonly sourceFormat: FormatId
   readonly adapterStateRequired: boolean
+  readonly adapterStateSubjects: readonly string[]
   readonly mutated: boolean
 }
 
@@ -23,10 +24,12 @@ export function attachParsedMutationLineage(
   graph: Graph,
   sourceFormat: FormatId,
   adapterStateRequired: boolean,
+  adapterStateSubjects: readonly string[] = [],
 ): void {
   lineageByGraph.set(graph, Object.freeze({
     sourceFormat,
     adapterStateRequired,
+    adapterStateSubjects: Object.freeze([...adapterStateSubjects]),
     mutated: false,
   }))
 }

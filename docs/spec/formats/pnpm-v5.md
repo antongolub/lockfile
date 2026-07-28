@@ -159,3 +159,11 @@ peer-virtual ids. Integrity remains tarball SRI across npm/pnpm.
 
 > **Open:** exact 5.0 → 5.4 differences. Some are tolerated by all 5.x
 > readers, others not. Need a compat matrix.
+
+## Unknown top-level extension keys
+
+Pinned pnpm 7.33.7 accepts and byte-preserves producer-extension values at the
+project root. The adapter deep-clones such values, replays them only for
+`pnpm-v5`, and preserves their source key placement; modeled fields always win
+on collision. Detached-state and cross-format losses name every
+`top-level:<key>` and strict conversion fails closed.

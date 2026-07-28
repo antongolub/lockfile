@@ -139,6 +139,13 @@ interface YarnClassicSidecar {
   /** F8 — per-node verbatim refs to dep targets ABSENT from the lock (genuine
    *  Rung-4 drops). Same-format round-trip fidelity only (see UnresolvedDepRef). */
   unresolvedDeps?: Map<string, UnresolvedDepRef[]>
+  /** Producer-valid, pre-entry global scalar directives, replayed verbatim. */
+  globalDirectives?: YarnClassicGlobalDirective[]
+}
+
+export interface YarnClassicGlobalDirective {
+  readonly key: string
+  readonly raw: string
 }
 
 interface YarnClassicEntry {
@@ -207,6 +214,7 @@ interface ClassicParseContext {
   seenEntries: Map<string, { resolved?: string; integrity?: string }>
   semverCandidatesByName: Map<string, SemverCandidate[]>
   options: YarnClassicParseOptions
+  globalDirectives: YarnClassicGlobalDirective[]
 }
 
 interface ClassicStringifyContext {
@@ -255,6 +263,12 @@ export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
 }
 
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return (sidecarByGraph.get(graph)?.globalDirectives ?? [])
+    .map(directive => `global-directive:${directive.key}`)
+    .sort(cmpUtf16)
+}
+
 // === Mutation ===============================================================
 
 function rememberSidecar(graph: Graph, sidecar: YarnClassicSidecar): void {
@@ -301,7 +315,7 @@ export function parse(input: string, options: YarnClassicParseOptions = {}): Gra
   const normalized = stripBom(normalizeLineEndings(input))
   ensureClassicHeader(normalized)
   const context = createClassicParseContext(options)
-  addClassicEntryNodes(context, parseEntries(normalized))
+  addClassicEntryNodes(context, parseEntries(normalized, context.globalDirectives))
   reportClassicUnknownFields(context)
   addClassicEntryEdges(context)
   return sealClassicParse(context)
@@ -313,7 +327,10 @@ export function stringify(graph: Graph, options: YarnClassicStringifyOptions = {
     .map(node => buildClassicEntry(context, node))
     .sort((a, b) => cmpUtf16(a.entrySortKey, b.entrySortKey))
   const body = entries.length === 0 ? '' : `${entries.map(entry => entry.text).join('\n\n')}\n`
-  const output = HEADER + body
+  const directives = context.emitSidecar?.globalDirectives
+    ?.map(directive => directive.raw)
+    .join('\n') ?? ''
+  const output = HEADER + (directives === '' ? '' : `${directives}\n\n`) + body
   return options.lineEnding === 'crlf' ? output.replace(/\n/g, '\r\n') : output
 }
 
@@ -362,7 +379,10 @@ export function optimize(
 
 // === PARSE ==================================================================
 
-export function parseEntries(input: string): YarnClassicEntry[] {
+export function parseEntries(
+  input: string,
+  globalDirectives: YarnClassicGlobalDirective[] = [],
+): YarnClassicEntry[] {
   const entries: YarnClassicEntry[] = []
   const lines = input.split('\n')
   let current: YarnClassicEntry | undefined
@@ -381,6 +401,11 @@ export function parseEntries(input: string): YarnClassicEntry[] {
     if (line.startsWith('#')) continue
 
     if (!line.startsWith(' ')) {
+      if (!line.endsWith(':') && current === undefined && /\s/.test(line)) {
+        globalDirectives.push(parseGlobalDirective(line))
+        block = undefined
+        continue
+      }
       current = parseEntryHeaderLine(line)
       entries.push(current)
       block = undefined
@@ -615,6 +640,7 @@ function createClassicParseContext(options: YarnClassicParseOptions): ClassicPar
     // Source-gated max-satisfying candidates by package name (ADR-0025).
     semverCandidatesByName: new Map(),
     options,
+    globalDirectives: [],
   }
 }
 
@@ -777,7 +803,12 @@ function sealClassicParse(context: ClassicParseContext): Graph {
   for (const diagnostic of context.diagnostics) context.builder.diagnostic(diagnostic)
   try {
     const graph = context.builder.seal()
-    const parsedSidecar = buildSidecar(context.sidecar, context.entryExtras, context.unresolvedDeps)
+    const parsedSidecar = buildSidecar(
+      context.sidecar,
+      context.entryExtras,
+      context.unresolvedDeps,
+      context.globalDirectives,
+    )
     rememberSidecar(graph, parsedSidecar)
     return isEmptySidecar(parsedSidecar) ? graph : withSidecarPropagation(graph, parsedSidecar)
   } catch (error) {
@@ -828,7 +859,7 @@ function remapSidecar(
   const unresolvedDeps = sidecar.unresolvedDeps !== undefined
     ? remap(sidecar.unresolvedDeps, (r: UnresolvedDepRef) => ({ ...r }))
     : undefined
-  return buildSidecar(entrySpecs, entryExtras, unresolvedDeps)
+  return buildSidecar(entrySpecs, entryExtras, unresolvedDeps, sidecar.globalDirectives)
 }
 
 /**
@@ -2132,7 +2163,7 @@ function pruneSidecar(sidecar: YarnClassicSidecar, graph: Graph): YarnClassicSid
       if (reachableIds.has(nodeId)) unresolvedDeps.set(nodeId, refs.map(r => ({ ...r })))
     }
   }
-  return buildSidecar(entrySpecs, entryExtras, unresolvedDeps)
+  return buildSidecar(entrySpecs, entryExtras, unresolvedDeps, sidecar.globalDirectives)
 }
 
 // === HELPERS ================================================================
@@ -2313,10 +2344,14 @@ function buildSidecar(
   entrySpecs: Map<string, string[]>,
   entryExtras: Map<string, string[]> | undefined,
   unresolvedDeps: Map<string, UnresolvedDepRef[]> | undefined,
+  globalDirectives: YarnClassicGlobalDirective[] | undefined = undefined,
 ): YarnClassicSidecar {
   const sidecar: YarnClassicSidecar = { entrySpecs }
   if (entryExtras !== undefined && entryExtras.size > 0) sidecar.entryExtras = entryExtras
   if (unresolvedDeps !== undefined && unresolvedDeps.size > 0) sidecar.unresolvedDeps = unresolvedDeps
+  if (globalDirectives !== undefined && globalDirectives.length > 0) {
+    sidecar.globalDirectives = globalDirectives.map(directive => ({ ...directive }))
+  }
   return sidecar
 }
 
@@ -2324,6 +2359,15 @@ function isEmptySidecar(sidecar: YarnClassicSidecar): boolean {
   return sidecar.entrySpecs.size === 0
     && (sidecar.entryExtras?.size ?? 0) === 0
     && (sidecar.unresolvedDeps?.size ?? 0) === 0
+    && (sidecar.globalDirectives?.length ?? 0) === 0
+}
+
+function parseGlobalDirective(line: string): YarnClassicGlobalDirective {
+  const match = /^([A-Za-z][A-Za-z0-9_-]*)\s+("(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^\s]+)$/.exec(line)
+  if (match === null) {
+    throw parseFailed(`malformed yarn-classic global directive (${JSON.stringify(line)})`)
+  }
+  return { key: match[1]!, raw: line }
 }
 
 function parseFailed(message: string): LockfileError {

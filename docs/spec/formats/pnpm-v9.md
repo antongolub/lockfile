@@ -233,3 +233,16 @@ v7 preamble, and never relabels tarball SRI as a Berry checksum.
 > **Open:** capture exact pnpm 10 behavioural shifts (peer auto-install
 > defaults, store v6 introduction, etc.) that may affect what the lockfile
 > encodes.
+
+## Unknown top-level extension keys
+
+Pinned pnpm 10.34.5 accepts and byte-preserves producer-extension values at the
+project root. The adapter deep-clones such values, replays them only for
+`pnpm-v9`, and preserves their source key placement; modeled fields always win
+on collision. Detached-state and cross-format losses name every
+`top-level:<key>` and strict conversion fails closed.
+
+Bit's implementation writes a top-level `bit.depsRequiringBuild` extension
+([source](https://github.com/teambit/bit/blob/master/scopes/dependencies/pnpm/lynx.ts)).
+No committed Bit-produced lockfile artifact has been located, so this is an
+implementation-backed statement, not an artifact-backed corpus claim.

@@ -417,3 +417,33 @@ sources are supplied; it does not replace native frozen verification.
 
 `lockgraph` is the lossless waypoint: any format → `lockgraph` → the same format
 round-trips graph-identical; it is the model itself serialized, not a PM lock.
+
+## Producer-extension preservation boundary
+
+Unknown project-level values are not assumed portable. Pinned native
+measurements establish three policies:
+
+- npm v1–v4, pnpm v5/v6/v9, and Bun text accept unknown structured top-level
+  values unchanged. Exact and same-format output preserve a deep-cloned,
+  format-local carrier and its source key placement. Cross-format and
+  detached-state paths drop no such key silently: each loss is reported as
+  `top-level:<key>`, and strict conversion fails closed.
+- Yarn Classic 1.22.22 accepts pre-entry global scalar directives. The measured
+  grammar is preserved verbatim on same-format output; a cross-format loss names
+  `global-directive:<key>`.
+- Every pinned Berry producer for wire versions 4–10 removes an unknown
+  `__metadata` subkey during mutable install. Immutable mode rejects the
+  unstripped input and accepts the repaired output. Non-strict conversion
+  therefore performs the producer-faithful repair and names
+  `__metadata.<key>`; strict conversion refuses the loss. Native measurement
+  also corrects the old opaque-passthrough assumption for `compressionLevel`:
+  every pinned generation removes that subkey too.
+
+Modeled output always wins if a later adapter claims a formerly unknown key.
+Lockgraph has no external forward-extension envelope and rejects unknown record
+tags with the tag and line number.
+
+Bit's implementation writes `bit.depsRequiringBuild` into pnpm locks
+([source](https://github.com/teambit/bit/blob/master/scopes/dependencies/pnpm/lynx.ts)).
+Until a committed Bit-produced lock artifact is available, this is cited as
+implementation evidence rather than an artifact-backed corpus claim.

@@ -151,3 +151,12 @@ pinned `pm-npm-12` binary, asserts the native raw SRI, performs an adapter
 byte-identity round-trip, proves a second mutable generation is byte-identical,
 then certifies the result with npm's frozen mode. The oracle skips when the host
 Node version is outside npm 12's declared runtime range.
+
+## Unknown top-level extension keys
+
+Pinned npm 12.0.1 accepts and byte-preserves producer-extension values in a
+native patch-triggered v4 lock. The adapter therefore deep-clones unmodelled
+top-level values, replays them only for `npm-4`, and preserves their source key
+placement; modeled fields always win on collision. A detached-state or
+cross-format loss names each key as `top-level:<key>` and strict conversion
+fails closed.

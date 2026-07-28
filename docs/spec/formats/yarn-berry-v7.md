@@ -106,8 +106,8 @@ true }`, yielding these deltas on top of that shared contract:
   as v4 (F1).
 - `conditions` are supported and round-trip as a **scalar** token via
   sidecar preservation, emitted bare.
-- `compressionLevel`, where present, is preserved as pass-through
-  `__metadata` sidecar data via the same mechanism as v8.
+- `compressionLevel`, where present, is treated as an unknown metadata subkey
+  and producer-faithfully removed with a named diagnostic.
 
 ## Quirks
 
@@ -138,8 +138,9 @@ provenance have no v7 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
 The yarn-berry-v10 pair is graph-lossless across the calibrated corpus.
-Conditions and `compressionLevel` pass through; v7's raw checksum and v10's
-cacheKey-prefixed checksum are encoding variants of the same Berry zip digest.
+Conditions pass through; `compressionLevel` is producer-faithfully removed;
+v7's raw checksum and v10's cacheKey-prefixed checksum are encoding variants of
+the same Berry zip digest.
 
 The complete pair matrix pins every v7 cross-family cell. v7 → npm-1 loses
 some nested-tree edges, canonical resolution URLs, tarball payload metadata,
@@ -166,3 +167,14 @@ than relabelled between tarball SRI and Berry zip checksums.
 > sketch above; cross-family conversion coverage gates the v7 contract
 > through the same cross-format interop matrix as the other yarn-berry
 > versions.
+
+## Unknown `__metadata` keys
+
+Pinned Yarn 4.0.0-rc.46 removes an unrecognised `__metadata` subkey during a
+mutable install. The same unstripped lock is rejected by `--immutable`, while
+the repaired lock is accepted. Accordingly non-strict emit removes the key and
+reports `YARN_BERRY_V7_UNKNOWN_METADATA_DROPPED` with the full
+`__metadata.<key>` path; strict emit fails closed. This producer-faithful repair
+can improve an input that was already invalid for immutable CI. `version` and
+`cacheKey` are the recognized metadata fields; the pinned producer also removes
+the legacy-looking `compressionLevel` subkey.

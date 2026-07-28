@@ -156,3 +156,11 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 
 > **Open:** how do we round-trip `git+ssh://` URLs whose hash isn't in the
 > npm registry — store the git ref or the resolved tarball URL?
+
+## Unknown top-level extension keys
+
+Pinned npm 6.14.18 accepts and byte-preserves producer-extension values at the
+project root. The adapter therefore deep-clones unmodelled top-level values,
+replays them only for `npm-1`, and preserves their source key placement; modeled
+fields always win on collision. A detached-state or cross-format loss names
+each key as `top-level:<key>` and strict conversion fails closed.

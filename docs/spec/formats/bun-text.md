@@ -220,3 +220,11 @@ covered in `src/test/unit/bun-text.test.ts`.
 > **Queued schema work:** add a compatibility reader for released v0 text
 > locks, and add a distinct v2 adapter only after the Rust rewrite ships and a
 > released native oracle can pin its bytes. Do not widen the v1 detector.
+
+## Unknown top-level extension keys
+
+Pinned Bun 1.3.14 accepts and byte-preserves producer-extension values at the
+project root. The adapter deep-clones such values, replays them only for
+`bun-text`, and preserves their source key placement; modeled fields always win
+on collision. Detached-state and cross-format losses name every
+`top-level:<key>` and strict conversion fails closed.

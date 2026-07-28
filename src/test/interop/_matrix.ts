@@ -108,7 +108,6 @@ export type AdditionField =
 
 export type PassthroughFeature =
   | 'conditions'
-  | 'compressionLevel'
 
 export type LossEntry = {
   feature: LossFeature
@@ -183,7 +182,7 @@ const fromCode = (format: FormatId): string => format.replaceAll('-', '_').toUpp
 function passthroughEntry(
   from: BerryFormat,
   to: BerryFormat,
-  feature: 'conditions' | 'compressionLevel',
+  feature: 'conditions',
   rationale: string,
 ): PassthroughEntry {
   return {
@@ -223,14 +222,17 @@ function buildBerryPair(from: BerryFormat, to: BerryFormat): ConversionContract 
 
   const lost: LossEntry[] = []
   if (fromHasConditions && !toHasConditions) lost.push(conditionsLossEntry(from, to))
+  lost.push({
+    feature: 'compressionLevel',
+    diagnostic: `INTEROP_${fromCode(from)}_TO_${fromCode(to)}_COMPRESSIONLEVEL_DROPPED`,
+    severity: 'info',
+    rationale: 'every pinned Berry producer removes compressionLevel from __metadata during mutable install',
+  })
 
   const passthrough: PassthroughEntry[] = []
   if (fromHasConditions && toHasConditions) {
     passthrough.push(passthroughEntry(from, to, 'conditions', conditionsRationale(from, to)))
   }
-  passthrough.push(
-    passthroughEntry(from, to, 'compressionLevel', 'runtime preserves compressionLevel as opaque __metadata'),
-  )
 
   // Reentrancy: a pair is lossless when nothing falls off going from->to. With
   // version-pair symmetry, the upgrade direction (older->newer) is always

@@ -89,6 +89,11 @@ import {
   type NpmRootMeta,
   type NpmSidecar,
 } from './_npm-flat-types.ts'
+import {
+  captureUnknownTopLevel,
+  mergeUnknownTopLevel,
+  unknownTopLevelSubjects,
+} from './_unknown-top-level.ts'
 
 // === TYPES ==================================================================
 
@@ -124,6 +129,10 @@ const sidecarByGraph = new WeakMap<Graph, NpmSidecar>()
 
 export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
+}
+
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
 }
 
 // === Access =================================================================
@@ -298,7 +307,11 @@ export function stringifyFamily(
   // mirror reconstructed from the same graph by `_npm-2-mirror.ts`).
   config.hooks?.enrichStringifyOut?.({ graph, rootNode, sidecar, out })
 
-  const text = stringifyNpmLock(out)
+  const merged = mergeUnknownTopLevel(out, sidecar?.unknownTopLevel)
+  const text = stringifyNpmLock(
+    merged,
+    sidecar?.unknownTopLevel === undefined ? undefined : Object.keys(merged),
+  )
   return options.lineEnding === 'crlf' ? text.replace(/\n/g, '\r\n') : text
 }
 
@@ -836,6 +849,14 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
       edgeDeclaredNames,
       nodes: nodeSidecar,
       workspaceByPath,
+      unknownTopLevel: captureUnknownTopLevel(lf as Readonly<Record<string, unknown>>, [
+        'name',
+        'version',
+        'lockfileVersion',
+        'requires',
+        'packages',
+        'dependencies',
+      ]),
     })
     config.hooks?.afterParse?.({ graph, lf, packages, rootId, options })
     return graph
@@ -1490,6 +1511,7 @@ export function pruneSidecar(sidecar: NpmSidecar, graph: Graph): NpmSidecar {
     edgeRanges,
     edgeDeclaredNames,
     workspaceByPath,
+    unknownTopLevel: sidecar.unknownTopLevel,
   }
 }
 

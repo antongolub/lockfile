@@ -166,8 +166,6 @@ function passthroughApplies(entry: PassthroughEntry, context: ObservationContext
   switch (entry.feature) {
     case 'conditions':
       return featurePresence(context.sourceGraph, 'conditions')
-    case 'compressionLevel':
-      return hasBerryMetadataField(context.sourceLockfile, 'compressionLevel')
     default:
       return assertExhaustive(entry.feature, 'passthroughApplies')
   }
@@ -248,9 +246,6 @@ function passthroughObserved(entry: PassthroughEntry, context: ObservationContex
     case 'conditions':
       return featurePresence(context.sourceGraph, 'conditions')
         && featurePresence(context.destinationGraph, 'conditions')
-    case 'compressionLevel':
-      return hasBerryMetadataField(context.sourceLockfile, 'compressionLevel')
-        && hasBerryMetadataField(context.destinationLockfile, 'compressionLevel')
     default:
       return assertExhaustive(entry.feature, 'passthroughObserved')
   }

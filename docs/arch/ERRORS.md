@@ -84,6 +84,10 @@ Generated format codes use the following notation in the tables:
 - `NPM_V{2,3}_X` and `PNPM_V{6,9}_X` expand to the two named versions;
 - `{BUN_TEXT,NPM,PNPM,YARN_CLASSIC}_X` expands to those four concrete prefixes.
 
+For example, `YARN_BERRY_V9_UNKNOWN_METADATA_DROPPED` is the v9 member of
+`YARN_BERRY_V{4..10}_UNKNOWN_METADATA_DROPPED`; the literal example is included
+so runtime output remains directly searchable.
+
 ### Parse, graph, and adapter fidelity
 
 | Code | Severity | Meaning / cause | Remedy |
@@ -95,6 +99,12 @@ Generated format codes use the following notation in the tables:
 | `BUN_TEXT_BAD_ENTRY` | warning | A Bun text entry is malformed or lacks required identity fields. | Regenerate `bun.lock` with Bun or fix the entry. |
 | `BUN_TEXT_UNRESOLVED_DEP` | warning | A Bun dependency descriptor could not be bound to a parsed node. | Supply the missing entry/manifest or regenerate the lock. |
 | `BUN_TEXT_PEER_VIRT_FLATTENED` | warning | Peer-virtual identity was flattened because Bun text cannot encode it. | Accept the loss or target a peer-virtual-capable format. |
+| `DENO_MANIFEST_REQUIRED` | error | Cross-format Deno projection has no sibling `deno.json`/`deno.jsonc` or `package.json`, so root dependency declarations and dev/production scope cannot be established. The conversion also throws `INVALID_INPUT`. | Supply the sibling root manifest as conversion evidence before targeting a Node-family lock. |
+| `DENO_JSR_PACKAGES_DROPPED` | warning | Deno → Node-family conversion projects only the npm subgraph and omits the counted JSR packages. | Transform source dependencies first with `denoland/dnt` when npm output is required; Lockgraph does not invoke or certify dnt. |
+| `DENO_REMOTE_PACKAGES_DROPPED` | warning | Deno → Node-family conversion projects only the npm subgraph and omits the counted remote URL modules. | Transform source dependencies first with `denoland/dnt` when npm output is required; Lockgraph does not invoke or certify dnt. |
+| `DENO_DEP_PROJECTION_UNRESOLVED` | warning | A required native Deno npm dependency reference has no package that can be projected into the canonical graph. | Restore/regenerate the referenced npm package record before conversion. |
+| `DENO_OPTIONAL_DEP_PROJECTION_UNRESOLVED` | warning | An optional native Deno npm dependency reference has no package that can be projected into the canonical graph. | Restore/regenerate the referenced npm package record before emission or conversion. |
+| `DENO_PEER_PROJECTION_UNRESOLVED` | warning | A Deno native peer suffix has no unique npm package projection. The preserved raw native suffix remains authoritative for same-format replay. | Restore/disambiguate the npm package records before cross-format conversion; same-format output can retain the native suffix. |
 | `NPM_BAD_ENTRY` | warning | An npm entry is malformed or incomplete and was skipped/degraded. | Regenerate the package lock or repair that entry. |
 | `NPM_UNRESOLVED_DEP` | warning | An npm dependency path/range could not be bound to a node. | Restore the missing package entry or manifest evidence. |
 | `NPM_V1_WORKSPACES_UNSAFE` | warning | npm v1 cannot faithfully represent the workspace graph. | Emit npm v2/v3/v4 or use a project-level conversion. |
@@ -139,6 +149,7 @@ Generated format codes use the following notation in the tables:
 | `YARN_BERRY_V{4..10}_PEER_UNSATISFIED` | warning | No candidate satisfies a Berry peer range. | Correct/pin the peer dependency. |
 | `YARN_BERRY_V{4..10}_PEER_AMBIGUOUS` | warning | Multiple Berry candidates can satisfy a peer. | Supply manifests or disambiguate versions. |
 | `YARN_BERRY_V4_CONDITIONS_DROPPED` | warning | v4 cannot encode a later Berry `conditions` field. | Target v5+ or accept the condition loss. |
+| `YARN_BERRY_V{4..10}_UNKNOWN_METADATA_DROPPED` | error | The source carries a producer-invalid unknown `__metadata` subkey. Non-strict output performs the measured producer-faithful repair, removes the key, and names its full `__metadata.<key>` path; strict output fails closed on the same loss. Producer evidence refuted the previous `compressionLevel` pass-through assumption: all seven pinned generations remove it, including under non-default compression configuration, which changes `cacheKey` instead of preserving `compressionLevel` as lock metadata. | Remove the named subkey or explicitly use non-strict output and retain the diagnostic; verify repaired output with the exact pinned Yarn producer. |
 | `YARN_BERRY_V{4..10}_PEER_VIRT_FLATTENED` | warning | The selected projection flattened peer-virtual identity. | Use a preserving target or accept the loss. |
 
 ### Recipe, override, and conversion projection
@@ -176,6 +187,7 @@ output, and receipt failures use `error`.
 | `COMPLETENESS_TARGET_CAPABILITY_AMBIGUOUS` | warning | Target capability depends on an unspecified manager version. | Pin the exact manager version. |
 | `COMPLETENESS_TARGET_FEATURE_UNSUPPORTED` | warning | The target cannot represent a detected graph feature. | Change target or remove/accept the feature loss. |
 | `COMPLETENESS_TARGET_REQUEST_INVALID` | warning | Target format/version request is internally inconsistent. | Correct and pin the target request. |
+| `COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED` | error | Berry emission contains a completed base package that requires the pinned target's derived compatibility sibling, but the order-sensitive target overlay did not run. | Use `enrich()` with the exact pinned Berry target after completion and before refurbish/stringify. |
 | `COMPLETENESS_MANAGER_GENERATION_AMBIGUOUS` | warning | A manager version maps to more than one possible schema generation. | Supply an exact version/schema. |
 | `COMPLETENESS_FEATURE_UNMODELED` | warning/error | A detected feature has no completeness evaluator. | Add evaluator support or avoid claiming the contract. |
 | `COMPLETENESS_EVALUATOR_DEFERRED` | warning | Evaluation intentionally deferred because prerequisite evidence is missing. | Supply the prerequisite evidence. |
@@ -185,9 +197,11 @@ output, and receipt failures use `error`.
 | `COMPLETENESS_MANIFESTS_MISSING` | error | Complete manifest coverage was claimed without manifests. | Supply the complete manifest map. |
 | `COMPLETENESS_SOURCE_FORMAT_UNKNOWN` | error | Assessed conversion cannot identify the source. | Pass `from` or valid supported input. |
 | `COMPLETENESS_SOURCE_PARSE_FAILED` | error | Source parsing failed during assessed conversion. | Fix the source lockfile/format selection. |
+| `COMPLETENESS_ADAPTER_STATE_LOST` | error | A same-format native carrier would be lost on cross-format output, or public mutation detached load-bearing adapter state. `data.feature` identifies each carrier; unknown structured project keys are reported individually as `top-level:<key>` (Classic globals use `global-directive:<key>`). | Keep same-format state attached, avoid the detaching mutation, or explicitly accept non-strict cross-format loss; strict output fails closed. |
 | `COMPLETENESS_PACKAGE_METADATA_INCOMPLETE` | warning | Required package metadata is absent. | Supply registry/cache/local metadata evidence. |
 | `COMPLETENESS_PACKAGE_METADATA_MISMATCH` | warning | Metadata evidence disagrees with the graph/package identity. | Reconcile the source and graph. |
 | `COMPLETENESS_PACKAGE_METADATA_SOURCE_UNSUPPORTED` | warning | The selected evidence source cannot provide the required metadata. | Use a capable registry/cache/manifest source. |
+| `COMPLETENESS_MANIFEST_EXTENSION_DEPENDENCY_MISMATCH` | warning | Registry dependency facts differ from a package-manager-extended manifest (`packageExtensions`, `.pnpmfile.cjs`, or equivalent). This is extension evidence, not contradictory registry identity evidence, and does not roll back completion. | Retain the extension fingerprint/config and use the package manager's extended manifest as dependency authority. |
 | `COMPLETENESS_POLICY_AUTHORITY_MISSING` | error | Output policy cannot be attributed to an authoritative source. | Supply authored manifest/config policy. |
 | `COMPLETENESS_POLICY_AUTHORITY_REQUIRED` | warning | Project companion projection requires authoritative policy. | Supply authored overrides/manifests. |
 | `COMPLETENESS_OVERRIDE_GRAMMAR_UNSUPPORTED` | warning | Canonical override cannot be expressed in target grammar. | Rewrite policy or choose a compatible target. |

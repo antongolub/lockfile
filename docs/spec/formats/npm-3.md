@@ -150,3 +150,11 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 > it — but the lib captures and re-emits `license` verbatim, so an npm 10–12 lock
 > round-trips byte-identical. `pm-npm-12` was added to the PM matrix to keep this
 > pinned.
+
+## Unknown top-level extension keys
+
+Pinned npm 11.18.0 accepts and byte-preserves producer-extension values at the
+project root. The adapter therefore deep-clones unmodelled top-level values,
+replays them only for `npm-3`, and preserves their source key placement; modeled
+fields always win on collision. A detached-state or cross-format loss names
+each key as `top-level:<key>` and strict conversion fails closed.

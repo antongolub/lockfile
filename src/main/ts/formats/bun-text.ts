@@ -48,6 +48,12 @@ import {
 } from '../recipe/workspace.ts'
 import { cmpStr, sortRecord } from './_npm-flat-types.ts'
 import { optimizeUnreachable } from './_optimize.ts'
+import {
+  captureUnknownTopLevel,
+  mergeUnknownTopLevel,
+  unknownTopLevelSubjects,
+  type UnknownTopLevelState,
+} from './_unknown-top-level.ts'
 import { nodeVersionOf } from './_node-id.ts'
 import { captureOverrides, projectOverrides } from '../recipe/overrides.ts'
 import type { OverrideConstraint } from '../graph.ts'
@@ -151,6 +157,7 @@ interface BunTextFidelity {
   readonly canonicalOverrides: OverrideConstraint[] | undefined
   readonly trustedDependencies: string[] | undefined
   readonly patchedDependencies: Record<string, string> | undefined
+  readonly unknownTopLevel: UnknownTopLevelState | undefined
 }
 
 interface BunTextSidecar {
@@ -184,6 +191,8 @@ interface BunTextSidecar {
   /** Verbatim top-level `patchedDependencies` — bun's patch-protocol map
    *  (`<name>@<version>` -> patch-file path). */
   patchedDependencies?: Record<string, string>
+  /** Producer-tolerated, adapter-unknown project-level keys. Same-format only. */
+  unknownTopLevel?: UnknownTopLevelState
 }
 
 // === SIDECAR ================================================================
@@ -192,6 +201,10 @@ const sidecarByGraph = new WeakMap<Graph, BunTextSidecar>()
 
 export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
+}
+
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
 }
 
 function rememberSidecar(graph: Graph, sidecar: BunTextSidecar): void {
@@ -423,6 +436,15 @@ function captureBunFidelity(lf: BunTextLockfile): BunTextFidelity {
     canonicalOverrides,
     trustedDependencies,
     patchedDependencies,
+    unknownTopLevel: captureUnknownTopLevel(lf, [
+      'lockfileVersion',
+      'configVersion',
+      'workspaces',
+      'packages',
+      'trustedDependencies',
+      'patchedDependencies',
+      'overrides',
+    ]),
   }
 }
 
@@ -715,7 +737,8 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
     out.trustedDependencies = [...sidecar.trustedDependencies].sort(cmpStr)
   }
 
-  const json = renderJsonc(out)
+  const merged = mergeUnknownTopLevel(out, sidecar?.unknownTopLevel)
+  const json = renderJsonc(merged)
   return options.lineEnding === 'crlf' ? json.replace(/\n/g, '\r\n') : json
 }
 
@@ -1386,5 +1409,6 @@ function pruneSidecar(sidecar: BunTextSidecar, graph: Graph): BunTextSidecar {
     canonicalOverrides: sidecar.canonicalOverrides,
     trustedDependencies: sidecar.trustedDependencies,
     patchedDependencies: sidecar.patchedDependencies,
+    unknownTopLevel: sidecar.unknownTopLevel,
   }
 }

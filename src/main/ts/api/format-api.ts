@@ -15,6 +15,7 @@ import type {
 import {
   checkFormat,
   detectFormat,
+  formatAdapterStateSubjects,
   hasFormatAdapterState,
   parseFormat,
   stringifyFormat,
@@ -125,18 +126,36 @@ export function stringifyProjected(
 ): ProjectionResult {
   const emittedDiagnostics: Diagnostic[] = []
   const lineage = adapterMutationLineageOf(graph)
+  if (lineage !== undefined && format !== lineage.sourceFormat) {
+    for (const subject of lineage.adapterStateSubjects) {
+      emittedDiagnostics.push(assessedDiagnostic(
+        'COMPLETENESS_ADAPTER_STATE_LOST',
+        `${lineage.sourceFormat} native carrier ${JSON.stringify(subject)} is same-format only and is dropped by ${format}`,
+        {
+          feature: subject,
+          sourceFormat: lineage.sourceFormat,
+          target: format,
+        },
+      ))
+    }
+  }
   if (lineage?.mutated === true
     && lineage.adapterStateRequired
     && !hasFormatAdapterState(lineage.sourceFormat, graph)) {
-    emittedDiagnostics.push(assessedDiagnostic(
-      'COMPLETENESS_ADAPTER_STATE_LOST',
-      `public mutation detached load-bearing ${lineage.sourceFormat} adapter state; strict output cannot prove frozen fidelity`,
-      {
-        feature: 'adapter-state',
-        sourceFormat: lineage.sourceFormat,
-        target: format,
-      },
-    ))
+    const subjects = lineage.adapterStateSubjects.length > 0
+      ? lineage.adapterStateSubjects
+      : ['adapter-state']
+    for (const subject of subjects) {
+      emittedDiagnostics.push(assessedDiagnostic(
+        'COMPLETENESS_ADAPTER_STATE_LOST',
+        `public mutation detached load-bearing ${lineage.sourceFormat} adapter state carrier ${JSON.stringify(subject)}; strict output cannot prove frozen fidelity`,
+        {
+          feature: subject,
+          sourceFormat: lineage.sourceFormat,
+          target: format,
+        },
+      ))
+    }
   }
   if (options.overrides !== undefined
     && options.overrides.length > 0
@@ -229,7 +248,12 @@ export function parse(format: FormatId, input: string, options: ParseOptions = {
     observedPolicyCarrier(format, graph),
     observedManifestKnowledge(format, graph),
   )
-  attachParsedMutationLineage(graph, format, hasFormatAdapterState(format, graph))
+  attachParsedMutationLineage(
+    graph,
+    format,
+    hasFormatAdapterState(format, graph),
+    formatAdapterStateSubjects(format, graph),
+  )
   return graph
 }
 

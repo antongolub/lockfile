@@ -10,6 +10,7 @@ import { parse, stringify } from '../../main/ts/formats/npm-4.ts'
 import {
   createNativeLock,
   runFrozenOracle,
+  runMutableLockfileOracle,
   type FrozenOracleAdapter,
   type FrozenOracleCandidate,
 } from '../helpers/frozen-oracle.ts'
@@ -163,6 +164,27 @@ describe('infra: npm-4 native npm 12 oracle', () => {
         path: 'patches/ms@2.1.3.patch',
       })
       expect(stringify(parse(lockfile))).toBe(lockfile)
+
+      const withUnknown = JSON.parse(lockfile) as Record<string, unknown>
+      withUnknown.zzzUnknownVendor = { nested: 'sentinel' }
+      const extensionReplay = stringify(parse(`${JSON.stringify(withUnknown, null, 2)}\n`))
+      expect(extensionReplay).toContain('"zzzUnknownVendor"')
+      const extensionMutable = runMutableLockfileOracle(extensionReplay, adapter, created)
+      expect(extensionMutable.reason).toBeUndefined()
+      expect(extensionMutable.lockfile).toBe(extensionReplay)
+      const extensionFrozen = runFrozenOracle(
+        {
+          protocol: 'lockgraph-frozen-projection/v1',
+          target: { format: adapter.format, managerVersion: adapter.version },
+          projectionDigest: `sha256:${createHash('sha256').update(extensionReplay).digest('hex')}`,
+          lockfile: extensionReplay,
+          companions: [],
+        },
+        adapter,
+        created,
+      )
+      expect(extensionFrozen.reason).toBeUndefined()
+      expect(extensionFrozen.receipt).toBeDefined()
 
       // A second native mutable lock-only install must not rewrite any input.
       const mutableReplay = createNativeLock(adapter, created)

@@ -48,9 +48,9 @@ describe('interop: yarn-berry intra-family metadata edges', () => {
         )
       }
 
-      if (contract.passthrough.some(entry => entry.feature === 'compressionLevel')) {
+      if (contract.lost.some(entry => entry.feature === 'compressionLevel')) {
         expect(codes).toContain(
-          `INTEROP_${formatCode(contract.from)}_TO_${formatCode(contract.to)}_COMPRESSIONLEVEL_PASSTHROUGH:info`,
+          `INTEROP_${formatCode(contract.from)}_TO_${formatCode(contract.to)}_COMPRESSIONLEVEL_DROPPED:info`,
         )
       }
     })

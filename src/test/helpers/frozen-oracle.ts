@@ -42,6 +42,12 @@ export interface FrozenOracleResult {
   readonly reason?: string
 }
 
+export interface MutableLockfileOracleResult {
+  readonly status: number | null
+  readonly reason?: string
+  readonly lockfile?: string
+}
+
 export interface FrozenOracleCandidate extends FrozenVerificationSubject {
   readonly lockfile: string
   readonly companions: readonly CompanionSetOperation[]
@@ -557,6 +563,57 @@ export function runFrozenOracle(
     }
   } catch (error) {
     return { reason: error instanceof Error ? error.message : 'frozen oracle failed' }
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Run the pinned producer's normal lockfile-writing command in the same
+ * hermetic environment as the frozen oracle. This is intentionally narrower
+ * than `runFrozenOracle`: callers use it to measure whether a producer retains
+ * or repairs an injected native-format extension.
+ */
+export function runMutableLockfileOracle(
+  lockfile: string,
+  adapter: FrozenOracleAdapter,
+  projectFiles: FrozenOracleProjectFiles,
+): MutableLockfileOracleResult {
+  const skipReason = frozenOracleSkipReason(adapter)
+  if (skipReason !== undefined) return { status: null, reason: `oracle skipped: ${skipReason}` }
+  const lockPath = LOCK_PATH[adapter.format]
+  if (lockPath === undefined) return { status: null, reason: 'target has no calibrated lock path' }
+  const base = mkdtempSync(resolve(tmpdir(), 'lockgraph-mutable-oracle-'))
+  const root = resolve(base, 'project')
+  mkdirSync(root)
+  try {
+    materializeProjectFiles(root, projectFiles)
+    const lock = resolveInside(root, lockPath)
+    mkdirSync(dirname(lock), { recursive: true })
+    writeFileSync(lock, lockfile)
+    const binary = resolveBin(adapter)
+    const env = isolatedEnvironment(base, adapter.family)
+    const versionRun = run(adapter, binary, ['--version'], root, env)
+    const version = typeof versionRun.stdout === 'string' ? versionRun.stdout.trim() : ''
+    if (versionRun.status !== 0 || versionRun.signal !== null || version !== adapter.version) {
+      return { status: versionRun.status, reason: `exact package-manager version unavailable: ${JSON.stringify(version)}` }
+    }
+    const executed = run(adapter, binary, argvFor(adapter, 'create'), root, env)
+    if (executed.error !== undefined) return { status: executed.status, reason: executed.error.message }
+    if (executed.status !== 0 || executed.signal !== null) {
+      const detail = commandFailureDetail(executed, root)
+      return {
+        status: executed.status,
+        reason: `mutable command failed (status=${String(executed.status)}, signal=${String(executed.signal)})`
+          + (detail === undefined ? '' : `: ${detail}`),
+      }
+    }
+    return { status: executed.status, lockfile: readFileSync(lock, 'utf8') }
+  } catch (error) {
+    return {
+      status: null,
+      reason: error instanceof Error ? error.message : 'mutable oracle failed',
+    }
   } finally {
     rmSync(base, { recursive: true, force: true })
   }

@@ -144,10 +144,9 @@ definitively, even when that answer is 'required'):
 
 - Brand-new (released 2026-04-16) — most of the ecosystem still writes
   v8. Treat as forward-compat target rather than canonical input.
-- The bump itself is mechanical (a `version: N` field), but historical
-  evidence (yarn 4 → 6 introduced cacheKey, yarn 4 → 8 added
-  `compressionLevel`) suggests v9 is likely paired with at least one
-  structural change that needs probing.
+- The bump itself is mechanical (a `version: N` field). Native measurement
+  corrects an older corpus inference: `compressionLevel` is not a supported
+  lock metadata field and is removed by Yarn.
 - **`checksum` is a digest of yarn's post-processed zip-cache, NOT the tarball
   sha512.** Modelled internally as a `berry-zip`-origin hash under the shared
   integrity model ([`_common.md` §3](./_common.md#3-integrity-model)), it is
@@ -300,9 +299,9 @@ provenance have no v9 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
 The stable yarn-berry-v10 incident pair is graph-lossless across the calibrated
-v9 corpus. Conditions, `compressionLevel`, virtual identities, and
-cacheKey-prefixed Berry zip checksums survive in both directions; the only
-required on-disk change is `__metadata.version`.
+v9 corpus. Conditions, virtual identities, and cacheKey-prefixed Berry zip
+checksums survive in both directions; `compressionLevel` is removed and
+`__metadata.version` changes.
 
 ## Fixtures
 
@@ -324,3 +323,12 @@ required on-disk change is `__metadata.version`.
 > not by moving the contract), so this question gates fixture
 > provenance and capability-table refinement, not the
 > [`_common.md` §1.9](./_common.md#19-acceptance-gate) acceptance gate.
+
+## Unknown `__metadata` keys
+
+Pinned Yarn 4.14.1 removes an unrecognised `__metadata` subkey during a mutable
+install. The same unstripped lock is rejected by `--immutable`, while the
+repaired lock is accepted. `version` and `cacheKey` are the recognized metadata
+fields; the pinned producer also removes the legacy-looking `compressionLevel`
+subkey. Non-strict emit reports `YARN_BERRY_V9_UNKNOWN_METADATA_DROPPED` with
+the full `__metadata.<key>` path; strict emit fails closed.

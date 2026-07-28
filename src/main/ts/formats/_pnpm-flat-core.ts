@@ -84,6 +84,12 @@ import {
 import { readWorkspaceFileBytes } from './_path.ts'
 import { optimizeUnreachable } from './_optimize.ts'
 import { readYaml, emitYaml, flowMap, quoted, type YamlMap } from './_pnpm-yaml.ts'
+import {
+  captureUnknownTopLevel,
+  mergeUnknownTopLevel,
+  unknownTopLevelSubjects,
+  type UnknownTopLevelState,
+} from './_unknown-top-level.ts'
 
 // === CONSTANTS ==============================================================
 
@@ -315,6 +321,8 @@ export interface PnpmSidecar {
    *  verbatim or dropping keys → frozen mismatch. Reconstructed from defaults
    *  cross-PM (no verbatim block). */
   settingsVerbatim?: YamlMap
+  /** Producer-tolerated, adapter-unknown project-level keys. Same-format only. */
+  unknownTopLevel?: UnknownTopLevelState
 }
 
 export interface PnpmCatalogFeatureQuery {
@@ -443,6 +451,10 @@ type ClassifiedPeerSuffixSegment =
 
 export function hasAdapterState(graph: Graph): boolean {
   return sidecarByGraph.has(graph)
+}
+
+export function adapterStateSubjects(graph: Graph): readonly string[] {
+  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
 }
 
 export function rebindAdapterState(
@@ -589,7 +601,7 @@ function createPnpmParseContext(
     })
   }
 
-  const sidecar = capturePnpmParseSidecar(yaml)
+  const sidecar = capturePnpmParseSidecar(yaml, shape)
   return {
     shape,
     yaml,
@@ -606,7 +618,7 @@ function createPnpmParseContext(
 }
 
 /** Capture pnpm's frozen-compared top-level metadata before graph projection. */
-function capturePnpmParseSidecar(yaml: YamlMap): PnpmSidecar {
+function capturePnpmParseSidecar(yaml: YamlMap, shape: PnpmLayoutShape): PnpmSidecar {
   const sidecar: PnpmSidecar = {
     rootId: '',
     settings: extractSettings(yaml.settings),
@@ -616,6 +628,7 @@ function capturePnpmParseSidecar(yaml: YamlMap): PnpmSidecar {
     importerEdges: new Map<string, PnpmEdgeSidecar>(),
     workspacePeerNames: new Map<string, { name: string; locator: string }>(),
     workspacePeerCollisions: new Set<string>(),
+    unknownTopLevel: captureUnknownTopLevel(yaml, shape.topLevelOrder),
   }
 
   if (yaml.settings !== undefined && typeof yaml.settings === 'object') {
@@ -1864,6 +1877,7 @@ function emitPnpmStringifyResult(context: PnpmStringifyContext): string {
     rootNode,
     resolvedNodes,
     out,
+    sidecar,
   } = context
   assertResolveValid({
     graph,
@@ -1874,8 +1888,11 @@ function emitPnpmStringifyResult(context: PnpmStringifyContext): string {
     onDiagnostic: emitDiagnostic,
     workspacePeerProjection,
   })
-  const text = emitYaml(out, {
-    topLevelOrder: shape.topLevelOrder,
+  const merged = mergeUnknownTopLevel(out, sidecar?.unknownTopLevel)
+  const text = emitYaml(merged, {
+    topLevelOrder: sidecar?.unknownTopLevel === undefined
+      ? shape.topLevelOrder
+      : Object.keys(merged),
     topLevelSectionKeys: shape.topLevelSectionKeys,
   })
   return options.lineEnding === 'crlf' ? text.replace(/\n/g, '\r\n') : text

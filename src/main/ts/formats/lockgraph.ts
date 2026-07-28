@@ -480,6 +480,7 @@ export function parse(input: string, options: LockgraphParseOptions = {}): Graph
   const edges = parseEdgeRegion(cursor, nodes.length)
   const hints = parseLayoutRegion(cursor)
   const residuals = parseFidelityRegion(cursor, nodes)
+  assertNoTrailingRecords(cursor)
   return assembleGraph(nodes, edges, residuals, hints, options.onDiagnostic)
 }
 
@@ -487,6 +488,7 @@ interface LockgraphParseCursor {
   peek(): string | undefined
   next(): string
   expectHeader(letter: string): number
+  lineNumber(): number
 }
 
 interface ParsedNode {
@@ -515,7 +517,12 @@ function createParseCursor(input: string): LockgraphParseCursor {
     index++
     return line
   }
-  return { peek, next, expectHeader: letter => parseRegionHeader(next(), letter) }
+  return {
+    peek,
+    next,
+    expectHeader: letter => parseRegionHeader(next(), letter),
+    lineNumber: () => index + 1,
+  }
 }
 
 function parseRegionHeader(line: string, letter: string): number {
@@ -542,19 +549,40 @@ function parseMetadata(cursor: LockgraphParseCursor): void {
     })
   }
   while (cursor.peek() !== undefined && !isRegionHeader(cursor.peek()!, 'R')) {
-    validateSchemaMetadata(cursor.next())
+    const lineNumber = cursor.lineNumber()
+    validateSchemaMetadata(cursor.next(), lineNumber)
   }
 }
 
-function validateSchemaMetadata(line: string): void {
+function validateSchemaMetadata(line: string, lineNumber: number): void {
   const parts = line.split(' ')
-  if (parts[0] !== 'schema') return
+  const tag = parts[0] ?? ''
+  if (tag === '' || tag === 'generatedAt' || tag === 'generator') return
+  if (tag !== 'schema') {
+    throw new LockfileError({
+      code: 'PARSE_FAILED',
+      message: `lockgraph: unknown record tag ${JSON.stringify(tag)} on line ${lineNumber}: ${line}`,
+    })
+  }
   const major = Number(parts[1]?.split('.')[0])
   if (!Number.isFinite(major) || major <= SCHEMA_MAJOR) return
   throw new LockfileError({
     code: 'CAPABILITY_LACK',
     message: `lockgraph: schema major ${parts[1]} newer than supported ${SCHEMA_MAJOR}`,
   })
+}
+
+function assertNoTrailingRecords(cursor: LockgraphParseCursor): void {
+  while (cursor.peek() !== undefined) {
+    const lineNumber = cursor.lineNumber()
+    const line = cursor.next()
+    if (line === '') continue
+    const tag = line.split(/[ \t]/, 1)[0] ?? ''
+    throw new LockfileError({
+      code: 'PARSE_FAILED',
+      message: `lockgraph: unknown record tag ${JSON.stringify(tag)} on line ${lineNumber}: ${line}`,
+    })
+  }
 }
 
 function parseRegistryRegion(cursor: LockgraphParseCursor): Array<{ type: string; url: string }> {

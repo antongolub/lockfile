@@ -121,9 +121,9 @@ provenance have no v5 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
 The yarn-berry-v10 pair is graph-lossless across the calibrated corpus:
-conditions and `compressionLevel` pass through, and the canonical Berry zip
-digest is re-encoded from v5's raw checksum syntax to v10's cacheKey-prefixed
-syntax (and back) without changing checksum bytes.
+conditions pass through, `compressionLevel` is producer-faithfully removed,
+and the canonical Berry zip digest is re-encoded from v5's raw checksum syntax
+to v10's cacheKey-prefixed syntax (and back) without changing checksum bytes.
 
 The complete pair matrix also pins v5 ↔ npm-{1,2} and v5 ↔ pnpm-v{5,6}.
 On v5 → npm-1 the nested-tree target loses some edges, canonical resolution
@@ -145,3 +145,14 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 > all observed points: handshake `5`, cacheKey `8`, bare inner dep
 > ranges, raw checksum form, and no `compressionLevel` in the current
 > fixture corpus.
+
+## Unknown `__metadata` keys
+
+Pinned Yarn 3.1.1 removes an unrecognised `__metadata` subkey during a mutable
+install. The same unstripped lock is rejected by `--immutable`, while the
+repaired lock is accepted. Accordingly non-strict emit removes the key and
+reports `YARN_BERRY_V5_UNKNOWN_METADATA_DROPPED` with the full
+`__metadata.<key>` path; strict emit fails closed. This producer-faithful repair
+can improve an input that was already invalid for immutable CI. `version` and
+`cacheKey` are the recognized metadata fields; the pinned producer also removes
+the legacy-looking `compressionLevel` subkey.

@@ -11,7 +11,7 @@ and `__metadata.cacheKey` threading — is shared across the yarn-berry
 family and lives in [`_common.md` §1](./_common.md#1-yarn-berry-emit-invariants-version-invariant);
 this spec inherits it and records only the v8-specific deltas
 (cacheKey `10c0`, quoted protocol-bearing inner-block ranges, the
-`<cacheKey>/<hex>` checksum form, `compressionLevel`, the three
+`<cacheKey>/<hex>` checksum form, the three
 structured-fields round-trip, and the `::locator=` descriptor nuance)
 inline. Modify, enrich, and optimize reference published
 [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
@@ -53,8 +53,8 @@ Same as [yarn-berry-v4](./yarn-berry-v4.md#file). yarn 4 also writes a
 Same shape as v6 with the same scalar `conditions` support, but
 with `__metadata.version: 8`, quoted protocol-bearing inner-block
 dependency ranges (`lodash: "npm:4.17.21"`), cacheKey-prefixed
-checksums (`<cacheKey>/<hex>`), and `compressionLevel` carried in
-`__metadata`.
+checksums (`<cacheKey>/<hex>`). Legacy corpus locks may carry
+`compressionLevel` in `__metadata`, but pinned Yarn removes it on rewrite.
 
 A real v8 entry may carry three structured fields beyond the basic
 descriptor — all three round-trip:
@@ -199,8 +199,8 @@ v8-specific deltas inherited on top of the shared contract are:
   berry-native unresolved refs (they are not edges, and no foreign adapter
   reads the carrier). No phantom/placeholder node is minted — NodeId and
   edge identity stay clean.
-- `compressionLevel` is preserved as pass-through `__metadata`
-  sidecar data; the current fixture corpus carries `0`.
+- `compressionLevel` in `__metadata` is repaired like an unknown subkey; the
+  current fixture corpus carries `0`, but pinned Yarn removes it on rewrite.
 
 ## Quirks
 
@@ -221,8 +221,8 @@ v8-specific deltas inherited on top of the shared contract are:
   predicate leaves a bare `true`/`false` token unquoted, matching yarn;
   quoting `built: "false"` would be a truthy-string correctness bug, not a
   style nit (#89 regression).
-- `compressionLevel` first appears in the current family corpus at v8
-  and is preserved through `sidecar.metadata`.
+- `compressionLevel` first appears in the current family corpus at v8; native
+  mutable and immutable oracles prove it must be removed, not passed through.
 - A dependency reference to a package **absent** from the lock (no
   `resolution:` entry) round-trips **verbatim** via a per-node sidecar
   rather than being dropped (F8/#103). It is observed on real v8/v9 locks
@@ -295,8 +295,9 @@ provenance have no v8 carrier. Non-strict conversion reports both losses (while
 retaining representable effective graph edges); strict projection rejects.
 
 The yarn-berry-v10 pair is graph-lossless across the calibrated corpus. Both
-formats preserve conditions, `compressionLevel`, and cacheKey-prefixed Berry
-zip checksums; the only required on-disk change is the metadata version marker.
+formats preserve conditions and cacheKey-prefixed Berry zip checksums;
+`compressionLevel` is producer-faithfully removed and the metadata version
+marker changes.
 
 The complete pair matrix also pins v8 ↔ npm-{1,2} and v8 ↔ pnpm-v{5,6}.
 On v8 → npm-1 the nested-tree target loses some edges, canonical resolution
@@ -316,5 +317,14 @@ See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/
 
 > None at preview. Fixture verification matched the documented v8
 > deltas on every observed field: handshake `8`, cacheKey `10c0`,
-> quoted inner dep ranges, `cacheKey/hash` checksum form, `conditions`,
-> and `compressionLevel`.
+> quoted inner dep ranges, `cacheKey/hash` checksum form, and `conditions`;
+> the corpus-only `compressionLevel` field is repaired as documented below.
+
+## Unknown `__metadata` keys
+
+Pinned Yarn 4.13.0 removes an unrecognised `__metadata` subkey during a mutable
+install. The same unstripped lock is rejected by `--immutable`, while the
+repaired lock is accepted. `version` and `cacheKey` are the recognized metadata
+fields; the pinned producer also removes the legacy-looking `compressionLevel`
+subkey. Non-strict emit reports `YARN_BERRY_V8_UNKNOWN_METADATA_DROPPED` with
+the full `__metadata.<key>` path; strict emit fails closed.

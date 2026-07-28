@@ -253,7 +253,7 @@ describe('yarn-berry-v8 — stringify', () => {
     expect(graphSnapshot(reparsed)).toEqual(graphSnapshot(original))
   })
 
-  it('preserves parsed conditions and compressionLevel sidecars', () => {
+  it('preserves conditions and producer-faithfully repairs compressionLevel metadata', () => {
     const PKG_HEX = createHash('sha512').update('pkg-1.0.0').digest('hex')
     const input =
       '__metadata:\n' +
@@ -269,12 +269,19 @@ describe('yarn-berry-v8 — stringify', () => {
       '  linkType: hard\n'
 
     const original = parseV8(input)
-    const emitted = stringifyV8(original)
+    const diagnostics: Diagnostic[] = []
+    const emitted = stringifyV8(original, {
+      onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+    })
     const reparsed = parseV8(emitted)
 
-    expect(emitted).toContain('__metadata:\n  version: 8\n  cacheKey: 10c0\n  compressionLevel: 0\n')
+    expect(emitted).toContain('__metadata:\n  version: 8\n  cacheKey: 10c0\n')
     expect(emitted).toContain('  conditions: os=linux\n')
-    expect(emitted).not.toContain('compressionLevel: "0"')
+    expect(emitted).not.toContain('compressionLevel:')
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'YARN_BERRY_V8_UNKNOWN_METADATA_DROPPED',
+      subject: '__metadata.compressionLevel',
+    }))
     expect(graphSnapshot(reparsed)).toEqual(graphSnapshot(original))
   })
 })
