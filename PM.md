@@ -26,27 +26,31 @@ matter how widely it is used.
 The five that resolve, fetch, link and lock on their own, and between them
 account for effectively all public JavaScript projects.
 
-| Tool | Purpose | Lockfile | lockgraph |
-|---|---|---|---|
-| [npm](https://github.com/npm/cli) | The default manager, bundled with Node.js. Reference implementation of the registry protocol. | `package-lock.json` (v1–v4), `npm-shrinkwrap.json` | yes — `npm-1` … `npm-4` |
-| [Yarn](https://github.com/yarnpkg/yarn) (Classic, 1.x) | The first credible npm alternative: deterministic installs, offline mirror, workspaces. Maintenance only. | `yarn.lock` (v1 syntax) | yes — `yarn-classic` |
-| [Yarn Berry](https://github.com/yarnpkg/berry) (2.x–4.x) | Rewrite around Plug'n'Play: no `node_modules`, packages resolved from zip archives. | `yarn.lock` (YAML, `__metadata.version` 4–10) | yes — `yarn-berry-v4` … `v10` |
-| [pnpm](https://github.com/pnpm/pnpm) | Content-addressable store plus a symlinked `node_modules`: strict dependency isolation and disk reuse. | `pnpm-lock.yaml` (v5, v6, v9) | yes — `pnpm-v5`, `pnpm-v6`, `pnpm-v9` |
-| [Bun](https://github.com/oven-sh/bun) | Runtime with a built-in installer; speed-first, npm-registry compatible. | `bun.lock` (text), `bun.lockb` (binary, superseded) | text yes — `bun-text`; binary detect-only |
-| [Deno](https://github.com/denoland/deno) | Runtime with an integrated manager spanning three sources: npm packages, JSR modules and remote URLs. | `deno.lock` (v2–v5) | yes — `deno`, same-format npm-section only |
+| Tool | Purpose | Lockfile | Default registry | lockgraph |
+|---|---|---|---|---|
+| [npm](https://github.com/npm/cli) | The default manager, bundled with Node.js. Reference implementation of the registry protocol. | `package-lock.json` (v1–v4), `npm-shrinkwrap.json` | `registry.npmjs.org` | yes — `npm-1` … `npm-4` |
+| [Yarn](https://github.com/yarnpkg/yarn) (Classic, 1.x) | The first credible npm alternative: deterministic installs, offline mirror, workspaces. Maintenance only. | `yarn.lock` (v1 syntax) | `registry.yarnpkg.com` | yes — `yarn-classic` |
+| [Yarn Berry](https://github.com/yarnpkg/berry) (2.x–4.x) | Rewrite around Plug'n'Play: no `node_modules`, packages resolved from zip archives. | `yarn.lock` (YAML, `__metadata.version` 4–10) | `registry.yarnpkg.com` | yes — `yarn-berry-v4` … `v10` |
+| [pnpm](https://github.com/pnpm/pnpm) | Content-addressable store plus a symlinked `node_modules`: strict dependency isolation and disk reuse. | `pnpm-lock.yaml` (v5, v6, v9) | `registry.npmjs.org` | yes — `pnpm-v5`, `pnpm-v6`, `pnpm-v9` |
+| [Bun](https://github.com/oven-sh/bun) | Runtime with a built-in installer; speed-first, npm-registry compatible. | `bun.lock` (text), `bun.lockb` (binary, superseded) | `registry.npmjs.org` | text yes — `bun-text`; binary detect-only |
+| [Deno](https://github.com/denoland/deno) | Runtime with an integrated manager spanning three sources: npm packages, JSR modules and remote URLs. | `deno.lock` (v2–v5) | `registry.npmjs.org` + `jsr.io` | yes — `deno`, same-format npm-section only |
+
+Registries are covered separately in [REGISTRIES.md](REGISTRIES.md).
 
 ## 2. Active alternatives that write their own lockfile
 
-| Tool | Purpose | Lockfile | Note |
-|---|---|---|---|
-| [nub](https://github.com/nubjs/nub) | Rust installer, runtime and version manager in one binary. | `nub.lock` | **pnpm v9 schema under a different filename** |
-| [aube](https://github.com/jdx/aube) | Rust installer; the engine nub embeds. | `aube-lock.yaml` | declares `lockfileVersion: '9.0'` — pnpm v9 |
-| [vlt](https://github.com/vltpkg/vltpkg) | Installer by npm's original author. Release candidate, not yet 1.0. | `vlt-lock.json` | a genuine graph format: `nodes` + `edges`, ids carry peer variants |
-| [cotton](https://github.com/danielhuang/cotton) | Rust installer focused on install speed. | `cotton.lock` | flat JSON, specifier → resolved version |
-| [ohpm](https://ohpm.openharmony.cn/) | Package manager for Huawei OpenHarmony / HarmonyOS applications. Ships inside DevEco Studio. | `oh-package-lock.json5` | JSON5; npm-style `sha512` SRI integrity; pnpm-like store layout; `registryType` may be `ohpm` **or** `npm` |
-| [hpm](https://www.npmjs.com/package/@ohos/hpm-cli) | OpenHarmony **device component** distribution, not application libraries. | `bundle-lock.json` | published, very low usage |
-| [jspm](https://github.com/jspm/jspm) | Import-map package manager: the browser import map *is* the lock. | `importmap.js` | earlier lines used `config.js`, `jspm.config.js`, `jspm.json` |
-| [Orogene](https://github.com/orogene/orogene) | Rust installer for `node_modules`-consuming tools. | `package-lock.kdl` | **source closed February 2026**; last open release 0.3.34 (2023-10-09) |
+| Tool | Purpose | Lockfile | Default registry | Note |
+|---|---|---|---|---|
+| [nub](https://github.com/nubjs/nub) | Rust installer, runtime and version manager in one binary. | `nub.lock` | `registry.npmjs.org` | **pnpm v9 schema under a different filename** |
+| [aube](https://github.com/jdx/aube) | Rust installer; the engine nub embeds. | `aube-lock.yaml` | `registry.npmjs.org` | declares `lockfileVersion: '9.0'` — pnpm v9 |
+| [vlt](https://github.com/vltpkg/vltpkg) | Installer by npm's original author. Release candidate, not yet 1.0. | `vlt-lock.json` | `registry.npmjs.org` | a genuine graph format: `nodes` + `edges`, ids carry peer variants; registry config is embedded in the lockfile |
+| [cotton](https://github.com/danielhuang/cotton) | Rust installer focused on install speed. | `cotton.lock` | `registry.npmjs.org` | flat JSON, specifier → resolved version |
+| [cnpm](https://github.com/cnpm/cnpm) | CLI front-end bundling npm and npminstall for the Chinese ecosystem. | delegates | `registry.npmmirror.com` | the registry default is the whole point of the tool |
+| [npminstall](https://github.com/cnpm/npminstall) | The installer engine behind cnpm; symlink store. | delegates — reads `package-lock.json` when given one | `registry.npmjs.org` (configurable) | writes no lockfile of its own |
+| [ohpm](https://ohpm.openharmony.cn/) | Package manager for Huawei OpenHarmony / HarmonyOS applications. Ships inside DevEco Studio. | `oh-package-lock.json5` | `ohpm.openharmony.cn` | JSON5; npm-style `sha512` SRI integrity; pnpm-like store layout; `registryType` may be `ohpm` **or** `npm` |
+| [hpm](https://www.npmjs.com/package/@ohos/hpm-cli) | OpenHarmony **device component** distribution, not application libraries. | `bundle-lock.json` | OpenHarmony HPM | published, very low usage |
+| [jspm](https://github.com/jspm/jspm) | Import-map package manager: the browser import map *is* the lock. | `importmap.js` | `registry.npmjs.org`, resolved through a CDN | earlier lines used `config.js`, `jspm.config.js`, `jspm.json` |
+| [Orogene](https://github.com/orogene/orogene) | Rust installer for `node_modules`-consuming tools. | `package-lock.kdl` | `registry.npmjs.org` | **source closed February 2026**; last open release 0.3.34 (2023-10-09) |
 
 Two consequences of this section for tooling authors:
 
@@ -97,21 +101,7 @@ consume the lockfile as-is.
 | [rules_js](https://github.com/aspect-build/rules_js) | Bazel rules for JavaScript. | **reuses `pnpm-lock.yaml` as its intermediate representation** |
 | [rules_nodejs](https://github.com/bazel-contrib/rules_nodejs) | Bazel Node.js toolchain. npm rules removed in 6.x. | none |
 
-## 6. Registries and mirrors
-
-Not package managers, but part of the same picture: a manager without a registry
-resolves nothing.
-
-| Service | Purpose |
-|---|---|
-| [registry.npmjs.org](https://registry.npmjs.org/) | The primary public registry. |
-| [npmmirror](https://npmmirror.com/) / [cnpmcore](https://github.com/cnpm/cnpmcore) | Full mirror of the public registry serving the Chinese ecosystem. |
-| [cnpm](https://github.com/cnpm/cnpm) | CLI front-end bundling npm and npminstall, defaulting to npmmirror. Delegates; writes no lockfile. |
-| [npminstall](https://github.com/cnpm/npminstall) | The installer engine behind cnpm; symlink store. Reads `package-lock.json` when given one; writes none. |
-| [JSR](https://jsr.io/) | Registry for JavaScript and TypeScript modules, used by Deno and consumable from npm via `@jsr/` scope mapping. |
-| [Verdaccio](https://github.com/verdaccio/verdaccio) | Self-hosted proxy registry. |
-
-## 7. Discontinued
+## 6. Discontinued
 
 Kept for identification: these formats still appear in old repositories.
 
@@ -131,7 +121,7 @@ Kept for identification: these formats still appear in old repositories.
 | [bpm](https://github.com/bpm/bpm) | 2011 | Pre-Bower browser package manager, written in Ruby on rubygems. | none |
 | [Narwhal](https://github.com/280north/narwhal), [cpm](https://github.com/kriszyp/cpm) | 2009–2014 | The pre-npm CommonJS generation. | none |
 
-## 8. Notes
+## 7. Notes
 
 **The lockfile is what survived.** Of the discontinued tools above, only tink and
 Duo produced anything lock-shaped, and neither was a committed reproducibility
