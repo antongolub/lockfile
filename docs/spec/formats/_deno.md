@@ -238,10 +238,10 @@ surfaces; the new limit
 records that cost and restores 80 kB of explicit headroom instead of leaving
 the gate exactly at the measured bundle size.
 
-The declaration-only ceiling is raised from 123 kB to 126 kB because the
-single preview entry point became four concrete public subpaths. The increase
-records the four independently importable type surfaces and retains explicit
-headroom rather than hiding them behind one schema-ambiguous declaration.
+The declaration-only ceiling is raised from 123 kB to 135 kB because the
+single preview entry point became four concrete public subpaths. The roughly
+10% headroom records the four independently importable type surfaces without
+hiding them behind one schema-ambiguous declaration.
 
 ## Corpus and tests
 

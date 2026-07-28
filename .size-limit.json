@@ -11,11 +11,11 @@
     "gzip": false
   },
   {
-    "name": "types",
+    "name": "types (four Deno format identities)",
     "path": [
       "dist/**/*.d.ts"
     ],
-    "limit": "126 kB",
+    "limit": "135 kB",
     "brotli": false,
     "gzip": false
   }
