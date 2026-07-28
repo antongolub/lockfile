@@ -1,3 +1,17 @@
+## [0.5.0](https://github.com/lockgraph/lockgraph/compare/v0.4.0...v0.5.0) (2026-07-28)
+
+### Features
+* feat(deno): split deno.lock into deno-v2..deno-v5 format identities ([663e15b](https://github.com/lockgraph/lockgraph/commit/663e15b943702e73c9dabeaffaa51c316a0ba88e))
+* feat(deno): convert deno.lock to the npm family with required manifest evidence ([deb64c6](https://github.com/lockgraph/lockgraph/commit/deb64c63f1e8e44139132c50d054887808dc4c09))
+* feat(deno): add deno.lock adapter with native producer certification ([61c09c2](https://github.com/lockgraph/lockgraph/commit/61c09c2a922514c9c238a75694132a4f115f80f6))
+
+### Fixes & improvements
+* fix(formats): preserve producer-accepted unknown top-level extensions ([93f52dd](https://github.com/lockgraph/lockgraph/commit/93f52dd41852d737917241603191effe4c34580f))
+* docs(deno): detail what changes between lockfile versions ([c1a67bf](https://github.com/lockgraph/lockgraph/commit/c1a67bff7912929d097d5eb59a976a64f2b300bf))
+* docs: move spec to docs/spec, split arch and meta ([a6092f1](https://github.com/lockgraph/lockgraph/commit/a6092f12d356178bae0651c2e3725fefd1088fe2))
+* docs: split registries into REGISTRIES.md, add default-registry column to PM.md ([8f69721](https://github.com/lockgraph/lockgraph/commit/8f69721e46e94e55c6466c6b00dd0a46e507633a))
+* docs: add PM.md — the JavaScript package manager reference ([7eebc76](https://github.com/lockgraph/lockgraph/commit/7eebc76ce62d890e47b447ca74322b21150ce330))
+
 ## [0.4.0](https://github.com/lockgraph/lockgraph/compare/v0.3.0...v0.4.0) (2026-07-27)
 
 ### Features
