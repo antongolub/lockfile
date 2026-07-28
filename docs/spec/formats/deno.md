@@ -68,6 +68,53 @@ The exact set is sparse: a valid file need not contain every section. For v4
 and v5, npm dependency references are normally compact string arrays. V2 and
 v3 npm dependency references are name-to-native-id maps.
 
+### What changes between versions
+
+Three transitions, each a different kind of change:
+
+| transition | change |
+| --- | --- |
+| v2 → v3 | sections move under a `packages` container; a `jsr` section appears for the first time; `workspace` appears |
+| v3 → v4 | sections hoist back to the top level; `redirects` appears; npm dependency references change from name-to-id maps to compact string arrays |
+| v4 → v5 | section layout is unchanged; the **npm entry gains eight fields** |
+
+**v4 → v5 is the only transition that adds package metadata rather than moving
+it.** Measured across the corpus, an npm entry carries:
+
+| versions | npm entry fields |
+| --- | --- |
+| v2, v3, v4 | `dependencies`, `integrity` |
+| v5 | the same, plus `bin`, `cpu`, `deprecated`, `optionalDependencies`, `optionalPeers`, `os`, `scripts`, `tarball` |
+
+Two consequences follow directly.
+
+**An upgrade to v5 cannot be performed offline.** Those eight fields do not
+exist anywhere in a v4 file; they describe the package, not the resolution, and
+must come from the registry. Deno's own `transform4_to_5` takes a package-info
+provider for this reason, and Deno does not silently upgrade a lockfile it
+reads — a v3 file loaded by a current Deno stays v3 and does not fail `--frozen`
+merely for its version. Lockgraph matches that behaviour: it writes back the
+version it read.
+
+**A downgrade from v5 loses metadata that no other section carries.** Platform
+constraints (`os`, `cpu`), executables (`bin`), lifecycle scripts (`scripts`)
+and deprecation notices have no representation in v2–v4.
+
+### Producers and prevalence
+
+| lockfile version | written by | third-party corpus files |
+| --- | --- | ---: |
+| v2 | Deno 1.x (early) | 7 |
+| v3 | Deno 1.44.4 | 25 |
+| v4 | Deno 2.2.8 | 31 |
+| v5 | Deno 2.9.4 | 127 |
+
+Counts are from the measured corpus of 190 strict-JSON lockfiles taken from
+repositories outside `denoland/deno`; Deno's own conformance fixtures are
+excluded because they contain assertion placeholders rather than real values.
+The distribution matters for tooling: **v5 is roughly two thirds of what exists
+in the wild, and v2 is rare but not extinct.**
+
 ## Projection boundary
 
 Only the npm section has a faithful mapping to the repository's Node-oriented
