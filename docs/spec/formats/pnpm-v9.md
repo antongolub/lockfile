@@ -100,6 +100,8 @@ Same as [pnpm-v6](./pnpm-v6.md#conversion-inputs).
 
 Compared to v6:
 
+- Root authority and neutral-importer synthesis inherit the
+  [pnpm-v5 rule](./pnpm-v5.md#quirks); DAG reachability is not project identity.
 - Two top-level blocks instead of one — `packages` (immutable manifest
   data: resolution, integrity, engines) and `snapshots` (resolution-time
   data: dependency edges, peer bindings). One package can have many

@@ -48,6 +48,7 @@ import {
 } from '../recipe/workspace.ts'
 import { cmpStr, sortRecord } from './_npm-flat-types.ts'
 import { optimizeUnreachable } from './_optimize.ts'
+import { locateAuthoritativeRootNode } from './_root-authority.ts'
 import {
   captureUnknownTopLevel,
   mergeUnknownTopLevel,
@@ -652,7 +653,7 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
   const warnedPatches = new Set<string>()
   const warnedPeerVirt = new Set<string>()
 
-  const rootNode = locateRootNode(graph, sidecar)
+  const rootNode = locateAuthoritativeRootNode(graph, sidecar)
   const memberNodes = Array.from(graph.nodes())
     .filter(n => n.workspacePath !== undefined && n.workspacePath !== '')
     .sort((a, b) => cmpStr(a.workspacePath!, b.workspacePath!))
@@ -1352,22 +1353,6 @@ function renderObject(obj: Record<string, unknown>, depth: number, isTopLevel: b
 }
 
 // === Serialize helpers ======================================================
-
-function locateRootNode(graph: Graph, sidecar: BunTextSidecar | undefined): Node | undefined {
-  if (sidecar?.rootId !== undefined) {
-    const node = graph.getNode(sidecar.rootId)
-    if (node !== undefined) return node
-  }
-  for (const node of graph.nodes()) {
-    if (node.workspacePath === '') return node
-  }
-  const roots = Array.from(graph.roots())
-  if (roots.length === 1) {
-    const sole = roots[0]
-    if (sole !== undefined) return graph.getNode(sole)
-  }
-  return undefined
-}
 
 function chooseNodeEmitKey(
   node: Node,

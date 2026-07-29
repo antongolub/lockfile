@@ -61,6 +61,7 @@ import {
 } from '../graph.ts'
 import { LockfileError } from '../api/errors.ts'
 import { nodeVersionOf } from './_node-id.ts'
+import { locateAuthoritativeRootNode } from './_root-authority.ts'
 import { captureOverrides, projectOverrides } from '../recipe/overrides.ts'
 import { governingOverrideFor } from '../recipe/descriptor-resolve.ts'
 import { parseSri, emitSriForRegistry, isEmptyIntegrity } from '../recipe/integrity.ts'
@@ -3120,28 +3121,15 @@ export function tarballPayloadOf(
 }
 
 /**
- * Locate the synthetic root importer node for emit. Prefers the sidecar's
- * recorded `rootId`, falls back to `workspacePath === ''`, finally to a
- * sole root. Generic across sidecar shapes — only the `rootId` field is
- * required.
+ * Compatibility wrapper used by pnpm-v5 and the shared v6/v9 core. Project
+ * root authority is format-neutral; only the native neutral-root shape remains
+ * owned by each pnpm emitter.
  */
 export function locatePnpmRootNode(
   graph: Graph,
   sidecar: { rootId?: string } | undefined,
 ): Node | undefined {
-  if (sidecar?.rootId !== undefined) {
-    const node = graph.getNode(sidecar.rootId)
-    if (node !== undefined) return node
-  }
-  for (const node of graph.nodes()) {
-    if (node.workspacePath === '') return node
-  }
-  const roots = Array.from(graph.roots())
-  if (roots.length === 1) {
-    const id = roots[0]
-    if (id !== undefined) return graph.getNode(id)
-  }
-  return undefined
+  return locateAuthoritativeRootNode(graph, sidecar)
 }
 
 export function relativeImporterPath(importerPath: string, targetPath: string): string {

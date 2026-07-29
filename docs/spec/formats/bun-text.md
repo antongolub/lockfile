@@ -143,6 +143,9 @@ this is only how bun-text *carries* it.
   current Bun behavior until it ships.
 - JSONC parser must tolerate trailing commas and line comments.
 - The empty-string workspace key (`""`) is the root project.
+- Project-root authority comes only from a parse-captured native root or an
+  explicit node with `workspacePath: ""`. A sole DAG root remains a regular
+  package tuple; rootless input receives an empty neutral workspace manifest.
 - A workspace manifest or regular-package inner `dependencies`,
   `devDependencies`, or `optionalDependencies` member that cannot bind to a
   package tuple is retained as a structured `BUN_TEXT_UNRESOLVED_DEP` fact

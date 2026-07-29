@@ -116,6 +116,9 @@ this is only how pnpm *carries* it.
   verbatim from this pnpm package-id form.
 - `specifiers` block in each importer mirrors the manifest's range section —
   used for upgrade detection.
+- Project-root authority comes only from a parse-captured native root importer
+  or an explicit node with `workspacePath: ""`. A sole DAG root remains a
+  package entry; rootless input receives the native neutral importer.
 - `lockfileVersion` is a **string**, not a number (`'5.4'`).
 - Top-level `overrides:` block (pnpm 6–7): pnpm's frozen install
   (`--frozen-lockfile`) DEEP-COMPARES it against current config

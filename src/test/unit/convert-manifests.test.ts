@@ -95,9 +95,10 @@ describe('#102 — convert() honours a resolutions pin via manifests', () => {
 // A classic yarn.lock encodes NO project root (unlike npm's `""` entry, berry's
 // `root@workspace:.`, pnpm importers, bun workspaces). Its root identity can come
 // only from `manifests`, so the public `parse`/`convert` must run the
-// manifest-driven `enrich` to synthesize the declared root — otherwise a
-// top-of-DAG dependency is promoted to the `""` root and its own installable node
-// is dropped, producing a lock that fails `npm ci`. Reported externally against
+// manifest-driven `enrich` to synthesize the declared root. Without manifests,
+// target adapters preserve ordinary packages beneath a neutral synthetic root,
+// but project identity/declarations remain unknown and the output cannot be
+// certified against the real project manifest. Reported externally against
 // snapshot.92 (the flagship synp `yarn.lock → package-lock.json` direction).
 describe('rootless yarn-classic source is re-rooted from manifests', () => {
   const YARN = `# yarn lockfile v1
@@ -139,8 +140,8 @@ ansi-styles@^3.2.1:
   })
 
   it('synthesis is manifest-gated — without manifests the rootless source is left as-is', () => {
-    // No manifests ⇒ no root invention (the pre-existing degenerate behaviour is
-    // deliberately unchanged; there is no declared identity to root from).
+    // No manifests ⇒ no project-identity invention. Target emitters may add
+    // their native neutral root, but the source graph has no declared root.
     const g = parse('yarn-classic', YARN)
     expect(Array.from(g.roots())).not.toContain('app@1.0.0')
   })

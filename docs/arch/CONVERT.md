@@ -161,6 +161,46 @@ graph-mismatch diagnostic can coexist with an empty triple-only diff. Any use
 of that diagnostic as a format-level verdict must inspect the attributed
 snapshot delta rather than infer its cause from the code alone.
 
+### Yarn Classic → npm-3 directional attribution
+
+An attribute-level audit covers every committed real-world Yarn Classic input:
+**11 fixtures / 1,618,277 bytes**. The pre-fix result reproduced identically
+across both audited bases, including `84904ae`, so the buckets were projection
+properties rather than artefacts of intervening API/documentation commits.
+
+Removing the false “sole DAG root = project root” rule changes the measured
+vector as follows:
+
+| Attribute fact | Before | After |
+| --- | ---: | ---: |
+| User-carried loss | 11 | **10** |
+| Adapter-inferred loss | 0 | **0** |
+| Target structural impossibility | 0 | **0** |
+| Target additions | 587 | **588** |
+| Of which unproven | 23 | **22** |
+
+The apparent `587 → 588` increase is not a regression. Before the fix, the
+wasya fixture invented one unproven `workspacePath: ""` on
+`node-sass@9.0.0` and lost its tarball. After the fix that false fact and loss
+are gone, while the correct neutral-root branch adds two proven facts: an
+`@0.0.0` node and its root membership. The complete post-fix addition
+decomposition is **544** Yarn-resolved SHA-1 promotions, **11** neutral root
+nodes, **11** neutral root memberships, and **22** still-unproven alias facts:
+`544 + 11 + 11 + 22 = 588`.
+
+Wasya now has no source removal or source change; its only deltas are the two
+neutral-root additions. The remaining ten source-carried losses are the three
+`link:` / `portal:` canonical-directory facts and seven webpack alias-identity
+facts, handled as separate change-sets before any comparator relaxation.
+
+With Lodash's exact root manifest supplied, the same audit has no loss or
+unproven addition: its 544 additions are all SHA-1 promotions derivable from
+Yarn's resolved-URL fragments. Pinned npm 9.9.4 accepts 1,274 packages and
+leaves output hash
+`ecd32078336e93df6bc9001b4a1da9a8a6738fad17d8adf60522553510a7448c`
+byte-identical. That producer claim is manifest-backed; a neutral root preserves
+snapshot package facts but does not certify a manifestless project.
+
 Berry generations have a separate, fully exhaustive measurement over the same
 corpus rule. There are **16 distinct Berry files**. Trying every other
 generation from v4 through v10 produces **96 ordered non-identity pairs**:
@@ -283,7 +323,7 @@ lockfile bytes structurally cannot.
 | Needed for | Which manifest | If omitted |
 | --- | --- | --- |
 | **Deno dev/prod vulnerability scope and cross-format root declarations** | sibling `deno.json`/`deno.jsonc` or `package.json` | Scope remains unknown for audit; cross-format conversion fails closed with `DENO_MANIFEST_REQUIRED`. |
-| **yarn-classic project root** (rootless source) | `manifests['']` | A top-of-DAG dependency is promoted to the `""` root and its own installable node vanishes → fails `npm ci`. |
+| **yarn-classic project root** (rootless source) | `manifests['']` | Target adapters synthesize a neutral native root and preserve ordinary package/tarball carriers, but project identity and root declarations remain unknown. Producer certification against the real project therefore still requires the exact root manifest. |
 | **yarn-classic workspace members** (independent members absent from the lock) | `manifests[<memberPath>]` (every member) | Members are dropped; unhoistable versions leak into `.lockfile-…` keys. |
 | **`dev` classification** (any → yarn-classic; workspace-member edges any family) | `manifests[<path>]` | `dev` collapses to `dep`; only `dep`/`optional` are lockfile-derivable. **`peer` is never recovered from a yarn-classic source** — its manifest synthesis reads only `dependencies`. |
 | **Non-satisfying `resolutions`/overrides pin** | `manifests['']` (`native.yarnResolutions` / `overrides`) | A pin forcing a version the declared range does not satisfy, with ≥2 candidates, has no unique semver target — without the overrides the edge drops and the dependency disappears. |

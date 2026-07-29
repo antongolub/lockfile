@@ -101,7 +101,7 @@ Mostly self-contained: the lockfile encodes the full hoisted tree.
 | Operation | Option | Required? | Effect when omitted |
 |-----------|--------|:---------:|---------------------|
 | Parse     | —                | none     | lockfile is the complete input |
-| Stringify | `manifests['']`  | optional | source of root `name` / `version`; otherwise falls back to the graph's root annotation |
+| Stringify | `manifests['']`  | optional | source of root `name` / `version`; otherwise a neutral root is emitted and ordinary packages remain installable, but project certification still requires the exact manifest |
 
 ## Quirks
 
@@ -112,6 +112,9 @@ Mostly self-contained: the lockfile encodes the full hoisted tree.
 - Tree shape is **layout, not graph**: nesting in `dependencies` reflects the
   hoisted `node_modules` shape, not parent-child semantic edges.
 - A package can appear multiple times at different paths; entries differ.
+- Project-root authority comes only from a parse-captured native root or an
+  explicit node with `workspacePath: ""`. A sole DAG root is an ordinary
+  dependency, not project identity; rootless input receives a neutral root.
 - `requires: true` at the root is a marker, not a value.
 - `optional: true` is *inherited* down the subtree without being re-emitted —
   detection is non-local.

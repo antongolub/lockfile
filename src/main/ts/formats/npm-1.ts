@@ -61,6 +61,7 @@ import {
   type NpmSidecar,
 } from './_npm-flat-types.ts'
 import { optimizeUnreachable } from './_optimize.ts'
+import { locateAuthoritativeRootNode } from './_root-authority.ts'
 import { derivePeerCandidates, pruneSidecar } from './_npm-core.ts'
 import {
   captureUnknownTopLevel,
@@ -708,7 +709,7 @@ function createNpm1StringifyContext(
   options: Npm1StringifyOptions,
 ): Npm1StringifyContext {
   const sidecar = sidecarByGraph.get(graph)
-  const rootNode = locateRootNode(graph, sidecar)
+  const rootNode = locateAuthoritativeRootNode(graph, sidecar)
   return {
     graph,
     sidecar,
@@ -808,22 +809,6 @@ function renderNpm1Output(
 
 function isHttpUrl(value: string): boolean {
   return value.startsWith('https://') || value.startsWith('http://')
-}
-
-function locateRootNode(graph: Graph, sidecar: NpmSidecar | undefined): Node | undefined {
-  if (sidecar?.rootId !== undefined) {
-    const node = graph.getNode(sidecar.rootId)
-    if (node !== undefined) return node
-  }
-  for (const node of graph.nodes()) {
-    if (node.workspacePath === '') return node
-  }
-  const roots = Array.from(graph.roots())
-  if (roots.length === 1) {
-    const sole = roots[0]
-    if (sole !== undefined) return graph.getNode(sole)
-  }
-  return undefined
 }
 
 // === Tree placement =========================================================

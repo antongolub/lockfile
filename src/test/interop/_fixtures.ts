@@ -329,10 +329,11 @@ export const CROSS_FAMILY_PNPM6_CLASSIC_FIXTURES = [
 // NPM_SHARED_FIXTURES, then EXCLUDE:
 //   - `workspaces-basic`: the naive yarn-classic source lockfile carries only
 //     the external `ms@2.1.3` entry on disk (no root/member workspace nodes
-//     per ADR-0019 §C). npm-3 stringify reparses that lone node as the root
-//     package (`workspacePath: ''`) and drops its tarball payload entirely.
-//     Incomplete classic-source artifact; mirrors the classic -> pnpm-v9
-//     workspace exclusion rationale.
+//     per ADR-0019 §C). npm-3 now preserves that package and its tarball beneath
+//     a neutral root, but the strict comparator still sees the target-derived
+//     root until the later derivation-specific synthetic-root rule. Incomplete
+//     classic-source artifact; mirrors the classic -> pnpm-v9 workspace
+//     exclusion rationale.
 export const CROSS_FAMILY_CLASSIC_NPM3_FIXTURES = [
   'deps-with-scopes',
   'git-github-tarball',

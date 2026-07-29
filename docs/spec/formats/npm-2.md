@@ -100,6 +100,10 @@ this is only how npm-2 *carries* it.
   (legacy v1 shape). They must stay consistent or older tooling breaks. We
   parse `packages`; we may emit both.
 - The empty-string key `""` is the *root project itself*, not a workspace.
+- Project-root authority comes only from a parse-captured native root or an
+  explicit node with `workspacePath: ""`. DAG reachability is never project
+  identity: a rootless source gets a neutral `packages[""]`, while every
+  ordinary package remains installable under `node_modules`.
 - `engines`, `funding`, `license` are present per entry — they're load-bearing
   for npm to skip optional/incompatible installs.
 - Workspaces appear under their on-disk path (`packages/foo`) **and** as

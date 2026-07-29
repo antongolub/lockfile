@@ -71,6 +71,8 @@ Same as [pnpm-v5](./pnpm-v5.md#conversion-inputs).
 
 Compared to v5:
 
+- Root authority and neutral-importer synthesis inherit the
+  [pnpm-v5 rule](./pnpm-v5.md#quirks); DAG reachability is not project identity.
 - Package ids switch from `/<name>/<ver>` to `/<name>@<ver>` (and
   `/<name>@<ver>(peer@x)` for virtualised). Easier to read; trivial to migrate.
 - `importers.<path>.dependencies.<name>` is now an object `{specifier, version}`

@@ -46,6 +46,7 @@ import {
   type TarballPayload,
 } from '../graph.ts'
 import { optimizeUnreachable } from './_optimize.ts'
+import { locateAuthoritativeRootNode } from './_root-authority.ts'
 import { LockfileError } from '../api/errors.ts'
 import { parseSri, emitSriForRegistry, isEmptyIntegrity } from '../recipe/integrity.ts'
 import {
@@ -221,7 +222,7 @@ export function stringifyFamily(
     options.onDiagnostic?.(diagnostic)
   }
 
-  const rootNode = locateRootNode(graph, sidecar)
+  const rootNode = locateAuthoritativeRootNode(graph, sidecar)
   const rootMeta = sidecar?.rootMeta
   const rootName = rootMeta?.name ?? rootNode?.name ?? ''
   const rootVersion = rootMeta?.version ?? rootNode?.version ?? '0.0.0'
@@ -1121,22 +1122,6 @@ export function collectManifestBlocks(
     peer: sortRecord(peer),
     optional: sortRecord(mergeUnresolvedDependencyDeclarations(graph, srcId, 'optional', optional)),
   }
-}
-
-function locateRootNode(graph: Graph, sidecar: NpmSidecar | undefined): Node | undefined {
-  if (sidecar?.rootId !== undefined) {
-    const node = graph.getNode(sidecar.rootId)
-    if (node !== undefined) return node
-  }
-  for (const node of graph.nodes()) {
-    if (node.workspacePath === '') return node
-  }
-  const roots = Array.from(graph.roots())
-  if (roots.length === 1) {
-    const sole = roots[0]
-    if (sole !== undefined) return graph.getNode(sole)
-  }
-  return undefined
 }
 
 function deriveInstallPathsForStringify(
