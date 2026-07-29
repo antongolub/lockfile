@@ -115,6 +115,7 @@ interface NpmParseContext {
   nodeSidecar: Map<string, NpmFlatSidecar>
   edgeRanges: Map<string, string>
   edgeDeclaredNames: Map<string, string>
+  reservedEdgeRanges: Map<string, string>
   workspaceByPath: Map<string, string>
   pathToId: Map<string, string>
   patchByPath: Map<string, string>
@@ -486,6 +487,7 @@ function createNpmParseContext(
     nodeSidecar: new Map(),
     edgeRanges: new Map(),
     edgeDeclaredNames: new Map(),
+    reservedEdgeRanges: new Map(),
     workspaceByPath: new Map(),
     pathToId: new Map(),
     patchByPath: new Map(),
@@ -706,6 +708,7 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     diagnostics,
     edgeDeclaredNames,
     edgeRanges,
+    reservedEdgeRanges,
     nodeSidecar,
     patchByPath,
     packages,
@@ -745,11 +748,11 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     const isWorkspaceMember = workspaceByPath.has(path)
     const treatAsManifest = isRoot || isWorkspaceMember
 
-    addDepEdges(builder, edgeRanges, edgeDeclaredNames, path, srcId, entry.dependencies, 'dep', pathToId, diagnostics)
-    addDepEdges(builder, edgeRanges, edgeDeclaredNames, path, srcId, entry.optionalDependencies, 'optional', pathToId, diagnostics)
+    addDepEdges(builder, config, edgeRanges, edgeDeclaredNames, reservedEdgeRanges, path, srcId, entry.dependencies, 'dep', pathToId, diagnostics)
+    addDepEdges(builder, config, edgeRanges, edgeDeclaredNames, reservedEdgeRanges, path, srcId, entry.optionalDependencies, 'optional', pathToId, diagnostics)
 
     if (treatAsManifest) {
-      addDepEdges(builder, edgeRanges, edgeDeclaredNames, path, srcId, entry.devDependencies, 'dev', pathToId, diagnostics)
+      addDepEdges(builder, config, edgeRanges, edgeDeclaredNames, reservedEdgeRanges, path, srcId, entry.devDependencies, 'dev', pathToId, diagnostics)
     } else if (entry.devDependencies !== undefined) {
       nodeSide.devDependencies = { ...entry.devDependencies }
     }
@@ -945,8 +948,10 @@ function ensureSidecar(map: Map<string, NpmFlatSidecar>, id: string): NpmFlatSid
 
 function addDepEdges(
   builder: ReturnType<typeof newBuilder>,
+  config: NpmFamilyConfig,
   edgeRanges: Map<string, string>,
   edgeDeclaredNames: Map<string, string>,
+  reservedEdgeRanges: Map<string, string>,
   srcPath: string,
   srcId: string,
   deps: Record<string, string> | undefined,
@@ -976,7 +981,21 @@ function addDepEdges(
     // need per-alias data read `edge.attrs.alias` directly.
     const aliasSlot = name === nameOf(dstId) ? undefined : name
     const edgeKey = edgeTripleKey(srcId, kind, dstId)
-    if (edgeRanges.has(edgeKey) && aliasSlot === undefined) continue
+    // npm can install the same package@version at multiple paths. Those paths
+    // intentionally collapse onto one graph NodeId, so their identical
+    // outgoing declarations must collapse too. Alias is part of graph edge
+    // identity: two different declared names may legally target the same node.
+    // A repeated identity with a different range is not safely reducible.
+    const reservedEdgeKey = `${srcId}\u0000${kind}\u0000${dstId}\u0000${aliasSlot ?? ''}`
+    const reservedRange = reservedEdgeRanges.get(reservedEdgeKey)
+    if (reservedRange !== undefined) {
+      if (reservedRange === range) continue
+      throw new LockfileError({
+        code: 'IRREDUCIBLE_LOSS',
+        message: `npm-${config.lockfileVersion} repeated edge ${srcId} →${kind} ${dstId}${aliasSlot === undefined ? '' : ` (alias=${aliasSlot})`} carries incompatible ranges ${JSON.stringify(reservedRange)} and ${JSON.stringify(range)}`,
+      })
+    }
+    reservedEdgeRanges.set(reservedEdgeKey, range)
     if (aliasSlot === undefined) {
       edgeRanges.set(edgeKey, range)
       edgeDeclaredNames.set(edgeKey, name)
@@ -984,16 +1003,9 @@ function addDepEdges(
       edgeRanges.set(edgeKey, range)
       edgeDeclaredNames.set(edgeKey, name)
     }
-    try {
-      const attrs: { range: string; alias?: string } = { range }
-      if (aliasSlot !== undefined) attrs.alias = aliasSlot
-      builder.addEdge(srcId, dstId, kind, attrs)
-    } catch (error) {
-      if (error instanceof GraphError && error.code === 'INVARIANT_VIOLATION') {
-        continue
-      }
-      throw error
-    }
+    const attrs: { range: string; alias?: string } = { range }
+    if (aliasSlot !== undefined) attrs.alias = aliasSlot
+    builder.addEdge(srcId, dstId, kind, attrs)
   }
 }
 

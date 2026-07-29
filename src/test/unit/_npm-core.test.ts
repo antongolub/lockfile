@@ -414,6 +414,38 @@ describe('enrichFamily', () => {
 })
 
 describe('addDepEdges', () => {
+  const repeatedAliasInstallLock = (secondRange = 'npm:ms@2.1.3'): string => v3Lock({
+    '': {
+      name: 'root',
+      version: '1.0.0',
+      dependencies: { a: '1.0.0', b: '1.0.0' },
+    },
+    'node_modules/a': {
+      version: '1.0.0',
+      dependencies: { 'ms-alias': 'npm:ms@2.1.3' },
+    },
+    'node_modules/a/node_modules/ms-alias': {
+      name: 'ms',
+      version: '2.1.3',
+      resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+      integrity: MS_SRI,
+    },
+    'node_modules/b': {
+      version: '1.0.0',
+      dependencies: { a: '1.0.0' },
+    },
+    'node_modules/b/node_modules/a': {
+      version: '1.0.0',
+      dependencies: { 'ms-alias': secondRange },
+    },
+    'node_modules/b/node_modules/a/node_modules/ms-alias': {
+      name: 'ms',
+      version: '2.1.3',
+      resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+      integrity: MS_SRI,
+    },
+  })
+
   it('creates distinct dep + optional edges when the root lists the same package under both', () => {
     // Root lists `ms` under BOTH dependencies and optionalDependencies. They are
     // separate EdgeKinds, so both edges land toward the single ms node.
@@ -454,6 +486,33 @@ describe('addDepEdges', () => {
     const edge = graph.out('root@1.0.0', 'dep').find(e => e.dst === 'ms@2.1.3')
     expect(edge).toBeDefined()
     expect(edge?.attrs?.alias).toBe('ms-alias')
+  })
+
+  it('deduplicates an identical aliased edge from repeated install copies', () => {
+    const graph = parseV3(repeatedAliasInstallLock())
+    expect(
+      graph.out('a@1.0.0', 'dep').filter(edge =>
+        edge.dst === 'ms@2.1.3' && edge.attrs?.alias === 'ms-alias'),
+    ).toEqual([
+      expect.objectContaining({
+        src: 'a@1.0.0',
+        dst: 'ms@2.1.3',
+        kind: 'dep',
+        attrs: expect.objectContaining({
+          alias: 'ms-alias',
+          range: 'npm:ms@2.1.3',
+        }),
+      }),
+    ])
+  })
+
+  it('fails closed when repeated aliased edges carry incompatible ranges', () => {
+    expect(() => parseV3(repeatedAliasInstallLock('npm:ms@^2.1.0'))).toThrow(
+      expect.objectContaining({
+        code: 'IRREDUCIBLE_LOSS',
+        message: expect.stringContaining('alias=ms-alias'),
+      }),
+    )
   })
 })
 
