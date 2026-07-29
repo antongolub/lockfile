@@ -13,6 +13,7 @@ import type {
   StringifyOptions,
 } from './format-contract.ts'
 import {
+  FORMAT_REGISTRY,
   checkFormat,
   detectFormat,
   formatAdapterStateCompatible,
@@ -210,15 +211,66 @@ export function stringifyProjected(
 
 // === FORMAT DETECTION AND PARSING ===========================================
 
-export function check(format: FormatId, input: string): boolean {
-  return checkFormat(format, input)
+/**
+ * Runtime membership test over the shipped format ids. Argument-order dispatch
+ * below relies on it: a lockfile body is never a bare format id, and a `Graph`
+ * is never a string, so the two orders are always distinguishable.
+ */
+export function isFormatId(value: unknown): value is FormatId {
+  return typeof value === 'string'
+    && Object.prototype.hasOwnProperty.call(FORMAT_REGISTRY, value)
+}
+
+/** Options bag carrying the format inline, mirroring `convert(input, { to })`. */
+export type ParseOptionsWithFormat = ParseOptions & { format?: FormatId }
+export type StringifyOptionsWithFormat = StringifyOptions & { format?: FormatId }
+
+function requireFormat(format: FormatId | undefined, subject: 'parse' | 'stringify'): FormatId {
+  if (format !== undefined) return format
+  throw new LockfileError({
+    code: 'INVALID_INPUT',
+    message: subject === 'parse'
+      ? 'parse: format could not be detected from the input; pass it explicitly'
+      : 'stringify: target format is required; pass it as an argument or as options.format',
+  })
+}
+
+export function check(input: string, format: FormatId): boolean
+export function check(format: FormatId, input: string): boolean
+export function check(a: string, b: string): boolean {
+  const legacy = isFormatId(a) && !isFormatId(b)
+  return checkFormat((legacy ? a : b) as FormatId, legacy ? b : a)
 }
 
 export function detect(input: string): FormatId | undefined {
   return detectFormat(input)
 }
 
-export function parse(format: FormatId, input: string, options: ParseOptions = {}): Graph {
+export function parse(input: string, format?: FormatId, options?: ParseOptions): Graph
+export function parse(input: string, options: ParseOptionsWithFormat): Graph
+export function parse(format: FormatId, input: string, options?: ParseOptions): Graph
+export function parse(
+  a: string,
+  b?: FormatId | string | ParseOptionsWithFormat,
+  c?: ParseOptions,
+): Graph {
+  // Legacy format-first order stays callable; everything else reads input-first.
+  if (isFormatId(a) && typeof b === 'string' && !isFormatId(b))
+    return parseResolved(a, b, c ?? {})
+
+  if (typeof b === 'string')
+    return parseResolved(b as FormatId, a, c ?? {})
+
+  const { format, ...rest } = (b ?? {}) as ParseOptionsWithFormat
+  return parseResolved(format ?? detectFormat(a), a, rest)
+}
+
+function parseResolved(
+  requested: FormatId | undefined,
+  input: string,
+  options: ParseOptions = {},
+): Graph {
+  const format = requireFormat(requested, 'parse')
   // Capture manifest override authority before parse because yarn edge binding
   // needs the canonical override map while resolving descriptors.
   const manifestOverrides = options.manifests !== undefined
@@ -358,11 +410,27 @@ function pinnedOverrides(graph: Graph): OverrideConstraint[] {
   return output
 }
 
+export function stringify(graph: Graph, format?: FormatId, options?: StringifyOptions): string
+export function stringify(graph: Graph, options: StringifyOptionsWithFormat): string
+export function stringify(format: FormatId, graph: Graph, options?: StringifyOptions): string
 export function stringify(
-  format: FormatId,
+  a: FormatId | Graph,
+  b?: FormatId | Graph | StringifyOptionsWithFormat,
+  c?: StringifyOptions,
+): string {
+  if (isFormatId(a)) return stringifyResolved(a, b as Graph, c ?? {})
+  const graph = a as Graph
+  if (typeof b === 'string') return stringifyResolved(b as FormatId, graph, c ?? {})
+  const { format, ...rest } = (b ?? {}) as StringifyOptionsWithFormat
+  return stringifyResolved(format, graph, rest)
+}
+
+function stringifyResolved(
+  requested: FormatId | undefined,
   graph: Graph,
   options: StringifyOptions = {},
 ): string {
+  const format = requireFormat(requested, 'stringify')
   const projected = stringifyProjected(format, graph, options)
   const blocking = blockingProjectionLosses(projected.losses)
   if ((options.strict ?? true) && blocking.length > 0) {

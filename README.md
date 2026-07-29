@@ -22,8 +22,8 @@ pinning, license filtering — is the primary one.
 import { readFile, writeFile } from 'node:fs/promises'
 import { parse, stringify } from 'lockgraph'
 
-const graph = parse('pnpm-v9', await readFile('pnpm-lock.yaml', 'utf8'))
-await writeFile('package-lock.json', stringify('npm-3', graph))
+const graph = parse(await readFile('pnpm-lock.yaml', 'utf8'))
+await writeFile('package-lock.json', stringify(graph, 'npm-3'))
 ```
 
 | Format | ids |
@@ -114,9 +114,9 @@ Node ≥ 14.18, ESM only. CommonJS consumers use `await import('lockgraph')`.
 import { parse, stringify, convert } from 'lockgraph'
 import { enrich } from 'lockgraph/enrich'
 
-const graph = parse('yarn-berry-v8', raw)   // format is explicit, always first
+const graph = parse(raw, 'yarn-berry-v8')   // or parse(raw) and let it detect
 
-stringify('yarn-berry-v10', graph)
+stringify(graph, 'yarn-berry-v10')
 // LockfileError ENRICH_REQUIRED — v10 keys its cache differently, so
 // @napi-rs/nice-android-arm-eabi@1.0.1 would emit without a checksum
 
@@ -124,10 +124,14 @@ const ready = await enrich(graph, { artifacts }, {   // artifacts reads .yarn/ca
   target: { format: 'yarn-berry-v10' },              // where the digest sits in the
   contract: 'project',                               // zip filename
 })
-const out = stringify('yarn-berry-v10', ready.graph)
+const out = stringify(ready.graph, 'yarn-berry-v10')
 
 const same = await convert(raw, { to: 'yarn-berry-v10', sources: { artifacts } })
 ```
+
+The subject comes first and the format after it, as in `JSON.parse`. Omit the
+format and `parse` detects it; `stringify` needs it, since a graph does not imply a
+target. The older format-first order still works, so existing code keeps running.
 
 `parse` and `stringify` are synchronous and see only the bytes: what the source
 carries, projected. They are enough whenever the target asks for nothing new. A
@@ -140,9 +144,9 @@ for the same reason.
 
 ```ts
 detect(input): FormatId | undefined
-check(format, input): boolean
-parse(format, input, opts?): Graph
-stringify(format, graph, opts?): string
+check(input, format): boolean
+parse(input, format?, opts?): Graph          // format may also ride opts.format
+stringify(graph, format, opts?): string      // likewise
 convert(input, opts): Promise<string>
 ```
 

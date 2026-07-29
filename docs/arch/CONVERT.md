@@ -68,7 +68,7 @@ The public family is a 2 × 2 model rather than four unrelated conversion paths:
 
 | Input | Raw projection | Certified projection |
 | --- | --- | --- |
-| `Graph` | `stringify(format, graph, options)` | `stringifyAssessed(graph, { target, contract, evidence })` |
+| `Graph` | `stringify(graph, format, options)` | `stringifyAssessed(graph, { target, contract, evidence })` |
 | Lock input | `convert(input, { from, to, ...options })` | `convertAssessed(input, options)` / `convertProject(input, options)` |
 
 Certified functions return structured assessments and withhold output unless the
