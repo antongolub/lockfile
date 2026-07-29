@@ -112,6 +112,77 @@ intersections: 240 Node-family cells, 64 concrete-Deno → Node-family cells, an
 Node-family → concrete-Deno cells and the three v2/v3/v4 → v5 cells. There are
 no assumed or untested cells.
 
+### Measured bare-conversion boundary
+
+The following corpus probe is an outcome measurement, not another format-pair
+contract matrix. It compares strict `stringify(target, parse(source, input))`
+with strict `convert(input, { from: source, to: target })`, without evidence
+sources, at commit `0bbd36c`.
+
+The corpus rule is explicit and has no size threshold:
+
+1. Visit every directory under `src/test/resources/fixtures/real-world`.
+2. Examine every present `package-lock.json`, `yarn.lock`,
+   `pnpm-lock.yaml`, and `bun.lock`; absent candidate names are not corpus
+   members.
+3. Exclude a present file only when detection returns no format or parsing
+   throws, and report each exclusion.
+4. For each retained file, try the seven targets `npm-2`, `npm-3`,
+   `yarn-classic`, `yarn-berry-v8`, `yarn-berry-v10`, `pnpm-v9`, and
+   `bun-text`, excluding an identity target.
+
+That rule retains **40 distinct files**, excludes zero present files, and
+produces **246 ordered non-identity conversion pairs**. The largest retained
+input is 2,384,187 bytes.
+
+| Strict outcome | Pairs |
+| --- | ---: |
+| Both raw stringify and convert emit | 1 |
+| Both refuse | 242 |
+| Raw stringify emits; convert refuses (`sOnly`) | 3 |
+| Convert emits; raw stringify refuses (`cOnly`) | **0** |
+
+The shared success is byte-identical. The evidenced enrichment claim is only
+the `cOnly = 0` result: **without evidence sources, `convert` never unlocks a
+pair that bare projection cannot already emit.** It does not claim that the two
+APIs have identical gates. `convert` additionally enforces source/snapshot
+readiness, and the three `sOnly` cases expose that distinction:
+
+| Source fixture | Pair | Raw projection verdict | Convert refusal |
+| --- | --- | --- | --- |
+| `facebook-create-react-app-main-6254386/package-lock.json` | npm-2 → npm-3 | The raw source and output reparse have equal canonical snapshots (2,116 nodes; 4,699 edges); no producer verdict measured | No registry completion runs. npm-2 source-adapter enrichment marks 11 existing edges as inferred workspace bindings; npm-3 reparse loses those attributes and exactifies their ranges, so the enriched canonical snapshot fails `COMPLETENESS_OUTPUT_GRAPH_MISMATCH` |
+| `microsoft-vscode-main-ddd12d5/package-lock.json` | npm-3 → npm-2 | Pinned npm 8.19.4 accepts the lock without changing its bytes; the retained unresolved `cpu-features@~0.0.10` declaration is now re-emitted by `0bbd36c` | `ENRICH_REQUIRED`: snapshot readiness still requires resolution evidence for the absent optional package |
+| `socketio-socket.io-main-190572d/package-lock.json` | npm-3 → npm-2 | Pinned npm 8.19.4 accepts the lock byte-identically and Arborist retains all 12 workspace links | `IRREDUCIBLE_LOSS` / `COMPLETENESS_OUTPUT_GRAPH_MISMATCH`; `0bbd36c` separately removed the false workspace-protocol capability blocker |
+
+The public `Graph.diff` for the CRA raw round-trip is also empty, but that API
+compares nodes and edge `(src, dst, kind)` triples, not edge attributes or
+tarball payloads. The stricter canonical snapshot explains why a generic
+graph-mismatch diagnostic can coexist with an empty triple-only diff. Any use
+of that diagnostic as a format-level verdict must inspect the attributed
+snapshot delta rather than infer its cause from the code alone.
+
+Berry generations have a separate, fully exhaustive measurement over the same
+corpus rule. There are **16 distinct Berry files**. Trying every other
+generation from v4 through v10 produces **96 ordered non-identity pairs**:
+
+| Target generation | Pairs | Emits | `ENRICH_REQUIRED` | `IRREDUCIBLE_LOSS` |
+| --- | ---: | ---: | ---: | ---: |
+| v4 | 15 | 1 | 0 | 14 |
+| v5 | 16 | 2 | 12 | 2 |
+| v6 | 15 | 2 | 11 | 2 |
+| v7 | 14 | 1 | 11 | 2 |
+| v8 | 8 | 0 | 6 | 2 |
+| v9 | 15 | 0 | 13 | 2 |
+| v10 | 13 | 0 | 11 | 2 |
+| **Total** | **96** | **6** | **64** | **26** |
+
+Fourteen of the 16 files hit at least one archive-backed Berry checksum
+requirement. A cross-generation `cacheKey` change requires recomputing every
+archive-backed entry's Berry zip-cache checksum from artifact bytes (or using an
+authoritative target checksum); a lockfile graph and registry metadata alone
+cannot supply it. The remaining strict refusals are inherent projection losses,
+not evidence that registry enrichment can repair the target.
+
 ## Expressiveness — what each family can represent
 
 A target loses a feature exactly when it is `✗` for that target but present in the
