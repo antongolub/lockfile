@@ -512,7 +512,8 @@ function metadataEvaluator(feature: MetadataGraphFeature): FeatureEvaluator {
 function workspaceProtocolPresent(graph: Graph): boolean {
   for (const node of graph.nodes()) {
     for (const edge of graph.out(node.id)) {
-      if (edge.attrs?.workspaceRange !== undefined || edge.attrs?.range?.startsWith('workspace:')) {
+      if (edge.attrs?.workspaceRange?.specifier.startsWith('workspace:')
+        || edge.attrs?.range?.startsWith('workspace:')) {
         return true
       }
     }

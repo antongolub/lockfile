@@ -177,7 +177,8 @@ function structuralExpectedFeature(
 function workspaceProtocolPresent(graph: Graph): boolean {
   for (const node of graph.nodes()) {
     for (const edge of graph.out(node.id)) {
-      if (edge.attrs?.workspaceRange !== undefined || edge.attrs?.range?.startsWith('workspace:')) {
+      if (edge.attrs?.workspaceRange?.specifier.startsWith('workspace:')
+        || edge.attrs?.range?.startsWith('workspace:')) {
         return true
       }
     }
@@ -453,6 +454,9 @@ function featureOfDiagnostic(diagnostic: Diagnostic, target: FormatId): string {
 
 function diagnosticRemedy(diagnostic: Diagnostic): ProjectionRemedy {
   const code = diagnostic.code
+  if (code === 'COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED') {
+    return allowLoss()
+  }
   if (code === 'INTEROP_OVERRIDE_NOT_PROJECTED') {
     return Object.freeze({ kind: 'use-project-api', api: 'convertProject' })
   }
@@ -504,6 +508,7 @@ function diagnosticLossClass(
     || code === 'COMPLETENESS_TARGET_FEATURE_UNSUPPORTED'
     || code === 'COMPLETENESS_OUTPUT_GRAPH_MISMATCH'
     || code === 'COMPLETENESS_OUTPUT_FEATURE_MISMATCH'
+    || code === 'COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED'
     || code.endsWith('_UNKNOWN_METADATA_DROPPED')
     || code.endsWith('_PEER_DROPPED')
     || code.endsWith('_PEER_VIRT_FLATTENED')

@@ -1,7 +1,7 @@
 # `npm-1` — npm `package-lock.json` (lockfileVersion 1)
 
 > Status: stable (adapter + flat-family round-trip suite).
-> Updated: 2026-06-16
+> Updated: 2026-07-29
 > Provenance: **Official**.
 
 ## Compatibility
@@ -115,6 +115,14 @@ Mostly self-contained: the lockfile encodes the full hoisted tree.
 - `requires: true` at the root is a marker, not a value.
 - `optional: true` is *inherited* down the subtree without being re-emitted —
   detection is non-local.
+- An entry in `requires` that cannot bind to any installed node is not an edge,
+  but it is still a native declaration. Parse emits `NPM_UNRESOLVED_DEP` and
+  retains the owner, dependency name, and range; stringify merges that fact
+  back into the owner's `requires` block. Bound graph edges win on name
+  collision. If a target output cannot retain the fact, its output reparse
+  reports `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED`; strict output
+  rejects this as irreducible loss (there is no registry remedy for preserving
+  an already-authored declaration).
 - **Emitted in `json-stringify-nice` key order** — the same serialiser arborist
   uses for v2/v3 (npm's `swKeyOrder` was designed to match npm 5/6's historical
   order), so a generated v1 lock is byte-identical to what npm 6 writes. See

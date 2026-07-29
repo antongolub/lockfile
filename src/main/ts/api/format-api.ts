@@ -59,6 +59,11 @@ import { governingOverrideFor } from '../recipe/descriptor-resolve.ts'
 import type { Integrity } from '../recipe/integrity.ts'
 import type { ResolutionCanonical } from '../recipe/resolution.ts'
 import {
+  UNRESOLVED_DEPENDENCY_FEATURE,
+  unresolvedDependencyDeclarationsOf,
+  unresolvedDependencyProjectionKey,
+} from '../recipe/unresolved-dependency.ts'
+import {
   yarnBerryPluginCompatGapDiagnostics,
 } from '../enrich/yarn-berry-plugin-compat.ts'
 import {
@@ -637,6 +642,22 @@ function projectionOutputDiagnostics(
   }
   const sourceFeatures = detectGraphFeatures(graph)
   const targetFeatures = detectGraphFeatures(reparsed)
+  const targetUnresolved = new Set(
+    unresolvedDependencyDeclarationsOf(reparsed)
+      .map(declaration => unresolvedDependencyProjectionKey(reparsed, declaration)),
+  )
+  for (const declaration of unresolvedDependencyDeclarationsOf(graph)) {
+    if (targetUnresolved.has(unresolvedDependencyProjectionKey(graph, declaration))) continue
+    diagnostics.push(assessedDiagnostic(
+      'COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED',
+      `target output drops unresolved ${declaration.kind} declaration ${declaration.name}@${declaration.descriptor} from ${declaration.src}`,
+      {
+        feature: UNRESOLVED_DEPENDENCY_FEATURE,
+        target,
+        unresolvedDependency: declaration,
+      },
+    ))
+  }
   const sidecarFacts = [
     ['conditions', sourceFeatures.attribution.berryConditions, targetFeatures.attribution.berryConditions],
     ['catalogs', sourceFeatures.attribution.pnpmCatalogs, targetFeatures.attribution.pnpmCatalogs],

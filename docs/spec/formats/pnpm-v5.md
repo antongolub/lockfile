@@ -1,7 +1,7 @@
 # `pnpm-v5` — pnpm `pnpm-lock.yaml` (lockfileVersion 5.x)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; pnpm 7 default-5.4 verified).
-> Updated: 2026-06-16
+> Updated: 2026-07-29
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -123,6 +123,15 @@ this is only how pnpm *carries* it.
   on mismatch — so an override-using project whose lock omits the block is NOT
   frozen-clean. lockgraph captures + re-emits it verbatim (after `lockfileVersion`).
 - Top-level `time` block (optional) records first-seen timestamps.
+- Importer `dep` / `dev` / `optional` declarations and package-entry
+  `dep` / `optional` declarations can exist even when their version or
+  `link:` value binds to no package/workspace node. Parse emits
+  `PNPM_UNRESOLVED_DEP` and retains owner, kind, name, specifier, resolved
+  value, and native channel (`importer` or `package`). Stringify restores the
+  declaration to that channel; graph-derived bound edges win on collision. If
+  output reparse loses it, strict output rejects
+  `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED` as irreducible, with no
+  registry remedy.
 
 ## Degradation rules
 

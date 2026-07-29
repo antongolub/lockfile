@@ -56,6 +56,10 @@ import {
 } from './_unknown-top-level.ts'
 import { nodeVersionOf } from './_node-id.ts'
 import { captureOverrides, projectOverrides } from '../recipe/overrides.ts'
+import {
+  mergeUnresolvedDependencyDeclarations,
+  unresolvedDependencyData,
+} from '../recipe/unresolved-dependency.ts'
 import type { OverrideConstraint } from '../graph.ts'
 
 // === CONSTANTS ==============================================================
@@ -487,6 +491,7 @@ function addWorkspaceManifestEdges(
       packageByName,
       context.workspaceByPath,
       context.peerDeclarations,
+      'workspace',
     )
   }
 }
@@ -509,6 +514,7 @@ function addPackageEntryEdges(
       consumerScope,
       undefined,
       context.peerDeclarations,
+      'package',
     )
   }
 }
@@ -855,6 +861,7 @@ export function addBlockEdges(
   byName: Map<string, string>,
   workspaceByPath: Map<string, string> | undefined,
   peerDeclarations: Map<string, string>,
+  channel?: 'workspace' | 'package',
 ): void {
   const sections: Array<[EdgeKind, Record<string, string> | undefined]> = [
     ['dep', blocks.dependencies],
@@ -878,6 +885,13 @@ export function addBlockEdges(
           severity: 'warning',
           subject: srcId,
           message: `${srcId}: unresolved ${kind} ${depName}@${range}`,
+          data: unresolvedDependencyData({
+            src: srcId,
+            kind,
+            name: depName,
+            descriptor: range,
+            ...(channel === undefined ? {} : { channel }),
+          }),
         })
         continue
       }
@@ -1179,6 +1193,39 @@ function captureGraphWorkspaceManifest(
     }
     target[dst.name] = range
   }
+  Object.assign(
+    dependencies,
+    mergeUnresolvedDependencyDeclarations(
+      graph,
+      workspaceNode.id,
+      'dep',
+      dependencies,
+      item => item.descriptor,
+      'workspace',
+    ),
+  )
+  Object.assign(
+    devDependencies,
+    mergeUnresolvedDependencyDeclarations(
+      graph,
+      workspaceNode.id,
+      'dev',
+      devDependencies,
+      item => item.descriptor,
+      'workspace',
+    ),
+  )
+  Object.assign(
+    optionalDependencies,
+    mergeUnresolvedDependencyDeclarations(
+      graph,
+      workspaceNode.id,
+      'optional',
+      optionalDependencies,
+      item => item.descriptor,
+      'workspace',
+    ),
+  )
   if (Object.keys(dependencies).length > 0) out.dependencies = sortRecord(dependencies)
   if (Object.keys(devDependencies).length > 0) out.devDependencies = sortRecord(devDependencies)
   if (Object.keys(optionalDependencies).length > 0) out.optionalDependencies = sortRecord(optionalDependencies)
@@ -1212,6 +1259,28 @@ export function buildInnerBlock(graph: Graph, node: Node, sidecar: BunTextSideca
           : undefined
     if (target !== undefined) target[dst.name] = range
   }
+  Object.assign(
+    dependencies,
+    mergeUnresolvedDependencyDeclarations(
+      graph,
+      node.id,
+      'dep',
+      dependencies,
+      item => item.descriptor,
+      'package',
+    ),
+  )
+  Object.assign(
+    optionalDependencies,
+    mergeUnresolvedDependencyDeclarations(
+      graph,
+      node.id,
+      'optional',
+      optionalDependencies,
+      item => item.descriptor,
+      'package',
+    ),
+  )
   // Recover declarative `peerDependencies` stashed on the parse-time sidecar
   // (bun encodes peers as data, not graph edges).
   for (const [key, range] of sidecar?.peerDeclarations ?? []) {

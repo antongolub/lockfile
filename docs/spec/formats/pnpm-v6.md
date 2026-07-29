@@ -1,7 +1,7 @@
 # `pnpm-v6` — pnpm `pnpm-lock.yaml` (lockfileVersion 6.x)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; collapsed-root + `@`-id grammar covered).
-> Updated: 2026-06-16
+> Updated: 2026-07-29
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -85,6 +85,13 @@ Compared to v5:
   preserved verbatim via the shared core — see the
   [pnpm-v9 note](./pnpm-v9.md#patcheddependencies-patch-file-declarations). Emitted
   after `packageExtensionsChecksum:`.
+- Importer and inline package declarations that do not bind are retained as
+  structured `PNPM_UNRESOLVED_DEP` facts (owner, kind, name, specifier,
+  resolved value, and native channel) and merged back into their original
+  blocks. Bound graph edges remain authoritative. A target output that drops a
+  retained fact fails strict projection with
+  `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED`; the loss is irreducible
+  and has no registry remedy.
 
 ## Degradation rules
 

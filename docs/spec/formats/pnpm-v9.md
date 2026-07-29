@@ -1,7 +1,7 @@
 # `pnpm-v9` — pnpm `pnpm-lock.yaml` (lockfileVersion 9)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; packages/snapshots split covered).
-> Updated: 2026-06-16
+> Updated: 2026-07-29
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -116,6 +116,15 @@ Compared to v6:
   `snapshots` carries the peer-bound node instances (`NodeId`); see
   [_common.md §4.1](./_common.md#41-nodeid) and
   [§4.3](./_common.md#43-tarballkey).
+- An importer declaration or snapshot `dependencies` /
+  `optionalDependencies` member may fail to bind to any package or snapshot.
+  Parse emits `PNPM_UNRESOLVED_DEP` and retains owner, kind, name, specifier,
+  resolved value, and native channel (`importer` or `package`). Stringify
+  restores the fact to the importer object or snapshot adjacency block, with
+  graph-derived bound edges authoritative on collision. Output reparse must
+  recover the same fact; otherwise strict projection rejects
+  `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED` as irreducible and does
+  not advertise registry evidence as a remedy.
 
 ### Peer-virtualisation in snapshot keys (node identity)
 

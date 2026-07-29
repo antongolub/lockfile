@@ -1,7 +1,7 @@
 # `npm-3` — npm `package-lock.json` (lockfileVersion 3)
 
 > Status: stable (adapter + flat-family round-trip suite).
-> Updated: 2026-06-16
+> Updated: 2026-07-29
 > Provenance: **Official**.
 
 ## Compatibility
@@ -107,6 +107,11 @@ Same as [npm-2](./npm-2.md#conversion-inputs).
   check. Verified with both `npm ci` and `npm install` — each leaves the lock
   byte-unchanged (no fragment→`integrity` rewrite). This is the legacy npm-5/6
   form, not a defect.
+- Inherits npm-2's retained unresolved-declaration carrier. In particular, an
+  unbound member of a mixed package-entry dependency block is re-emitted beside
+  graph-derived bound members. Losing it is
+  `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED`, an irreducible strict
+  projection loss rather than a request for registry completion.
 - Otherwise inherits all npm-2 quirks.
 
 ## Degradation rules

@@ -1,7 +1,7 @@
 # `bun-text` — bun `bun.lock`
 
 > Status: stable (adapter + round-trip tested; bun audit-fix native remediation still absent upstream).
-> Updated: 2026-07-27
+> Updated: 2026-07-29
 > Provenance: Official (since Bun 1.2).
 
 **Primary bun target** — audit-friendly, human-readable; all bun-related
@@ -143,6 +143,15 @@ this is only how bun-text *carries* it.
   current Bun behavior until it ships.
 - JSONC parser must tolerate trailing commas and line comments.
 - The empty-string workspace key (`""`) is the root project.
+- A workspace manifest or regular-package inner `dependencies`,
+  `devDependencies`, or `optionalDependencies` member that cannot bind to a
+  package tuple is retained as a structured `BUN_TEXT_UNRESOLVED_DEP` fact
+  (owner, kind, name, range, and `workspace` / `package` channel). Stringify
+  merges it back into the same native block; graph-derived bound edges win on
+  collision. This carrier remains authoritative after a mutation disables
+  exact tuple replay. If target output reparse loses the fact, strict output
+  rejects `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED` as irreducible;
+  registry evidence is not a preservation remedy.
 - `overrides` is bun's forced-resolution mechanism — the npm/bun analog of yarn
   `resolutions`, and the channel an audit-fix uses to pin a transitive
   vulnerable dependency onto a safe version. The block is **npm-shaped** (flat

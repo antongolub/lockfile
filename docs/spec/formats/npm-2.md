@@ -1,7 +1,7 @@
 # `npm-2` — npm `package-lock.json` (lockfileVersion 2)
 
 > Status: stable (adapter + flat-family round-trip suite; dual-mode drift covered).
-> Updated: 2026-06-16
+> Updated: 2026-07-29
 > Provenance: **Official**.
 
 ## Compatibility
@@ -104,6 +104,10 @@ this is only how npm-2 *carries* it.
   for npm to skip optional/incompatible installs.
 - Workspaces appear under their on-disk path (`packages/foo`) **and** as
   symlinks at `node_modules/<name>` with `link: true, resolved: "packages/foo"`.
+- A local workspace edge whose retained `workspaceRange.specifier` is empty is
+  an inferred binding, not authored `workspace:` syntax. It requires workspace
+  support only. A non-empty `workspace:` specifier requires the separate
+  workspace-protocol capability and remains a strict projection loss for npm-2.
 - **Serialization key order is `json-stringify-nice`, not `JSON.stringify`.** npm
   (via arborist's `lib/shrinkwrap.js`) orders every object's keys so scalar/array
   values precede nested objects, with a fixed
@@ -115,6 +119,16 @@ this is only how npm-2 *carries* it.
 - `peerDependenciesMeta` (optional-peer markers) and `hasInstallScript` are
   preserved verbatim per entry — manifest-derived metadata npm re-adds on install
   if absent, which would otherwise force a rewrite.
+- A declared `dependencies`, `devDependencies`, or `optionalDependencies`
+  member that cannot bind to an installed package remains load-bearing even
+  though no graph edge can represent it. Parse emits `NPM_UNRESOLVED_DEP` and
+  retains the owner, edge kind, name, and range. Stringify merges only those
+  retained gaps into the corresponding package-entry block, with bound graph
+  edges authoritative on collision. This includes mixed blocks where one
+  optional dependency binds and another does not. If output reparse loses a
+  retained declaration, strict output rejects
+  `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED` as irreducible; registry
+  evidence is not a remedy for preserving authored bytes.
 
 ## Degradation rules
 

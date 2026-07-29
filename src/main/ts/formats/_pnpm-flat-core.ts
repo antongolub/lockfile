@@ -81,6 +81,11 @@ import {
   patchNormalizedDiagnostic,
   unknownResolutionDiagnostic,
 } from '../recipe/diagnostics.ts'
+import {
+  mergeUnresolvedDependencyDeclarations,
+  unresolvedDependencyData,
+  unresolvedDependencyDeclarationsOf,
+} from '../recipe/unresolved-dependency.ts'
 import { readWorkspaceFileBytes } from './_path.ts'
 import { optimizeUnreachable } from './_optimize.ts'
 import { readYaml, emitYaml, flowMap, quoted, type YamlMap } from './_pnpm-yaml.ts'
@@ -880,6 +885,14 @@ function addPnpmWorkspaceImporterDependency(
       severity: 'warning',
       subject: srcId,
       message: `pnpm-v${shape.lockfileVersion.split('.')[0]}: importer ${JSON.stringify(importerPath)} dep ${depName} resolves to unknown workspace ${JSON.stringify(linkPath)}`,
+      data: unresolvedDependencyData({
+        src: srcId,
+        kind,
+        name: depName,
+        descriptor: specifier ?? version,
+        resolution: version,
+        channel: 'importer',
+      }),
     })
     return
   }
@@ -920,6 +933,14 @@ function addPnpmResolvedImporterDependency(
       severity: 'warning',
       subject: srcId,
       message: `pnpm-v${shape.lockfileVersion.split('.')[0]}: importer ${JSON.stringify(importerPath)} dep ${depName}@${version} resolves to no snapshot`,
+      data: unresolvedDependencyData({
+        src: srcId,
+        kind,
+        name: depName,
+        descriptor: specifier ?? version,
+        resolution: version,
+        channel: 'importer',
+      }),
     })
     return
   }
@@ -1168,6 +1189,14 @@ function addResolvedDependencyEdge(
       severity: 'warning',
       subject: input.srcId,
       message: `pnpm-v${context.shape.lockfileVersion.split('.')[0]}: ${input.srcId} dep ${input.depName}@${input.rawValue} resolves to no snapshot`,
+      data: unresolvedDependencyData({
+        src: input.srcId,
+        kind: input.kind,
+        name: input.depName,
+        descriptor: input.rawValue,
+        resolution: input.rawValue,
+        channel: 'package',
+      }),
     })
     return
   }
@@ -2275,6 +2304,22 @@ function buildImporterEntry(
     } as YamlMap
   }
 
+  for (const declaration of unresolvedDependencyDeclarationsOf(graph)) {
+    if (
+      declaration.src !== node.id
+      || declaration.channel !== 'importer'
+      || declaration.kind === 'peer'
+      || declaration.kind === 'bundled'
+      || blocks[declaration.kind][declaration.name] !== undefined
+    ) {
+      continue
+    }
+    blocks[declaration.kind][declaration.name] = {
+      specifier: declaration.descriptor,
+      version: declaration.resolution ?? declaration.descriptor,
+    } as YamlMap
+  }
+
   for (const [kind, blockName] of [
     ['dep', 'dependencies'],
     ['dev', 'devDependencies'],
@@ -2431,6 +2476,22 @@ function writePackageInlineDependencies(context: PackageEntryContext): void {
   for (const edge of context.graph.out(context.representative.id)) {
     addPackageInlineDependency(context, blocks, edge)
   }
+  blocks.dep = mergeUnresolvedDependencyDeclarations(
+    context.graph,
+    context.representative.id,
+    'dep',
+    blocks.dep,
+    item => item.resolution ?? item.descriptor,
+    'package',
+  )
+  blocks.optional = mergeUnresolvedDependencyDeclarations(
+    context.graph,
+    context.representative.id,
+    'optional',
+    blocks.optional,
+    item => item.resolution ?? item.descriptor,
+    'package',
+  )
   writePackageDependencyBlocks(context.entry, blocks)
 }
 
@@ -2500,6 +2561,23 @@ function buildSnapshotEntry(
       ? nativeValue
       : seg.value
   }
+
+  blocks.dep = mergeUnresolvedDependencyDeclarations(
+    graph,
+    node.id,
+    'dep',
+    blocks.dep,
+    item => item.resolution ?? item.descriptor,
+    'package',
+  )
+  blocks.optional = mergeUnresolvedDependencyDeclarations(
+    graph,
+    node.id,
+    'optional',
+    blocks.optional,
+    item => item.resolution ?? item.descriptor,
+    'package',
+  )
 
   for (const [kind, blockName] of [['dep', 'dependencies'], ['optional', 'optionalDependencies']] as const) {
     const block = blocks[kind]

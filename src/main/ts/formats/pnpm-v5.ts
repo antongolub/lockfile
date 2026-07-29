@@ -92,6 +92,11 @@ import {
   stripRegistrySha1Fragment,
   type ResolutionCanonical,
 } from '../recipe/resolution.ts'
+import {
+  mergeUnresolvedDependencyDeclarations,
+  unresolvedDependencyData,
+  unresolvedDependencyDeclarationsOf,
+} from '../recipe/unresolved-dependency.ts'
 import { readYaml, emitYaml, flowMap, type YamlMap } from './_pnpm-yaml.ts'
 import {
   captureUnknownTopLevel,
@@ -609,6 +614,14 @@ function addPnpmV5WorkspaceDependency(
     parse.diagnostics.push({
       code: 'PNPM_UNRESOLVED_DEP', severity: 'warning', subject: srcId,
       message: `pnpm-v5: importer ${JSON.stringify(importerPath)} dep ${depName} resolves to unknown workspace ${JSON.stringify(linkPath)}`,
+      data: unresolvedDependencyData({
+        src: srcId,
+        kind,
+        name: depName,
+        descriptor: specifier ?? depValue,
+        resolution: depValue,
+        channel: 'importer',
+      }),
     })
     return
   }
@@ -641,6 +654,14 @@ function addPnpmV5ResolvedDependency(
     parse.diagnostics.push({
       code: 'PNPM_UNRESOLVED_DEP', severity: 'warning', subject: srcId,
       message: `pnpm-v5: importer ${JSON.stringify(importerPath)} dep ${depName}@${depValue} resolves to no packages entry`,
+      data: unresolvedDependencyData({
+        src: srcId,
+        kind,
+        name: depName,
+        descriptor: specifier ?? depValue,
+        resolution: depValue,
+        channel: 'importer',
+      }),
     })
     return
   }
@@ -788,6 +809,14 @@ function addResolvedDependencyEdges(
           severity: 'warning',
           subject: srcId,
           message: `pnpm-v5: ${srcId} dep ${depName}@${rawValue} resolves to no packages entry`,
+          data: unresolvedDependencyData({
+            src: srcId,
+            kind,
+            name: depName,
+            descriptor: rawValue,
+            resolution: rawValue,
+            channel: 'package',
+          }),
         })
         continue
       }
@@ -1186,6 +1215,21 @@ function buildImporterEntry(
     specifiers[slot.key] = specifier
   }
 
+  for (const declaration of unresolvedDependencyDeclarationsOf(graph)) {
+    if (
+      declaration.src !== node.id
+      || declaration.channel !== 'importer'
+      || declaration.kind === 'peer'
+      || declaration.kind === 'bundled'
+      || blocks[declaration.kind][declaration.name] !== undefined
+    ) {
+      continue
+    }
+    blocks[declaration.kind][declaration.name] = declaration.resolution
+      ?? declaration.descriptor
+    specifiers[declaration.name] = declaration.descriptor
+  }
+
   if (Object.keys(specifiers).length > 0) {
     entry.specifiers = sortRecord(specifiers) as YamlMap
   } else if (importerSpecs !== undefined && Object.keys(importerSpecs).length > 0) {
@@ -1273,6 +1317,22 @@ function buildPackageEntry(
     const slot = aliasedDependencySlot(edge, dst)
     block[slot.key] = slot.value
   }
+  blocks.dep = mergeUnresolvedDependencyDeclarations(
+    graph,
+    representative.id,
+    'dep',
+    blocks.dep,
+    item => item.resolution ?? item.descriptor,
+    'package',
+  )
+  blocks.optional = mergeUnresolvedDependencyDeclarations(
+    graph,
+    representative.id,
+    'optional',
+    blocks.optional,
+    item => item.resolution ?? item.descriptor,
+    'package',
+  )
   for (const [kind, blockName] of [['dep', 'dependencies'], ['optional', 'optionalDependencies']] as const) {
     const block = blocks[kind]
     if (Object.keys(block).length > 0) {

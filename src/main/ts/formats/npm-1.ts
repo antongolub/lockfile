@@ -76,6 +76,10 @@ import {
   stripRegistrySha1Fragment,
   type ResolutionCanonical,
 } from '../recipe/resolution.ts'
+import {
+  mergeUnresolvedDependencyDeclarations,
+  unresolvedDependencyData,
+} from '../recipe/unresolved-dependency.ts'
 
 // === TYPES ==================================================================
 
@@ -475,6 +479,12 @@ function addNpm1EntryEdges(
         severity: 'warning',
         subject: identity.id,
         message: `${identity.id}: unresolved dep ${reqName}@${range}`,
+        data: unresolvedDependencyData({
+          src: identity.id,
+          kind: 'dep',
+          name: reqName,
+          descriptor: range,
+        }),
       })
       continue
     }
@@ -1036,7 +1046,13 @@ function buildEntry(
     const declaredName = sidecar?.edgeDeclaredNames.get(edgeKey) ?? dst.name
     requires[declaredName] = range
   }
-  if (Object.keys(requires).length > 0) entry.requires = sortRecord(requires)
+  const retainedRequires = mergeUnresolvedDependencyDeclarations(
+    graph,
+    node.id,
+    'dep',
+    requires,
+  )
+  if (Object.keys(retainedRequires).length > 0) entry.requires = sortRecord(retainedRequires)
 
   // Nested dependencies under this entry's install path.
   const nestedLayer = treeByParent.get(installPath)

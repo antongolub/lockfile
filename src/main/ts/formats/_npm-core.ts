@@ -73,6 +73,10 @@ import {
 } from '../recipe/workspace.ts'
 import { captureOverrides } from '../recipe/overrides.ts'
 import {
+  mergeUnresolvedDependencyDeclarations,
+  unresolvedDependencyData,
+} from '../recipe/unresolved-dependency.ts'
+import {
   NPM_EDGE_RANGE_ATTR,
   cmpStr,
   edgeTripleKey,
@@ -968,6 +972,12 @@ function addDepEdges(
         severity: 'warning',
         subject: srcId,
         message: `${srcId}: unresolved ${kind} ${name}@${range}`,
+        data: unresolvedDependencyData({
+          src: srcId,
+          kind,
+          name,
+          descriptor: range,
+        }),
       })
       continue
     }
@@ -1106,10 +1116,10 @@ export function collectManifestBlocks(
     target[declaredName] = rawRange
   }
   return {
-    dep: sortRecord(dep),
-    dev: sortRecord(dev),
+    dep: sortRecord(mergeUnresolvedDependencyDeclarations(graph, srcId, 'dep', dep)),
+    dev: sortRecord(mergeUnresolvedDependencyDeclarations(graph, srcId, 'dev', dev)),
     peer: sortRecord(peer),
-    optional: sortRecord(optional),
+    optional: sortRecord(mergeUnresolvedDependencyDeclarations(graph, srcId, 'optional', optional)),
   }
 }
 

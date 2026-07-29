@@ -2,7 +2,7 @@
 
 > Status: stable (adapter, native-output corpus, byte-identity round-trip, and
 > frozen-oracle contract).
-> Updated: 2026-07-26.
+> Updated: 2026-07-29.
 > Provenance: **Source-only / empirical** — audited against npm 12.0.1 native
 > output; npm has not yet published a standalone v4 schema document.
 
@@ -119,6 +119,17 @@ used to build the graph, not a portable reconstruction of the source
 |-----------|--------|:---------:|---------------------|
 | Parse | `workspaceRoot` | for resolved patch identity | omitted ⇒ stable unresolved patch sentinel and exact native replay state |
 | Stringify | — | none | native patch carrier emits only when it still matches `Node.patch` |
+
+## Retained unresolved declarations
+
+npm-4 inherits npm-3's package-entry declaration carrier. An authored
+`dependencies`, `devDependencies`, or `optionalDependencies` member that did
+not bind during parse is retained with its owner, kind, name, and range and is
+merged back beside graph-derived bound members. Bound graph edges are
+authoritative on collision. A target that cannot carry the retained fact fails
+strict output with
+`COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED` (irreducible, no registry
+remedy).
 
 ## Degradation rules
 
