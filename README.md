@@ -1,7 +1,6 @@
 # lockgraph
 
-> Universal lockfile model and converter for **npm**, **yarn**, **pnpm**, **bun**,
-> with Deno npm-graph audit/fix and manifest-backed Deno → Node-family conversion.
+> Universal lockfile model and converter for **npm**, **yarn**, **pnpm**, **bun**, **deno** with reasonable losses.
 
 <p><img alt="lockgraph — universal lockfile model and converter for npm, yarn, pnpm, bun, and Deno" src="./pics/crossconv.png" align="right" width="350">
 
