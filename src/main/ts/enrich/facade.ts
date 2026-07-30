@@ -27,14 +27,14 @@ import {
 import {
   completionPolicyAuthorityOf,
 } from '../completeness/profile.ts'
-import { targetProfileOf } from '../completeness/targets.ts'
+import { targetProfileOf, targetRequestOf } from '../completeness/targets.ts'
 import type {
   ConversionContract,
   EvidenceContext,
   EvidenceRef,
   PackageManifestEvidence,
   PmConfigEvidence,
-  TargetRequest,
+  TargetInput,
 } from '../completeness/types.ts'
 import type { Packument, PackumentVersion, RegistryAdapter } from '../registry/types.ts'
 import {
@@ -88,7 +88,8 @@ export interface EnrichSources {
 }
 
 export interface EnrichOptions {
-  readonly target: TargetRequest
+  readonly sources?: EnrichSources
+  readonly target: TargetInput
   readonly contract: ConversionContract
   readonly cacheKey?: string
 }
@@ -465,12 +466,30 @@ function artifactRefs(graph: Graph, enriched: readonly string[]): EvidenceRef[] 
 
 // === ENRICHMENT ORCHESTRATION ===============================================
 
-export async function enrich(
+export function enrich(
+  graph: Graph,
+  options: EnrichOptions,
+): Promise<EnrichResult>
+/** @deprecated Move sources into options.sources. */
+export function enrich(
   graph: Graph,
   sources: EnrichSources,
-  options: EnrichOptions,
+  options: Omit<EnrichOptions, 'sources'>,
+): Promise<EnrichResult>
+export async function enrich(
+  graph: Graph,
+  sourcesOrOptions: EnrichSources | EnrichOptions,
+  legacyOptions?: Omit<EnrichOptions, 'sources'>,
 ): Promise<EnrichResult> {
-  const target = targetProfileOf(options.target)
+  const legacy = arguments.length === 3
+  const options = legacy
+    ? legacyOptions!
+    : sourcesOrOptions as EnrichOptions
+  const sources = legacy
+    ? sourcesOrOptions as EnrichSources
+    : (sourcesOrOptions as EnrichOptions).sources ?? {}
+  const targetRequest = targetRequestOf(options.target)
+  const target = targetProfileOf(targetRequest)
   const diagnostics: Diagnostic[] = []
   const evidenceDiagnostics: Diagnostic[] = []
   const phases: EnrichmentDerivationPhase[] = []
@@ -519,7 +538,7 @@ export async function enrich(
   const sourceProjection = projectYarnBerryDerivedDependencies(
     working,
     sourceFormat,
-    options.target,
+    targetRequest,
   )
   if (sourceProjection.graph !== working) {
     phases.push({
@@ -541,7 +560,7 @@ export async function enrich(
 
   const registry = sources.registry === undefined
     ? undefined
-    : yarnBerryPluginCompatRegistry(sources.registry, options.target)
+    : yarnBerryPluginCompatRegistry(sources.registry, targetRequest)
   const memoized = registry === undefined ? undefined : memoizeRegistry(registry)
   let completionAccepted = false
   let completionDiagnostics: readonly Diagnostic[] = []
@@ -617,7 +636,7 @@ export async function enrich(
 
   if (completionAccepted) {
     const before = working
-    const materialized = materializeYarnBerryPluginCompat(before, options.target)
+    const materialized = materializeYarnBerryPluginCompat(before, targetRequest)
     if (materialized.graph !== before) {
       phases.push({
         kind: 'target-compatibility',
@@ -657,10 +676,10 @@ export async function enrich(
     const before = working
     const artifactCacheKey = options.cacheKey ?? berryCacheKeyFor(
       before,
-      options.target.format,
+      targetRequest.format,
       'observed-only',
     )
-    const refurbished = await refurbish(before, options.target.format, sources.artifacts, {
+    const refurbished = await refurbish(before, targetRequest.format, sources.artifacts, {
       ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
       cacheKeyInference: 'observed-only',
     })

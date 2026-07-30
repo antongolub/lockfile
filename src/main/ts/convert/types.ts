@@ -1,6 +1,7 @@
 import type { Manifest } from '../graph.ts'
 import type { EnrichSources } from '../enrich/facade.ts'
 import type { FormatId } from '../api/format-contract.ts'
+import type { TargetInput } from '../completeness/types.ts'
 
 /** Supplies an in-memory project file map. */
 export interface ProjectInput {
@@ -33,11 +34,9 @@ export interface ConvertFileSystem {
 }
 
 /** Configures one conversion. */
-export interface ConvertOptions {
-  readonly to: FormatId
+export interface ConvertCommonOptions {
   readonly strict?: boolean
   readonly from?: FormatId
-  readonly targetVersion?: string
   readonly sources?: EnrichSources
   readonly fs?: ConvertFileSystem
   readonly workspaceRoot?: string
@@ -46,6 +45,26 @@ export interface ConvertOptions {
   readonly cacheKey?: string
   readonly onDiagnostic?: (diagnostic: import('../graph.ts').Diagnostic) => void
 }
+
+interface ConvertTargetOptions {
+  readonly target: TargetInput
+  readonly to?: never
+  readonly targetVersion?: never
+}
+
+interface LegacyConvertTargetOptions {
+  readonly target?: never
+  /** @deprecated Use target. */
+  readonly to: FormatId
+  /** @deprecated Use target.managerVersion. */
+  readonly targetVersion?: string
+}
+
+/** Configures one conversion. */
+export type ConvertOptions = ConvertCommonOptions & (
+  | ConvertTargetOptions
+  | LegacyConvertTargetOptions
+)
 
 /** Injects filesystem dependencies for conversion. */
 export interface ConvertDependencies {

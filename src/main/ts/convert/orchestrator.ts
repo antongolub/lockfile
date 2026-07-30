@@ -41,6 +41,7 @@ import {
 } from '../completeness/projection.ts'
 import { authoritativePolicyOverridesOf } from '../completeness/profile.ts'
 import { companionProjectionRuntime } from '../completeness/companions.ts'
+import { targetRequestOf } from '../completeness/targets.ts'
 import type {
   AssessedOutput,
   CompanionSetOperation,
@@ -52,10 +53,13 @@ import type {
   FrozenPreparationOptions,
   FrozenPreparationResult,
   FrozenVerificationReceipt,
+  ManifestCoverage,
   ProjectConversionResult,
   ProjectEvidenceInput,
   RequirementAssessment,
   StringifyAssessedOptions,
+  TargetInput,
+  TargetRequest,
 } from '../completeness/types.ts'
 import {
   resolvePnpmWorkspacePeerProjection,
@@ -74,6 +78,7 @@ import {
   type PreparedConvertInput,
 } from './input.ts'
 import type {
+  ConvertCommonOptions,
   ConvertDependencies,
   ConvertInput,
   ConvertOptions,
@@ -81,10 +86,79 @@ import type {
 
 // === BASE CONVERSION ========================================================
 
+interface NormalizedConvertOptions extends ConvertCommonOptions {
+  readonly to: FormatId
+  readonly targetVersion?: string
+}
+
+interface NormalizedFrozenPreparationOptions extends NormalizedConvertOptions {
+  readonly sourceVersion?: string
+  readonly manifestCoverage?: ManifestCoverage
+  readonly evidenceInputs?: readonly ProjectEvidenceInput[]
+}
+
+type NormalizedStringifyAssessedOptions = Omit<StringifyAssessedOptions, 'target'> & {
+  readonly target: TargetRequest
+}
+
+function targetFieldsOf(options: Readonly<{
+  readonly target?: TargetInput
+  readonly to?: FormatId
+  readonly targetVersion?: string
+}>): Readonly<{ to: FormatId; targetVersion?: string }> {
+  const modern = 'target' in options
+  const legacy = 'to' in options || 'targetVersion' in options
+  if (modern && legacy) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'target cannot be combined with deprecated to or targetVersion',
+    })
+  }
+  if (modern) {
+    if (options.target === undefined) {
+      throw new LockfileError({
+        code: 'INVALID_INPUT',
+        message: 'target is required',
+      })
+    }
+    const target = targetRequestOf(options.target)
+    return {
+      to: target.format,
+      ...(target.managerVersion === undefined
+        ? {}
+        : { targetVersion: target.managerVersion }),
+    }
+  }
+  if (options.to === undefined) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'target is required',
+    })
+  }
+  return {
+    to: options.to,
+    ...(options.targetVersion === undefined
+      ? {}
+      : { targetVersion: options.targetVersion }),
+  }
+}
+
+function normalizeConvertOptions(options: ConvertOptions): NormalizedConvertOptions {
+  const { target: _target, to: _to, targetVersion: _targetVersion, ...common } = options
+  return { ...common, ...targetFieldsOf(options) }
+}
+
+function normalizeFrozenPreparationOptions(
+  options: FrozenPreparationOptions,
+): NormalizedFrozenPreparationOptions {
+  const { target: _target, to: _to, targetVersion: _targetVersion, ...common } = options
+  return { ...common, ...targetFieldsOf(options) }
+}
+
 function mergeManifestSources(
   sourceFormat: FormatId,
   prepared: PreparedConvertInput['manifests'],
-  legacy: ConvertOptions['manifests'],
+  legacy: ConvertCommonOptions['manifests'],
   supplied: EnrichSources['manifests'],
 ): Readonly<Record<string, Manifest>> | undefined {
   const output: Record<string, Manifest> = {}
@@ -123,7 +197,7 @@ function canonicalManifestForMerge(format: FormatId, manifest: Manifest): Manife
 
 function mergedEnrichSources(
   prepared: PreparedConvertInput,
-  options: ConvertOptions,
+  options: NormalizedConvertOptions,
 ): EnrichSources {
   const manifests = mergeManifestSources(
     prepared.source,
@@ -260,7 +334,7 @@ interface PreparedConversionRuntime {
 
 async function prepareConversionRuntime(
   input: ConvertInput,
-  options: ConvertOptions,
+  options: NormalizedConvertOptions,
   dependencies: ConvertDependencies,
   contract: StringifyAssessedOptions['contract'],
 ): Promise<PreparedConversionRuntime> {
@@ -347,7 +421,7 @@ async function prepareConversionRuntime(
 
 async function _convert(
   input: ConvertInput,
-  options: ConvertOptions,
+  options: NormalizedConvertOptions,
   dependencies: ConvertDependencies,
 ): Promise<string> {
   const { graph, diagnostics } = await prepareConversionRuntime(
@@ -375,9 +449,10 @@ async function _convert(
 }
 
 /** Converts one lockfile or project input to the requested format. */
-export function convert(input: ConvertInput, options: ConvertOptions): Promise<string> {
-  return _convert(input, options, {
-    ...(options.fs === undefined ? {} : { fs: options.fs }),
+export async function convert(input: ConvertInput, options: ConvertOptions): Promise<string> {
+  const normalized = normalizeConvertOptions(options)
+  return _convert(input, normalized, {
+    ...(normalized.fs === undefined ? {} : { fs: normalized.fs }),
     defaultFileSystem,
   })
 }
@@ -457,7 +532,7 @@ function probeEligible(
 function outputProbe(
   graph: Graph,
   output: string,
-  options: StringifyAssessedOptions,
+  options: NormalizedStringifyAssessedOptions,
   diagnostics: Diagnostic[],
   workspaceNames?: ReadonlyMap<string, string>,
 ): OutputProbeResult {
@@ -630,7 +705,7 @@ function pnpmWorkspacePeerRequirement(
 
 function pnpmWorkspacePeerRuntime(
   graph: Graph,
-  options: StringifyAssessedOptions,
+  options: NormalizedStringifyAssessedOptions,
 ): {
   projection?: PnpmWorkspacePeerProjection
   targetRequirements: readonly RequirementAssessment[]
@@ -685,7 +760,7 @@ function frozenCandidateOutputProbe(
 function projectionLossDischarged(
   loss: ProjectionLoss,
   graph: Graph,
-  options: StringifyAssessedOptions,
+  options: NormalizedStringifyAssessedOptions,
   companions: CompanionProjectionRuntime | undefined,
   projectionDigest: string | undefined,
 ): boolean {
@@ -707,7 +782,7 @@ function projectionLossDischarged(
 function activeProjectionDiagnostics(
   projected: ProjectionResult,
   graph: Graph,
-  options: StringifyAssessedOptions,
+  options: NormalizedStringifyAssessedOptions,
   companions: CompanionProjectionRuntime | undefined,
   projectionDigest?: string,
   allowFrozenCandidate = false,
@@ -746,7 +821,7 @@ function frozenBerryRequirement(losses: readonly ProjectionLoss[]): RequirementA
 
 function frozenVerificationRequirement(
   graph: Graph,
-  options: StringifyAssessedOptions,
+  options: NormalizedStringifyAssessedOptions,
   projectionDigest: string | undefined,
 ): RequirementAssessment | undefined {
   if (options.contract !== 'frozen'
@@ -798,6 +873,18 @@ function assessedOutputOf(runtime: AssessedRuntimeBundle): AssessedOutput {
 function stringifyAssessedRuntime(
   graph: Graph,
   options: StringifyAssessedOptions,
+  onDiagnostic?: (diagnostic: Diagnostic) => void,
+  runtimeOptions: AssessedRuntimeOptions = {},
+): AssessedRuntimeBundle {
+  return stringifyAssessedRuntimeNormalized(graph, {
+    ...options,
+    target: targetRequestOf(options.target),
+  }, onDiagnostic, runtimeOptions)
+}
+
+function stringifyAssessedRuntimeNormalized(
+  graph: Graph,
+  options: NormalizedStringifyAssessedOptions,
   onDiagnostic?: (diagnostic: Diagnostic) => void,
   runtimeOptions: AssessedRuntimeOptions = {},
 ): AssessedRuntimeBundle {
@@ -1125,7 +1212,7 @@ function invalidFrozenCandidate(diagnostic: Diagnostic): FrozenConversionResult 
 }
 
 function frozenPreparationFailure(
-  options: FrozenPreparationOptions,
+  options: NormalizedFrozenPreparationOptions,
   diagnostic: Diagnostic,
 ): FrozenPreparationResult {
   options.onDiagnostic?.(diagnostic)
@@ -1144,7 +1231,7 @@ function frozenPreparationFailure(
 function preparationEvidence(
   graph: Graph,
   prepared: PreparedConvertInput,
-  options: FrozenPreparationOptions,
+  options: NormalizedFrozenPreparationOptions,
 ): EvidenceContext {
   let evidence = evidenceOf(graph)
   if (options.sourceVersion !== undefined) evidence = withSourceVersion(evidence, options.sourceVersion)
@@ -1174,11 +1261,19 @@ export async function prepareFrozen(
   input: ConvertInput,
   options: FrozenPreparationOptions,
 ): Promise<FrozenPreparationResult> {
-  if (!EXACT_MANAGER_VERSION.test(options.targetVersion)) {
+  return prepareFrozenRuntime(input, normalizeFrozenPreparationOptions(options))
+}
+
+async function prepareFrozenRuntime(
+  input: ConvertInput,
+  options: NormalizedFrozenPreparationOptions,
+): Promise<FrozenPreparationResult> {
+  const targetVersion = options.targetVersion
+  if (targetVersion === undefined || !EXACT_MANAGER_VERSION.test(targetVersion)) {
     return frozenPreparationFailure(options, assessedDiagnostic(
       'COMPLETENESS_FROZEN_TARGET_UNPINNED',
       'frozen verification requires an exact full target manager version',
-      { target: options.to, managerVersion: options.targetVersion },
+      { target: options.to, managerVersion: targetVersion },
     ))
   }
   if (options.to === 'lockgraph') {
@@ -1225,7 +1320,7 @@ export async function prepareFrozen(
 
   const runtime = stringifyAssessedRuntime(preparedRuntime.graph, {
     contract: 'frozen',
-    target: { format: options.to, managerVersion: options.targetVersion },
+    target: { format: options.to, managerVersion: targetVersion },
     evidence,
     lineEnding: options.lineEnding,
     cacheKey: options.cacheKey,
@@ -1239,7 +1334,7 @@ export async function prepareFrozen(
     return Object.freeze({ assessment: runtime.assessment })
   }
 
-  const target = Object.freeze({ format: options.to, managerVersion: options.targetVersion })
+  const target = Object.freeze({ format: options.to, managerVersion: targetVersion })
   const projectionDigest = frozenProjectionDigest(target, runtime.output, companions)
   const candidate: FrozenCandidate = Object.freeze({
     protocol: FROZEN_PROJECTION_PROTOCOL,

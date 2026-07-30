@@ -120,13 +120,17 @@ stringify(graph, 'yarn-berry-v10')
 // LockfileError ENRICH_REQUIRED — v10 keys its cache differently, so
 // @napi-rs/nice-android-arm-eabi@1.0.1 would emit without a checksum
 
-const ready = await enrich(graph, { artifacts }, {   // artifacts hashes the zip
-  target: { format: 'yarn-berry-v10' },              // yarn already cached, so no
-  contract: 'project',                               // download and no repack
+const ready = await enrich(graph, {                  // artifacts hashes the zip
+  sources: { artifacts },                            // yarn already cached, so no
+  target: 'yarn-berry-v10',                          // download and no repack
+  contract: 'project',
 })
 const out = stringify(ready.graph, 'yarn-berry-v10')
 
-const same = await convert(raw, { to: 'yarn-berry-v10', sources: { artifacts } })
+const same = await convert(raw, {
+  target: 'yarn-berry-v10',
+  sources: { artifacts },
+})
 ```
 
 The subject comes first and the format after it, as in `JSON.parse`. Omit the
@@ -172,9 +176,10 @@ lockfile has never seen, and the target format may require fields the source nev
 carried. Two entry points fill them.
 
 ```ts
-enrich(graph, sources, options): Promise<{ graph, diagnostics }>
+enrich(graph, options): Promise<{ graph, diagnostics }>
+//     options: { sources?, target, contract, cacheKey? }
 //     sources: { manifests?, registry?, artifacts?, config? }
-//     options: { target: { format, managerVersion? }, contract, cacheKey? }
+//     target: FormatId | { format, managerVersion? }
 //     contract: 'snapshot' | 'policy' | 'project' | 'frozen'
 ```
 
@@ -184,6 +189,11 @@ order matters. **`completeTransitives`** (`lockgraph/complete`) is the primitive
 underneath — it wires the transitive closure from the registry, with optional
 node-local `engines` / `license` gates and declared overrides honoured so the
 result stays frozen-clean.
+
+The former `enrich(graph, sources, options)` form remains available under
+deprecation. Likewise, `convert` still accepts deprecated `to` and
+`targetVersion`; new code uses `target` and, when pinned,
+`target: { format, managerVersion }`.
 
 Calling the primitives directly is supported but incomplete: `completeTransitives`
 plus `refurbish` does not materialise Berry target-compatibility entries, and

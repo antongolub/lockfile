@@ -103,6 +103,7 @@ export type {
   TargetManager,
   TargetOracleEvidence,
   TargetProfile,
+  TargetInput,
   TargetRequest,
   StringifyAssessedOptions,
   Verification,

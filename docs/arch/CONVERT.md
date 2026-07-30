@@ -69,7 +69,7 @@ The public family is a 2 × 2 model rather than four unrelated conversion paths:
 | Input | Raw projection | Certified projection |
 | --- | --- | --- |
 | `Graph` | `stringify(graph, format, options)` | `stringifyAssessed(graph, { target, contract, evidence })` |
-| Lock input | `convert(input, { from, to, ...options })` | `convertAssessed(input, options)` / `convertProject(input, options)` |
+| Lock input | `convert(input, { from, target, ...options })` | `convertAssessed(input, options)` / `convertProject(input, options)` |
 
 Certified functions return structured assessments and withhold output unless the
 requested contract is satisfied. Raw emission is strict by default: raw
@@ -116,7 +116,7 @@ no assumed or untested cells.
 
 The following corpus probe is an outcome measurement, not another format-pair
 contract matrix. It compares strict `stringify(target, parse(source, input))`
-with strict `convert(input, { from: source, to: target })`, without evidence
+with strict `convert(input, { from: source, target })`, without evidence
 sources, at commit `0bbd36c`.
 
 The corpus rule is explicit and has no size threshold:
@@ -440,7 +440,8 @@ emit and assess the lockfile.
 `prepareFrozen(input, options)` and `certifyFrozen(candidate, receipt)` form one
 fail-closed lifecycle:
 
-1. `prepareFrozen` requires an exact full `targetVersion`, performs the composite
+1. `prepareFrozen` requires
+   `target: { format, managerVersion: <exact full version> }`, performs the composite
    parse/enrich/evidence pipeline once, projects companions once, emits once, and
    returns an immutable opaque `FrozenCandidate` only when every non-oracle gate
    is ready. A candidate remains `contract: 'frozen', status: 'unassessed'`; it is

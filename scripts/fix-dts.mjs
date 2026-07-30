@@ -32,49 +32,82 @@ const pkg = JSON.parse(await readFile('package.json', 'utf8'))
 const declarationFiles = files.filter(rel => rel.endsWith('.d.ts'))
 
 // `tsconfig.dts.json` deliberately strips comments to keep the published type
-// surface within its size budget. Preserve the one consumer-visible deprecation
-// that is part of the public compatibility contract without restoring every
-// source comment.
-const deprecatedTarballSourcePath = 'enrich/refurbish.d.ts'
-const deprecatedTarballSourceAnchor =
-  'export interface TarballSource extends NpmTarballSource {'
-const deprecatedTarballSourceMarker =
-  '/** @deprecated Pass RefurbishSources so npm tarballs and Yarn cache checksum evidence cannot be conflated. */'
-const deprecatedTarballSourceFile = `${DIST}/${deprecatedTarballSourcePath}`
-let deprecatedTarballSource = await readFile(deprecatedTarballSourceFile, 'utf8')
+// surface within its size budget. Preserve only the consumer-visible
+// deprecations that are part of public compatibility contracts.
+const publicDeprecations = [
+  {
+    path: 'enrich/refurbish.d.ts',
+    anchor: 'export interface TarballSource extends NpmTarballSource {',
+    marker: '/** @deprecated Pass RefurbishSources so npm tarballs and Yarn cache checksum evidence cannot be conflated. */',
+  },
+  {
+    path: 'enrich/facade.d.ts',
+    anchor: 'export declare function enrich(graph: Graph, sources: EnrichSources, options: Omit<EnrichOptions, \'sources\'>): Promise<EnrichResult>;',
+    marker: '/** @deprecated Move sources into options.sources. */',
+  },
+  {
+    path: 'convert/types.d.ts',
+    anchor: '    readonly to: FormatId;',
+    marker: '    /** @deprecated Use target. */',
+  },
+  {
+    path: 'convert/types.d.ts',
+    anchor: '    readonly targetVersion?: string;',
+    marker: '    /** @deprecated Use target.managerVersion. */',
+  },
+  {
+    path: 'completeness/types.d.ts',
+    anchor: '    readonly target?: never;',
+    marker: '    /** @deprecated Use target. */',
+    replacement: '    readonly target?: never;\n    /** @deprecated Use target. */',
+  },
+  {
+    path: 'completeness/types.d.ts',
+    anchor: '    readonly targetVersion: string;',
+    marker: '    /** @deprecated Use target.managerVersion. */',
+  },
+]
 const countExact = (source, value) => source.split(value).length - 1
-const markerCount = countExact(deprecatedTarballSource, deprecatedTarballSourceMarker)
-const anchorCount = countExact(deprecatedTarballSource, deprecatedTarballSourceAnchor)
-if (anchorCount !== 1 || markerCount > 1) {
-  throw new Error(
-    `fix-dts: expected one TarballSource anchor and at most one deprecation marker; found ${anchorCount} anchor(s), ${markerCount} marker(s)`,
-  )
-}
-if (markerCount === 0) {
-  deprecatedTarballSource = deprecatedTarballSource.replace(
-    deprecatedTarballSourceAnchor,
-    `${deprecatedTarballSourceMarker}\n${deprecatedTarballSourceAnchor}`,
-  )
-  await writeFile(deprecatedTarballSourceFile, deprecatedTarballSource)
+for (const deprecation of publicDeprecations) {
+  const path = `${DIST}/${deprecation.path}`
+  const source = await readFile(path, 'utf8')
+  const markerCount = countExact(source, deprecation.marker)
+  const anchorCount = countExact(source, deprecation.anchor)
+  if (anchorCount !== 1 || markerCount > 1) {
+    throw new Error(
+      `fix-dts: expected one ${deprecation.path} anchor and at most one deprecation marker; found ${anchorCount} anchor(s), ${markerCount} marker(s)`,
+    )
+  }
+  if (markerCount === 0) {
+    const replacement = deprecation.replacement
+      ?? `${deprecation.marker}\n${deprecation.anchor}`
+    await writeFile(path, source.replace(deprecation.anchor, replacement))
+  }
 }
 
+const expectedByPath = new Map()
+for (const deprecation of publicDeprecations) {
+  const expected = expectedByPath.get(deprecation.path) ?? []
+  expected.push(deprecation.marker.trim())
+  expectedByPath.set(deprecation.path, expected)
+}
 let declarationJsdocCount = 0
 for (const rel of declarationFiles) {
   const source = await readFile(`${DIST}/${rel}`, 'utf8')
-  const comments = source.match(/\/\*\*[\s\S]*?\*\//g) ?? []
+  const comments = (source.match(/\/\*\*[\s\S]*?\*\//g) ?? []).map(comment => comment.trim())
   declarationJsdocCount += comments.length
-  if (rel === deprecatedTarballSourcePath) {
-    if (comments.length !== 1 || comments[0] !== deprecatedTarballSourceMarker) {
-      throw new Error('fix-dts: TarballSource deprecation marker is missing or not unique')
-    }
-  } else if (comments.length > 0) {
-    throw new Error(`fix-dts: unexpected declaration JSDoc in ${rel}`)
+  const expected = expectedByPath.get(rel) ?? []
+  if (comments.length !== expected.length
+    || comments.some((comment, index) => comment !== expected[index])) {
+    throw new Error(`fix-dts: declaration JSDoc set differs from the public contract in ${rel}`)
   }
 }
-if (declarationJsdocCount !== 1) {
-  throw new Error(`fix-dts: expected exactly one declaration JSDoc, found ${declarationJsdocCount}`)
+if (declarationJsdocCount !== publicDeprecations.length) {
+  throw new Error(
+    `fix-dts: expected exactly ${publicDeprecations.length} declaration JSDoc comments, found ${declarationJsdocCount}`,
+  )
 }
-console.log('fix-dts: preserved 1 public deprecation annotation')
+console.log(`fix-dts: preserved ${publicDeprecations.length} public deprecation annotations`)
 
 const publicEntries = new Set()
 const deniedExports = Object.entries(pkg.exports)

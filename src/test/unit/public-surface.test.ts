@@ -137,6 +137,35 @@ describe('public surface — detect', () => {
 })
 
 describe('public surface — convert', () => {
+  it('accepts a bare target in the options bag', async () => {
+    const input = fixture('simple', 'yarn-berry-v9.lock')
+    const out = await convert(input, { target: 'pnpm-v9', strict: false })
+    expect(check('pnpm-v9', out)).toBe(true)
+  })
+
+  it('accepts a structured target with its manager version', async () => {
+    const input = fixture('simple', 'yarn-berry-v9.lock')
+    const modern = await convert(input, {
+      target: { format: 'yarn-berry-v9', managerVersion: '4.14.1' },
+      strict: false,
+    })
+    const legacy = await convert(input, {
+      to: 'yarn-berry-v9',
+      targetVersion: '4.14.1',
+      strict: false,
+    })
+    expect(modern).toBe(legacy)
+  })
+
+  it('rejects conflicting modern and legacy targets at runtime', async () => {
+    const input = fixture('simple', 'yarn-berry-v9.lock')
+    await expect(convert(input, {
+      target: 'pnpm-v9',
+      to: 'npm-3',
+      strict: false,
+    } as never)).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
   it('parses + stringifies happy path (yarn-berry-v9 → pnpm-v9)', async () => {
     const input = fixture('simple', 'yarn-berry-v9.lock')
     const out = await convert(input, { to: 'pnpm-v9', strict: false })

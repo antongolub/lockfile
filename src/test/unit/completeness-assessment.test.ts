@@ -378,6 +378,17 @@ describe('assessConversion', () => {
 })
 
 describe('assessed output APIs', () => {
+  it('accepts a bare target in the shared target shape', () => {
+    const graph = parse('npm-3', fixture('npm-3.lock'))
+    const result = stringifyAssessed(graph, {
+      contract: 'snapshot',
+      target: 'npm-3',
+    })
+
+    expect(result.assessment.status).toBe('satisfied')
+    expect(result.output).toBeTypeOf('string')
+  })
+
   it('returns output only after a successful snapshot probe', () => {
     const graph = parse('npm-3', fixture('npm-3.lock'))
     const result = stringifyAssessed(graph, {

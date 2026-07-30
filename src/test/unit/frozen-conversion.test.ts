@@ -190,6 +190,32 @@ describe('frozen conversion certification', () => {
     }))
   })
 
+  it('accepts the shared target shape while preserving frozen version narrowing', async () => {
+    const pinned = await prepareFrozen(fixture('npm-3.lock'), {
+      from: 'npm-3',
+      target: { format: 'npm-3', managerVersion: '9.9.4' },
+      manifestCoverage: 'complete',
+      manifests: repositoryManifests,
+      evidenceInputs: [packageManifests],
+    })
+    expect(pinned.candidate).toBeDefined()
+
+    for (const target of [
+      'npm-3',
+      { format: 'npm-3' },
+    ] as const) {
+      const unpinned = await prepareFrozen(fixture('npm-3.lock'), {
+        from: 'npm-3',
+        target,
+        manifests: repositoryManifests,
+      })
+      expect(unpinned.candidate).toBeUndefined()
+      expect(unpinned.assessment.diagnostics).toContainEqual(expect.objectContaining({
+        code: 'COMPLETENESS_FROZEN_TARGET_UNPINNED',
+      }))
+    }
+  })
+
   it('emits the real best-effort Berry candidate and leaves only checksum/oracle verification pending', async () => {
     const prepared = await prepareFrozen(fixture('npm-3.lock'), {
       from: 'npm-3',

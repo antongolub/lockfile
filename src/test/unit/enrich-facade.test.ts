@@ -337,6 +337,21 @@ describe('target-aware enrich facade', () => {
     expect(result.diagnostics).toEqual([])
   })
 
+  it('accepts nested sources and string target in the two-argument form', async () => {
+    const registry = registryHarness()
+    const result = await enrich(parse('yarn-classic', CLASSIC), {
+      sources: {
+        manifests: emptyRootManifest,
+        registry: registry.adapter,
+      },
+      target: 'npm-3',
+      contract: 'project',
+    })
+
+    expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+    expect(registry.resolveCalls.get('bar@^1.0.0')).toBe(1)
+  })
+
   it('does not promote a manifest-blind source to an empty override authority', async () => {
     const registry = registryHarness()
     const input = parse('yarn-classic', CLASSIC)

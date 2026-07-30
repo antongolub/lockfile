@@ -8,7 +8,7 @@ import type {
   TarballKey,
 } from '../graph.ts'
 import type { FormatId } from '../api/format-contract.ts'
-import type { ConvertInput, ConvertOptions } from '../convert/types.ts'
+import type { ConvertCommonOptions, ConvertInput } from '../convert/types.ts'
 import type { PackumentVersion } from '../registry/types.ts'
 
 // === TYPES ==================================================================
@@ -149,6 +149,8 @@ export interface TargetRequest {
   readonly managerVersion?: string
 }
 
+export type TargetInput = FormatId | TargetRequest
+
 export interface PinnedTargetRequest extends TargetRequest {
   readonly managerVersion: string
 }
@@ -273,7 +275,8 @@ export interface AssessmentOptions {
   readonly evidence?: EvidenceContext
 }
 
-export interface StringifyAssessedOptions extends AssessmentOptions {
+export interface StringifyAssessedOptions extends Omit<AssessmentOptions, 'target'> {
+  readonly target: TargetInput
   readonly lineEnding?: 'lf' | 'crlf'
   readonly cacheKey?: string
 }
@@ -353,12 +356,30 @@ export interface FrozenConversionResult {
   readonly assessment: ConversionAssessment
 }
 
-export interface FrozenPreparationOptions extends Omit<ConvertOptions, 'strict' | 'targetVersion'> {
-  readonly targetVersion: string
+interface FrozenPreparationCommonOptions extends Omit<ConvertCommonOptions, 'strict'> {
   readonly sourceVersion?: string
   readonly manifestCoverage?: ManifestCoverage
   readonly evidenceInputs?: readonly ProjectEvidenceInput[]
 }
+
+interface FrozenPreparationTargetOptions {
+  readonly target: TargetInput
+  readonly to?: never
+  readonly targetVersion?: never
+}
+
+interface LegacyFrozenPreparationTargetOptions {
+  readonly target?: never
+  /** @deprecated Use target. */
+  readonly to: FormatId
+  /** @deprecated Use target.managerVersion. */
+  readonly targetVersion: string
+}
+
+export type FrozenPreparationOptions = FrozenPreparationCommonOptions & (
+  | FrozenPreparationTargetOptions
+  | LegacyFrozenPreparationTargetOptions
+)
 
 export type FrozenInput = ConvertInput
 

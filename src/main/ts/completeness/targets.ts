@@ -6,6 +6,7 @@ import {
 import type {
   ResolvedTargetCapabilities,
   TargetCapability,
+  TargetInput,
   TargetManager,
   TargetProfile,
   TargetRequest,
@@ -390,6 +391,10 @@ function resolvedCapabilities(
 }
 
 // === TARGET RESOLUTION ======================================================
+
+export function targetRequestOf(input: TargetInput): TargetRequest {
+  return typeof input === 'string' ? Object.freeze({ format: input }) : input
+}
 
 export function targetProfileOf(request: TargetRequest): TargetProfile {
   const version = request.managerVersion === undefined ? undefined : parseVersion(request.managerVersion)

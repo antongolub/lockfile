@@ -8,7 +8,7 @@
 
 `lockgraph` is a sibling of the PM adapters (`yarn-berry-*`, `npm-*`,
 `pnpm-*`, `bun-text`, `yarn-classic`) on the same `parse` / `stringify` /
-`check` / `detect` plumbing, so `convert(x, { to: 'lockgraph' })` and back work
+`check` / `detect` plumbing, so `convert(x, { target: 'lockgraph' })` and back work
 through the existing converter. Unlike those adapters — which serialize the
 Graph into a *foreign* PM schema and therefore round-trip only up to that
 schema's expressivity — `lockgraph` serializes the canonical model itself,
