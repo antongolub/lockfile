@@ -13,8 +13,10 @@ import {
   check,
   convert,
   detect,
+  enrich,
   parse,
   stringify,
+  type ArtifactSourceList,
   type Diagnostic,
   type FormatId,
 } from '../../main/ts/index.ts'
@@ -137,6 +139,23 @@ describe('public surface — detect', () => {
 })
 
 describe('public surface — convert', () => {
+  it('exports the flat artifact-list contract', async () => {
+    const registry = {
+      async packument() { return undefined },
+      async resolve() { return undefined },
+    }
+    const artifacts: ArtifactSourceList = ['npm', 'yarn-berry:.yarn/cache', { registry }]
+    const input = parse(fixture('simple', 'npm-3.lock'), 'npm-3')
+
+    const result = await enrich(input, {
+      sources: { artifacts },
+      target: 'npm-3',
+      contract: 'snapshot',
+    })
+
+    expect(result.graph).toBe(input)
+  })
+
   it('accepts a bare target in the options bag', async () => {
     const input = fixture('simple', 'yarn-berry-v9.lock')
     const out = await convert(input, { target: 'pnpm-v9', strict: false })

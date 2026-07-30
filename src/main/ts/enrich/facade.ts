@@ -69,9 +69,11 @@ import { hydrateMetadata } from './hydrate-metadata.ts'
 import {
   berryCacheKeyFor,
   refurbish,
-  type RefurbishSources,
-  type TarballSource,
 } from './refurbish.ts'
+import {
+  normalizeArtifactSources,
+  type ArtifactSourcesInput,
+} from './artifact-sources.ts'
 import {
   materializeYarnBerryPluginCompat,
   yarnBerryPluginCompatRegistry,
@@ -83,7 +85,7 @@ import { projectYarnBerryDerivedDependencies } from './yarn-berry-derived-depend
 export interface EnrichSources {
   readonly manifests?: Readonly<Record<string, Manifest>>
   readonly registry?: RegistryAdapter
-  readonly artifacts?: RefurbishSources | TarballSource
+  readonly artifacts?: ArtifactSourcesInput
   readonly config?: PmConfigEvidence
 }
 
@@ -488,6 +490,9 @@ export async function enrich(
   const sources = legacy
     ? sourcesOrOptions as EnrichSources
     : (sourcesOrOptions as EnrichOptions).sources ?? {}
+  const artifacts = sources.artifacts === undefined
+    ? undefined
+    : normalizeArtifactSources(sources.artifacts)
   const targetRequest = targetRequestOf(options.target)
   const target = targetProfileOf(targetRequest)
   const diagnostics: Diagnostic[] = []
@@ -672,14 +677,14 @@ export async function enrich(
   let artifactEnriched: readonly string[] = []
   let inferredArtifactCacheKey: string | undefined
   if (target.capabilities.integrity === 'berry-zip'
-    && sources.artifacts !== undefined && hasBerryChecksumGap(working)) {
+    && artifacts !== undefined && hasBerryChecksumGap(working)) {
     const before = working
     const artifactCacheKey = options.cacheKey ?? berryCacheKeyFor(
       before,
       targetRequest.format,
       'observed-only',
     )
-    const refurbished = await refurbish(before, targetRequest.format, sources.artifacts, {
+    const refurbished = await refurbish(before, targetRequest.format, artifacts.refurbish, {
       ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
       cacheKeyInference: 'observed-only',
     })

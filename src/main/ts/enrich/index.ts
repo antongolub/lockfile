@@ -5,6 +5,13 @@ export type {
   RefurbishSources,
   TarballSource,
 } from './refurbish.ts'
+export type {
+  ArtifactCacheFamily,
+  ArtifactCacheSpecifier,
+  ArtifactSourceList,
+  ArtifactSourcesInput,
+  RemoteArtifactSource,
+} from './artifact-sources.ts'
 export { hydrateMetadata } from './hydrate-metadata.ts'
 export type { HydrateMetadataResult } from './hydrate-metadata.ts'
 export { enrich } from './facade.ts'

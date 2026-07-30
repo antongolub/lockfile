@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   completenessOf,
@@ -687,6 +691,49 @@ describe('target-aware enrich facade', () => {
     const result = await enrich(input, {}, npmTarget)
     expect(result.graph).toBe(input)
     expect(result.diagnostics).toEqual([])
+  })
+
+  it('normalizes a flat Yarn cache list byte-and-diagnostic-identically to split sources', async () => {
+    const input = plainGraph()
+    const cacheDir = mkdtempSync(resolve(tmpdir(), 'lockgraph-enrich-artifacts-'))
+    const zip = new Uint8Array([1, 2, 3, 4, 5])
+    writeFileSync(resolve(cacheDir, 'pkg-npm-1.0.0-aaaaaaaaaa-10c0.zip'), zip)
+    const digest = createHash('sha512').update(zip).digest('hex')
+    try {
+      const explicit = await enrich(input, {
+        sources: {
+          artifacts: {
+            npmTarballs: { async tarball() { return undefined } },
+            yarnBerryChecksums: {
+              async berryChecksum() { return digest },
+            },
+          },
+        },
+        target: 'yarn-berry-v8',
+        contract: 'snapshot',
+        cacheKey: '10c0',
+      })
+      const listed = await enrich(input, {
+        sources: { artifacts: [`yarn-berry:${cacheDir}`] },
+        target: 'yarn-berry-v8',
+        contract: 'snapshot',
+        cacheKey: '10c0',
+      })
+
+      expect(stringify(listed.graph, 'yarn-berry-v8', { strict: false }))
+        .toBe(stringify(explicit.graph, 'yarn-berry-v8', { strict: false }))
+      expect(listed.diagnostics).toEqual(explicit.diagnostics)
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+  })
+
+  it('validates malformed flat artifact lists before target-specific byte gating', async () => {
+    await expect(enrich(plainGraph(), {
+      sources: { artifacts: ['nmp'] as never },
+      target: 'npm-3',
+      contract: 'snapshot',
+    })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
   })
 
   it('never infers the Berry 10c0 cache key in the facade', async () => {

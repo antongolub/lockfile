@@ -152,3 +152,10 @@ export type {
   EnrichResult,
   EnrichSources,
 } from './enrich/facade.ts'
+export type {
+  ArtifactCacheFamily,
+  ArtifactCacheSpecifier,
+  ArtifactSourceList,
+  ArtifactSourcesInput,
+  RemoteArtifactSource,
+} from './enrich/artifact-sources.ts'

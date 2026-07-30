@@ -505,6 +505,30 @@ used by current and staged refinement paths:
 | **Minting a node / staged metadata hydration** | the packument version plus, when available, the full exact-version manifest | To materialise a version not already in the lock or fill authoritative metadata absent from an existing payload. Corgi (npm's abbreviated packument) omits fields including `libc` and `license`, so it cannot prove project metadata completeness. Berry checksum recomputation additionally needs a separate artifact source; `RegistryAdapter` does not provide tarball bytes. |
 | **`audit(registryPackages(graph))`** | raw npm bulk advisories | Security audit of the graph's registry packages (severity and fix-selection stay the caller's). |
 
+Artifact evidence is a separate ordered channel. `sources.artifacts` accepts
+cache specifiers (`npm`, `yarn-berry`, or `pnpm`) and their `family:path`
+variants, plus retained `{ registry }` remote descriptors. Normalization happens
+once at `enrich` entry, even for a target that needs no artifact bytes, so an
+unknown family or malformed descriptor fails with `INVALID_INPUT` rather than
+remaining latent until another conversion.
+
+Each cache keeps its actual byte capability: npm exposes the original tgz, Yarn
+Berry exposes the checksum of its own repacked zip, and pnpm exposes no archive
+because its store is decomposed. Sources of the same capability are queried in
+declared order until the first hit. Across capabilities, a manager-owned Yarn
+checksum is preferred to recomputing one from an npm tgz. Cache adapter identity
+is retained but its partial packuments are not promoted into the singular
+registry authority; doing so requires separate ordered merge/conflict semantics.
+Remote descriptors are likewise retained but do not fetch artifact bytes in this
+increment.
+
+For compatibility, the facade also accepts the split `RefurbishSources` pair and
+the older combined `TarballSource`, preserving both capabilities in either
+object form. This increment neither removes nor newly deprecates either shape;
+whether the facade eventually converges on the list alone is a later public-
+contract decision. The direct `refurbish` primitive continues to accept object
+sources independently.
+
 Alias completion has two explicit fail-closed boundaries. npm-1, pnpm v5/v6/v9,
 and bun-text preserve aliases already proven by their native locks, but cannot
 reconstruct a missing aliased edge from a project manifest alone. Separately,

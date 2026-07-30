@@ -120,9 +120,13 @@ stringify(graph, 'yarn-berry-v10')
 // LockfileError ENRICH_REQUIRED — v10 keys its cache differently, so
 // @napi-rs/nice-android-arm-eabi@1.0.1 would emit without a checksum
 
-const ready = await enrich(graph, {                  // artifacts hashes the zip
-  sources: { artifacts },                            // yarn already cached, so no
-  target: 'yarn-berry-v10',                          // download and no repack
+const artifacts = [                                   // ordered, disk-only:
+  'yarn-berry:.yarn/cache',                           // Yarn's own cached zip hash
+  'npm',                                              // original tgz fallback
+] as const
+const ready = await enrich(graph, {
+  sources: { artifacts },
+  target: 'yarn-berry-v10',
   contract: 'project',
 })
 const out = stringify(ready.graph, 'yarn-berry-v10')
@@ -194,6 +198,27 @@ The former `enrich(graph, sources, options)` form remains available under
 deprecation. Likewise, `convert` still accepts deprecated `to` and
 `targetVersion`; new code uses `target` and, when pinned,
 `target: { format, managerVersion }`.
+
+Artifact cache entries are an ordered list. A family name uses that manager's
+default cache; `family:path` selects an explicit location:
+
+```ts
+sources: {
+  artifacts: [
+    'yarn-berry:./.yarn/cache',
+    'npm:./.cache/npm/_cacache',
+    'pnpm:./.cache/pnpm/v3',
+    { registry }, // retained remote descriptor; artifact download is opt-in separately
+  ],
+}
+```
+
+The recognized families are `npm`, `yarn-berry`, and `pnpm`. npm can supply the
+original registry tgz, Yarn can supply its own repacked-zip checksum, and pnpm's
+decomposed store deliberately supplies no archive. Those byte kinds are never
+relabelled. Existing callers may still pass either a split
+`RefurbishSources` object or the deprecated combined `TarballSource`; the direct
+`refurbish` primitive keeps its object contract.
 
 Calling the primitives directly is supported but incomplete: `completeTransitives`
 plus `refurbish` does not materialise Berry target-compatibility entries, and
