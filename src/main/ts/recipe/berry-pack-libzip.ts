@@ -20,9 +20,15 @@
 // re-root under `node_modules/<ident>`, fixed SAFE_TIME mtime, mkdirp parents at
 // mode 0o755, file mode from the tar header.
 
-import { gunzipSync } from 'node:zlib'
 import { createHash } from 'node:crypto'
 import { parseTar } from './berry-checksum.ts'
+import {
+  ArtifactEnvelopeError,
+  assertArtifactRepresentation,
+  inflateArtifact,
+  type ArtifactLiveMeter,
+  type EffectiveArtifactResourceLimits,
+} from './artifact-envelope.ts'
 
 const SAFE_TIME = 456789000 // @yarnpkg/fslib SAFE_TIME (1984-06-22T21:50:00Z)
 
@@ -35,6 +41,13 @@ interface ZipFsLike {
   getBufferAndClose(): Uint8Array
 }
 type LibzipModule = { ZipFS: new (src: null, opts: { level: number | 'mixed' }) => ZipFsLike }
+
+/** Whether the optional Yarn-owned packer is installed. Kept separate from a
+ * pack attempt so callers can give the actionable install remedy only when
+ * absence is the actual reason verification is unavailable. */
+export async function berryLibzipAvailable(): Promise<boolean> {
+  return import('@yarnpkg/libzip').then(() => true, () => false)
+}
 
 /** The ZipFS compression level for a cacheKey: `mixed` (no `cN`) → `'mixed'`,
  *  `cN` → `N`; `null` for a malformed cacheKey. */
@@ -55,6 +68,8 @@ export async function computeBerryChecksumViaLibzip(
   tgz: Uint8Array,
   ident: string,
   cacheKey: string,
+  limits?: EffectiveArtifactResourceLimits,
+  liveMeter?: ArtifactLiveMeter,
 ): Promise<string | undefined> {
   const level = levelOf(cacheKey)
   if (level === null) return undefined
@@ -67,25 +82,40 @@ export async function computeBerryChecksumViaLibzip(
   }
 
   try {
-    const tar = gunzipSync(Buffer.from(tgz))
-    const zipFs = new ZipFS(null, { level })
-    const prefix = `/node_modules/${ident}`
-    for (const f of parseTar(tar)) {
-      const rel = f.name.split('/').slice(1).join('/') // stripComponents:1
-      if (rel === '') continue
-      const full = `${prefix}/${rel}`
-      zipFs.mkdirpSync(full.slice(0, full.lastIndexOf('/')), { chmod: 0o755, utimes: [SAFE_TIME, SAFE_TIME] })
-      // yarn NORMALIZES the entry mode — 0o755 if any execute bit, else 0o644 — it
-      // does NOT preserve the raw tar mode. Passing `f.mode` verbatim diverges the
-      // zip bytes for a file with a non-standard mode (e.g. selfsigned@5.5.0's
-      // `test/ec-keys.js` is 0o600 → wrong checksum → `--immutable` YN0018). Mirrors
-      // the pako path's `(mode & 0o111) ? 0o755 : 0o644` (berry-checksum.ts).
-      const mode = (f.mode & 0o111) !== 0 ? 0o755 : 0o644
-      zipFs.writeFileSync(full, f.data, { mode })
-      zipFs.utimesSync(full, SAFE_TIME, SAFE_TIME)
+    const tar = inflateArtifact(tgz, limits)
+    const releaseTar = liveMeter?.acquire(tar.byteLength)
+    try {
+      const zipFs = new ZipFS(null, { level })
+      const prefix = `/node_modules/${ident}`
+      for (const f of parseTar(tar, limits)) {
+        const rel = f.name.split('/').slice(1).join('/') // stripComponents:1
+        if (rel === '') continue
+        const full = `${prefix}/${rel}`
+        zipFs.mkdirpSync(full.slice(0, full.lastIndexOf('/')), { chmod: 0o755, utimes: [SAFE_TIME, SAFE_TIME] })
+        // yarn NORMALIZES the entry mode — 0o755 if any execute bit, else 0o644 — it
+        // does NOT preserve the raw tar mode. Passing `f.mode` verbatim diverges the
+        // zip bytes for a file with a non-standard mode (e.g. selfsigned@5.5.0's
+        // `test/ec-keys.js` is 0o600 → wrong checksum → `--immutable` YN0018). Mirrors
+        // the pako path's `(mode & 0o111) ? 0o755 : 0o644` (berry-checksum.ts).
+        const mode = (f.mode & 0o111) !== 0 ? 0o755 : 0o644
+        zipFs.writeFileSync(full, f.data, { mode })
+        zipFs.utimesSync(full, SAFE_TIME, SAFE_TIME)
+      }
+      const zip = Buffer.from(zipFs.getBufferAndClose())
+      if (limits !== undefined) {
+        assertArtifactRepresentation('repacked', zip.byteLength, limits)
+      }
+      const releaseZip = liveMeter?.acquire(zip.byteLength)
+      try {
+        return createHash('sha512').update(zip).digest('hex')
+      } finally {
+        releaseZip?.()
+      }
+    } finally {
+      releaseTar?.()
     }
-    return createHash('sha512').update(Buffer.from(zipFs.getBufferAndClose())).digest('hex')
-  } catch {
+  } catch (error) {
+    if (error instanceof ArtifactEnvelopeError) throw error
     return undefined // pack failed → caller defers
   }
 }

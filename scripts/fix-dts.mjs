@@ -66,6 +66,11 @@ const publicDeprecations = [
     anchor: '    readonly targetVersion: string;',
     marker: '    /** @deprecated Use target.managerVersion. */',
   },
+  {
+    path: 'registry/live.d.ts',
+    anchor: '    function fromConfig(cwd: string, name: string | undefined, opts: FromConfigOptions): LiveRegistryAdapter;',
+    marker: '    /** @deprecated Pass only `(cwd, options)` so package names use scope-aware registry routing. */',
+  },
 ]
 const countExact = (source, value) => source.split(value).length - 1
 for (const deprecation of publicDeprecations) {

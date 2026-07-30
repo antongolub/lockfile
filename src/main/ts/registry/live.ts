@@ -26,7 +26,12 @@ import semver from 'semver'
 import { fetch as nodeFetchNative } from 'node-fetch-native'
 import { parseSri, isEmptyIntegrity, mergeIntegrity, emptyIntegrity } from '../recipe/integrity.ts'
 import { resolveRegistry, DEFAULT_REGISTRY, type ResolveRegistryOptions } from './config.ts'
-import type { Limiter, Packument, PackumentVersion, RegistryAdapter } from './types.ts'
+import type {
+  Limiter,
+  Packument,
+  PackumentVersion,
+  RemoteArtifactRegistry,
+} from './types.ts'
 
 export interface LiveRegistryOptions {
   /** Registry URL. Default: 'https://registry.npmjs.org'. */
@@ -69,7 +74,7 @@ export interface AuditOptions {
 
 /** `liveRegistry`'s adapter — the read facade (`packument`/`resolve`) plus a
  *  thin RAW bulk-advisory fetch. */
-export interface LiveRegistryAdapter extends RegistryAdapter {
+export interface LiveRegistryAdapter extends RemoteArtifactRegistry {
   /** POST the `{ name: versions[] }` map to
    *  `<registry>/-/npm/v1/security/advisories/bulk` (chunked by `chunkSize`),
    *  returning the RAW per-package advisories merged across chunks. No
@@ -97,6 +102,8 @@ export function liveRegistry(opts: LiveRegistryOptions = {}): LiveRegistryAdapte
   // https-only `authHeaderFor`, and defends the raw `liveRegistry({ url, authHeader })`
   // path too (credential attachment invariant: "https only").
   const authIsSafe = authHeader !== undefined && baseUrl.startsWith('https:')
+  const authHeaderFor = (url: string): string | undefined =>
+    authIsSafe && isWithinRegistryRoute(url, baseUrl) ? authHeader : undefined
 
   // Fetch the FULL single-version manifest (`<registry>/<pkg>/<version>`, ~1-2 KB) —
   // used to backfill fields the abbreviated (corgi) packument omits, notably `libc`.
@@ -199,6 +206,15 @@ export function liveRegistry(opts: LiveRegistryOptions = {}): LiveRegistryAdapte
     // direct `registry.limit(task)` never NPEs, and completion can forward it to
     // custom constraints (`ConditionContext.limit`) — one quota for registry + checkers.
     limit,
+
+    artifactRoute() {
+      return Object.freeze({
+        registryUrl: baseUrl,
+        fetch: fetchImpl,
+        authHeaderFor,
+        limit,
+      })
+    },
   }
 }
 
@@ -206,6 +222,18 @@ export function liveRegistry(opts: LiveRegistryOptions = {}): LiveRegistryAdapte
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+function isWithinRegistryRoute(rawUrl: string, rawRegistryUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl)
+    const registry = new URL(rawRegistryUrl)
+    if (url.protocol !== registry.protocol || url.host !== registry.host) return false
+    const base = registry.pathname.replace(/\/+$/, '')
+    return url.pathname === base || url.pathname.startsWith(`${base}/`)
+  } catch {
+    return false
+  }
 }
 
 function encodePackageName(name: string): string {
@@ -318,6 +346,8 @@ function isStringMap(value: unknown): value is Record<string, string> {
 export interface FromConfigOptions extends ResolveRegistryOptions {
   /** Fetch override (proxy / custom-CA / test spy), forwarded to `liveRegistry`. */
   fetch?: typeof fetch
+  /** Scheduling policy shared by registry metadata and artifact byte requests. */
+  limit?: Limiter
 }
 
 // `liveRegistry.fromConfig(cwd, name?)` — named-constructor sugar that resolves
@@ -327,9 +357,92 @@ export interface FromConfigOptions extends ResolveRegistryOptions {
 // plaintext URL), so it is never sent over an insecure channel.
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace liveRegistry {
-  export function fromConfig(cwd: string, name: string | undefined, opts: FromConfigOptions): LiveRegistryAdapter {
+  export function fromConfig(cwd: string, opts: FromConfigOptions): LiveRegistryAdapter
+  /** @deprecated Pass only `(cwd, options)`; the returned adapter now routes
+   * each package name through the resolved scope-aware registry configuration. */
+  export function fromConfig(
+    cwd: string,
+    name: string | undefined,
+    opts: FromConfigOptions,
+  ): LiveRegistryAdapter
+  export function fromConfig(
+    cwd: string,
+    nameOrOptions: string | FromConfigOptions | undefined,
+    legacyOptions?: FromConfigOptions,
+  ): LiveRegistryAdapter {
+    if (legacyOptions !== undefined) {
+      const opts = legacyOptions
+      const cfg = resolveRegistry(cwd, opts)
+      const url = cfg.registryFor(
+        typeof nameOrOptions === 'string' ? nameOrOptions : '',
+      )
+      return liveRegistry({
+        url,
+        authHeader: cfg.authHeaderFor(url),
+        fetch: opts.fetch,
+        limit: opts.limit,
+      })
+    }
+
+    if (nameOrOptions === undefined || typeof nameOrOptions === 'string') {
+      throw new TypeError('liveRegistry.fromConfig: options are required')
+    }
+    const opts = nameOrOptions
     const cfg = resolveRegistry(cwd, opts)
-    const url = cfg.registryFor(name ?? '')
-    return liveRegistry({ url, authHeader: cfg.authHeaderFor(url), fetch: opts.fetch })
+    const fetchImpl = opts.fetch ?? (nodeFetchNative as typeof fetch)
+    const limit: Limiter = opts.limit ?? (task => task())
+    const adapterFor = (name: string): LiveRegistryAdapter => {
+      const url = cfg.registryFor(name)
+      return liveRegistry({
+        url,
+        authHeader: cfg.authHeaderFor(url),
+        fetch: fetchImpl,
+        limit,
+      })
+    }
+
+    return {
+      packument(name) {
+        return adapterFor(name).packument(name)
+      },
+      resolve(name, range) {
+        return adapterFor(name).resolve(name, range)
+      },
+      manifest(name, version) {
+        return adapterFor(name).manifest!(name, version)
+      },
+      async audit(pkgs, auditOptions) {
+        const grouped = new Map<string, Record<string, string[]>>()
+        for (const [name, versions] of Object.entries(pkgs)) {
+          const route = cfg.registryFor(name)
+          const group = grouped.get(route) ?? {}
+          group[name] = versions
+          grouped.set(route, group)
+        }
+        const out: Record<string, RawAdvisory[]> = {}
+        for (const [url, group] of grouped) {
+          const found = await liveRegistry({
+            url,
+            authHeader: cfg.authHeaderFor(url),
+            fetch: fetchImpl,
+            limit,
+          }).audit(group, auditOptions)
+          for (const [name, advisories] of Object.entries(found)) {
+            (out[name] ??= []).push(...advisories)
+          }
+        }
+        return out
+      },
+      artifactRoute(name) {
+        const registryUrl = cfg.registryFor(name)
+        return Object.freeze({
+          registryUrl,
+          fetch: fetchImpl,
+          authHeaderFor: cfg.authHeaderFor,
+          limit,
+        })
+      },
+      limit,
+    }
   }
 }

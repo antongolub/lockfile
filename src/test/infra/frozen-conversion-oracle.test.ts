@@ -3,8 +3,13 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { certifyFrozen, convert, prepareFrozen } from '../../main/ts/index.ts'
+import type {
+  Packument,
+  PackumentVersion,
+  RemoteArtifactRegistry,
+} from '../../main/ts/registry/types.ts'
 import {
   createNativeLock,
   FROZEN_ORACLE_MATRIX,
@@ -322,6 +327,86 @@ describe('infra: frozen conversion native oracle', () => {
       60_000,
     )
   }
+
+  const remoteArtifactAdapter = FROZEN_ORACLE_MATRIX.find(
+    entry => entry.alias === 'pm-yarn-berry-v9',
+  )!
+  const remoteArtifactRunnable = runnableFor(remoteArtifactAdapter)
+  remoteArtifactRunnable.run(
+    `verified remote tgz produces a ${remoteArtifactAdapter.alias} immutable candidate${remoteArtifactRunnable.suffix}`,
+    async () => {
+      const adapter = remoteArtifactAdapter
+      const files = createNativeLock(adapter, projectFiles(adapter))
+      const nativeLockfile = String(files[lockPath(adapter)]!)
+      const cacheKey = nativeLockfile.match(/^\s+cacheKey:\s+(\S+)\s*$/m)?.[1]
+      expect(cacheKey).toBeDefined()
+
+      const bytes = readFileSync(tarballPath)
+      const artifactUrl = 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz'
+      const version: PackumentVersion = {
+        name: 'ms',
+        version: '2.1.3',
+        tarball: artifactUrl,
+      }
+      const packument: Packument = {
+        name: 'ms',
+        distTags: {},
+        versions: { '2.1.3': version },
+      }
+      const fetchArtifact = vi.fn(async () => new Response(bytes))
+      const artifactRegistry: RemoteArtifactRegistry = {
+        async packument() { return packument },
+        async resolve() { return version },
+        artifactRoute() {
+          return {
+            registryUrl: 'https://registry.test/npm',
+            fetch: fetchArtifact as unknown as typeof fetch,
+            authHeaderFor: () => undefined,
+            limit: task => task(),
+          }
+        },
+      }
+      const source = JSON.parse(readFileSync(denoNpmOnlyPath, 'utf8')) as unknown
+      const diagnostics: unknown[] = []
+      const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
+        from: 'deno-v5',
+        target: {
+          format: adapter.format,
+          managerVersion: adapter.version,
+        },
+        strict: false,
+        cacheKey,
+        manifests: {
+          '': {
+            name: 'lockgraph-frozen-oracle-case',
+            version: '1.0.0',
+            dependencies: { ms: '2.1.3' },
+            overrides: [],
+          },
+        },
+        sources: {
+          artifacts: [{ registry: artifactRegistry }],
+        },
+        onDiagnostic(diagnostic) {
+          diagnostics.push(diagnostic)
+        },
+      })
+      expect(fetchArtifact, JSON.stringify(diagnostics, null, 2)).toHaveBeenCalledWith(
+        artifactUrl,
+        expect.objectContaining({ redirect: 'manual' }),
+      )
+
+      const candidate = denoForwardCandidate(adapter, lockfile)
+      const oracle = runFrozenOracle(candidate, adapter, files)
+      expect(oracle.reason).toBeUndefined()
+      expect(oracle.receipt).toMatchObject({
+        target: candidate.target,
+        projectionDigest: candidate.projectionDigest,
+        verification: 'frozen-verified',
+      })
+    },
+    60_000,
+  )
 
   fullMatrixIt('materializes external Yarn patch files for frozen verification', () => {
     const adapter = FROZEN_ORACLE_MATRIX.find(entry => entry.alias === 'pm-yarn-berry-v9')!

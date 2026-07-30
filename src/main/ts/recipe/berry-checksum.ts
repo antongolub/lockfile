@@ -39,7 +39,7 @@
 // method follow STORE (`10`/`0`/`0`) or DEFLATE (`20`/`2`/`8`); no extra field,
 // no comment; entry order per `dirsFirst` (lazy tar order, or all-dirs-then-files).
 
-import zlib, { gunzipSync } from 'node:zlib'
+import zlib from 'node:zlib'
 import { createHash } from 'node:crypto'
 // pako's DEFLATE match-finding hash decides the exact compressed bytes, and it is
 // what distinguishes yarn's cache-zip generations: pako 2.2.0 added a faster
@@ -53,6 +53,12 @@ import { createHash } from 'node:crypto'
 // exactly what keeps us yarn-stable regardless of which pako we ship. Do not drop
 // or hard-code it (a wrong hash → wrong bytes → wrong checksum → YN0018).
 import { deflateRaw } from 'pako'
+import {
+  assertArtifactRepresentation,
+  inflateArtifact,
+  type ArtifactLiveMeter,
+  type EffectiveArtifactResourceLimits,
+} from './artifact-envelope.ts'
 
 // pako 2.2.0's bundled .d.ts omits `legacyHash` (a real runtime option it added);
 // declare it in so the explicit flag below type-checks.
@@ -110,8 +116,12 @@ const tarField = (b: Buffer, off: number, len: number): string => {
 // do NOT reproduce; SILENTLY skipping it would mis-hash (a wrong checksum hard-fails
 // `--immutable`, worse than a miss), so we THROW and the packer DEFERS. Exported so
 // a test can exercise the unsupported-entry guard directly.
-export function parseTar(tar: Buffer): TarFile[] {
+export function parseTar(
+  tar: Buffer,
+  limits?: EffectiveArtifactResourceLimits,
+): TarFile[] {
   const out: TarFile[] = []
+  let contentBytes = 0
   for (let o = 0; o + 512 <= tar.length; ) {
     const header = tar.subarray(o, o + 512)
     let allZero = true
@@ -125,6 +135,10 @@ export function parseTar(tar: Buffer): TarFile[] {
     const type = String.fromCharCode(header[156] ?? 0)
     o += 512
     if (type === '0' || type === '\0' || type === '') {
+      contentBytes += size
+      if (limits !== undefined) {
+        assertArtifactRepresentation('tar-content', contentBytes, limits)
+      }
       out.push({ name, mode, data: tar.subarray(o, o + size) })
     } else if (type !== '5' && type !== 'x' && type !== 'g') {
       // symlink / hardlink / device / GNU-long — not reproduced; defer, never mis-hash.
@@ -146,7 +160,14 @@ interface CdEntry { name: Buffer; crc: number; csize: number; usize: number; vn:
 // `{ level: 9, strategy: 0, memLevel: 9 }` — libzip's max-compression params.
 // `dosTime`/`dosDate` carry the era's fixed mtime (SAFE_TIME vs DOS epoch);
 // `legacyHash` selects pako's match-hash for the era (cacheKey 7/8 → true, 9 → false).
-function buildZip(entries: ZipEntry[], compress: boolean, dosTime: number, dosDate: number, legacyHash: boolean): Buffer {
+function buildZip(
+  entries: ZipEntry[],
+  compress: boolean,
+  dosTime: number,
+  dosDate: number,
+  legacyHash: boolean,
+  limits?: EffectiveArtifactResourceLimits,
+): Buffer {
   const parts: Buffer[] = []
   const central: CdEntry[] = []
   let off = 0
@@ -174,6 +195,7 @@ function buildZip(entries: ZipEntry[], compress: boolean, dosTime: number, dosDa
     parts.push(lh, nm, stored)
     central.push({ name: nm, crc, csize: stored.length, usize: raw.length, vn, gp, method, ext, off })
     off += 30 + nm.length + stored.length
+    if (limits !== undefined) assertArtifactRepresentation('repacked', off, limits)
   }
   const cdStart = off
   for (const c of central) {
@@ -186,12 +208,14 @@ function buildZip(entries: ZipEntry[], compress: boolean, dosTime: number, dosDa
     h.writeUInt16LE(0, 36); h.writeUInt32LE(c.ext, 38); h.writeUInt32LE(c.off, 42)  // int-attr, ext-attr, local-off
     parts.push(h, c.name)
     off += 46 + c.name.length
+    if (limits !== undefined) assertArtifactRepresentation('repacked', off, limits)
   }
   const eocd = Buffer.alloc(22)
   eocd.writeUInt32LE(0x06054b50, 0)
   eocd.writeUInt16LE(central.length, 8); eocd.writeUInt16LE(central.length, 10)
   eocd.writeUInt32LE(off - cdStart, 12); eocd.writeUInt32LE(cdStart, 16)
   parts.push(eocd)
+  if (limits !== undefined) assertArtifactRepresentation('repacked', off + eocd.length, limits)
   return Buffer.concat(parts)
 }
 
@@ -254,7 +278,14 @@ export function berryCacheKeyReproducible(cacheKey: string): boolean {
  * order (default: lazy/tar order; `true`: all directories first, then all files) —
  * the caller calibrates which order a lock used against a discriminating sibling.
  */
-export function computeBerryChecksum(tgz: Uint8Array, ident: string, cacheKey: string, dirsFirst = false): string {
+export function computeBerryChecksum(
+  tgz: Uint8Array,
+  ident: string,
+  cacheKey: string,
+  dirsFirst = false,
+  limits?: EffectiveArtifactResourceLimits,
+  liveMeter?: ArtifactLiveMeter,
+): string {
   const p = parseCacheKey(cacheKey)
   if (p === null || !berryCacheKeyReproducible(cacheKey))
     throw new Error(`computeBerryChecksum: cacheKey '${cacheKey}' is not byte-reproducible (only STORE 'cN0' v8+, or mixed cacheKey 7/8)`)
@@ -267,24 +298,35 @@ export function computeBerryChecksum(tgz: Uint8Array, ident: string, cacheKey: s
   const dosTime = dosEpoch ? EPOCH_DOS_TIME : SAFE_DOS_TIME
   const dosDate = dosEpoch ? EPOCH_DOS_DATE : SAFE_DOS_DATE
 
-  const tar = gunzipSync(Buffer.from(tgz))
-  const prefix = `node_modules/${ident}/`
-  const entries: ZipEntry[] = []
-  const seen = new Set<string>()
-  const parsed = parseTar(tar)
-    .map(f => ({ full: prefix + f.name.split('/').slice(1).join('/'), mode: f.mode, data: f.data }))  // stripComponents:1
-    .filter(f => f.full !== prefix)                            // drop the bare 'package/' root
-  const mkdirp = (full: string): void => {                     // synthesise parent dirs in first-encounter order
-    const segs = full.split('/'); segs.pop()
-    let cur = ''
-    for (const s of segs) { cur += `${s}/`; if (!seen.has(cur)) { seen.add(cur); entries.push({ name: cur, dir: true, mode: 0o755, data: EMPTY }) } }
+  const tar = inflateArtifact(tgz, limits)
+  const releaseTar = liveMeter?.acquire(tar.byteLength)
+  try {
+    const prefix = `node_modules/${ident}/`
+    const entries: ZipEntry[] = []
+    const seen = new Set<string>()
+    const parsed = parseTar(tar, limits)
+      .map(f => ({ full: prefix + f.name.split('/').slice(1).join('/'), mode: f.mode, data: f.data }))  // stripComponents:1
+      .filter(f => f.full !== prefix)                            // drop the bare 'package/' root
+    const mkdirp = (full: string): void => {                     // synthesise parent dirs in first-encounter order
+      const segs = full.split('/'); segs.pop()
+      let cur = ''
+      for (const s of segs) { cur += `${s}/`; if (!seen.has(cur)) { seen.add(cur); entries.push({ name: cur, dir: true, mode: 0o755, data: EMPTY }) } }
+    }
+    const pushFile = (f: { full: string; mode: number; data: Buffer }): void => { entries.push({ name: f.full, dir: false, mode: f.mode, data: f.data }) }
+    if (dirsFirst) {
+      for (const f of parsed) mkdirp(f.full)                     // ALL directories first (discovery order)…
+      for (const f of parsed) pushFile(f)                        // …then all files
+    } else {
+      for (const f of parsed) { mkdirp(f.full); pushFile(f) }    // lazy: each file preceded by its new ancestor dirs
+    }
+    const zip = buildZip(entries, compress, dosTime, dosDate, legacyHash, limits)
+    const releaseZip = liveMeter?.acquire(zip.byteLength)
+    try {
+      return createHash('sha512').update(zip).digest('hex')
+    } finally {
+      releaseZip?.()
+    }
+  } finally {
+    releaseTar?.()
   }
-  const pushFile = (f: { full: string; mode: number; data: Buffer }): void => { entries.push({ name: f.full, dir: false, mode: f.mode, data: f.data }) }
-  if (dirsFirst) {
-    for (const f of parsed) mkdirp(f.full)                     // ALL directories first (discovery order)…
-    for (const f of parsed) pushFile(f)                        // …then all files
-  } else {
-    for (const f of parsed) { mkdirp(f.full); pushFile(f) }    // lazy: each file preceded by its new ancestor dirs
-  }
-  return createHash('sha512').update(buildZip(entries, compress, dosTime, dosDate, legacyHash)).digest('hex')
 }

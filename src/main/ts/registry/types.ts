@@ -84,6 +84,25 @@ export interface RegistryAdapter {
   limit?: Limiter
 }
 
+/** An explicitly configured registry route that is allowed to transport npm
+ * tarball bytes for one package name. Route authorization is deliberately
+ * separate from credential lookup: an anonymous route is still authorized,
+ * while credentials are attached only after each URL (including redirects)
+ * has been accepted by the route boundary. */
+export interface ArtifactRoute {
+  readonly registryUrl: string
+  readonly fetch: typeof fetch
+  readonly authHeaderFor: (url: string) => string | undefined
+  readonly limit: Limiter
+}
+
+/** Registry metadata plus an opt-in remote byte route. Plain RegistryAdapter
+ * implementations remain metadata-only and cannot accidentally gain network
+ * authority merely by being listed as an artifact source. */
+export interface RemoteArtifactRegistry extends RegistryAdapter {
+  artifactRoute(name: string): ArtifactRoute | undefined
+}
+
 /**
  * A cache keyed by package IDENTITY (name / name@version) — for OFFLINE / FROZEN
  * resolution and reuse of a PM's on-disk store, NOT an HTTP response cache (that

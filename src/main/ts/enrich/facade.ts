@@ -45,6 +45,7 @@ import {
   type PackageMetadataPayload,
 } from '../registry/payload.ts'
 import { integrityEquivalent } from '../recipe/integrity.ts'
+import type { ArtifactResourcePolicy } from '../recipe/artifact-envelope.ts'
 import * as bunText from '../formats/bun-text.ts'
 import * as npm1 from '../formats/npm-1.ts'
 import * as npm2 from '../formats/npm-2.ts'
@@ -74,6 +75,7 @@ import {
   normalizeArtifactSources,
   type ArtifactSourcesInput,
 } from './artifact-sources.ts'
+import { artifactTarballSource } from './artifact-bytes.ts'
 import {
   materializeYarnBerryPluginCompat,
   yarnBerryPluginCompatRegistry,
@@ -94,6 +96,10 @@ export interface EnrichOptions {
   readonly target: TargetInput
   readonly contract: ConversionContract
   readonly cacheKey?: string
+  /** Mandatory-on artifact safety envelope. Callers may tune the implementation
+   * ceilings globally or for an exact TarballKey; verification/accounting cannot
+   * be disabled. */
+  readonly artifactResources?: ArtifactResourcePolicy
 }
 
 export interface EnrichResult extends GraphResult {}
@@ -435,11 +441,18 @@ function hasPackageConflict(state: InternalEvidenceState): boolean {
   return state.conflicts.some(conflict => packageConflictDimensions.has(conflict.dimension))
 }
 
-function hasBerryChecksumGap(graph: Graph): boolean {
+function hasBerryChecksumGap(
+  graph: Graph,
+  targetCacheKey: string | undefined,
+): boolean {
   for (const node of graph.nodes()) {
     if (node.workspacePath !== undefined) continue
-    const hashes = graph.tarballOf(node.id)?.integrity?.hashes ?? []
+    const payload = graph.tarballOf(node.id)
+    const hashes = payload?.integrity?.hashes ?? []
     if (!hashes.some(hash => hash.origin === 'berry-zip')) return true
+    if (targetCacheKey !== undefined
+      && payload?.berryChecksumCacheKey !== undefined
+      && payload.berryChecksumCacheKey !== targetCacheKey) return true
   }
   return false
 }
@@ -677,28 +690,35 @@ export async function enrich(
   let artifactEnriched: readonly string[] = []
   let inferredArtifactCacheKey: string | undefined
   if (target.capabilities.integrity === 'berry-zip'
-    && artifacts !== undefined && hasBerryChecksumGap(working)) {
+    && artifacts !== undefined) {
     const before = working
     const artifactCacheKey = options.cacheKey ?? berryCacheKeyFor(
       before,
       targetRequest.format,
       'observed-only',
     )
-    const refurbished = await refurbish(before, targetRequest.format, artifacts.refurbish, {
-      ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
-      cacheKeyInference: 'observed-only',
-    })
-    diagnostics.push(...refurbished.unresolved)
-    phases.push({
-      kind: 'artifact',
-      before,
-      after: refurbished.graph,
-      enriched: refurbished.enriched,
-    })
-    working = refurbished.graph
-    artifactEnriched = refurbished.enriched
-    if (options.cacheKey === undefined && artifactCacheKey !== undefined
-      && artifactEnriched.length > 0) inferredArtifactCacheKey = artifactCacheKey
+    if (hasBerryChecksumGap(before, artifactCacheKey)) {
+      const npmTarballs = artifactTarballSource(artifacts, options.artifactResources)
+      const refurbished = await refurbish(before, targetRequest.format, {
+        ...artifacts.refurbish,
+        npmTarballs,
+      }, {
+        ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
+        cacheKeyInference: 'observed-only',
+        artifactResources: options.artifactResources,
+      })
+      diagnostics.push(...refurbished.unresolved)
+      phases.push({
+        kind: 'artifact',
+        before,
+        after: refurbished.graph,
+        enriched: refurbished.enriched,
+      })
+      working = refurbished.graph
+      artifactEnriched = refurbished.enriched
+      if (options.cacheKey === undefined && artifactCacheKey !== undefined
+        && artifactEnriched.length > 0) inferredArtifactCacheKey = artifactCacheKey
+    }
   }
 
   if (memoized !== undefined) refs.push(...registryRefs(memoized))

@@ -240,6 +240,18 @@ interface BerryAdapter {
   optimize(graph: Graph): { graph: Graph }
 }
 
+function fixtureTgzIntegrity(
+  bytes: Buffer,
+): NonNullable<PackumentVersion['integrity']> {
+  return {
+    hashes: [{
+      algorithm: 'sha512',
+      digest: createHash('sha512').update(bytes).digest('hex'),
+      origin: 'registry',
+    }],
+  }
+}
+
 const adapters: readonly BerryAdapter[] = [
   {
     native: FROZEN_ORACLE_MATRIX.find(entry => entry.alias === 'pm-yarn-berry-v8')!,
@@ -339,7 +351,14 @@ function sourceGraph(adapter: BerryAdapter, profile: CompatOracleCase): Graph {
     /^(__metadata:\n  version: \d+\n)/m,
     '$1  cacheKey: 10c0\n',
   )
-  return adapter.parse(lockfile)
+  const parsed = adapter.parse(lockfile)
+  const inputs = { name: profile.name, version: profile.version }
+  return parsed.mutate(mutator => {
+    mutator.setTarball(inputs, {
+      ...parsed.tarball(inputs),
+      integrity: fixtureTgzIntegrity(profile.tarball),
+    })
+  }).graph
 }
 
 function sources(profile: CompatOracleCase): Readonly<{
@@ -350,12 +369,17 @@ function sources(profile: CompatOracleCase): Readonly<{
     name: profile.name,
     version: profile.version,
     ...profile.manifest,
+    integrity: fixtureTgzIntegrity(profile.tarball),
   }
   const versions: Record<string, PackumentVersion> = {
     [profile.name]: primary,
     ...Object.fromEntries(Object.entries(dependencyFixtures).map(([name, fixture]) => [
       name,
-      { name, version: fixture.version },
+      {
+        name,
+        version: fixture.version,
+        integrity: fixtureTgzIntegrity(tarballBytes),
+      },
     ])),
   }
   const packs: Record<string, Packument> = Object.fromEntries(

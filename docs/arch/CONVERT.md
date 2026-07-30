@@ -519,8 +519,45 @@ declared order until the first hit. Across capabilities, a manager-owned Yarn
 checksum is preferred to recomputing one from an npm tgz. Cache adapter identity
 is retained but its partial packuments are not promoted into the singular
 registry authority; doing so requires separate ordered merge/conflict semantics.
-Remote descriptors are likewise retained but do not fetch artifact bytes in this
-increment.
+Remote descriptors are explicit network consent and are consulted in their
+declared position after earlier cache misses. Only a byte-capable
+`LiveRegistryAdapter` may occupy this lane. Its scope-aware
+`liveRegistry.fromConfig(cwd, options)` route is selected uniquely per package;
+an ambiguous set never falls through to a sibling registry.
+
+Remote route authorization is separate from credentials and follows four
+fail-closed outcomes: (1) a lock-named URL inside the selected configured route;
+(2) a lock-named URL outside that route only when exact name-and-version metadata
+attests the same HTTPS URL; (3) no lock URL, so exact name-and-version metadata
+supplies the artifact URL (plaintext is accepted only inside an explicitly
+configured plaintext route); or (4) no authorized URL, producing a named defer
+without a request. Redirects are manual and each target is re-authorized before
+the next request. Credentials are resolved only for the already-authorized HTTPS
+hop and are never authorization policy themselves.
+
+Every local or remote npm tgz passes central lock-integrity verification before
+target recomputation. Missing, unsupported, and mismatching integrity are distinct
+deferrals. Consequently, a hand-written legacy `TarballSource.tarball()` that
+returns local bytes for a graph with no verifiable digest now defers with
+`ENRICH_ARTIFACT_INTEGRITY_MISSING` where it previously produced a checksum.
+Real npm-family locks carry tgz integrity, while Berry locks use source-domain
+verification because Berry lock syntax cannot carry npm tgz SRI evidence. For a
+Berry source checksum whose cache key differs from the target,
+the downloaded tgz is first repacked in the source domain and compared exactly;
+only verified bytes are then repacked for the target. Yarn admits one checksum
+per entry, so the verified source member is superseded by the target member while
+unrelated integrity members remain. This is target-domain replacement, not
+evidence loss. Pako proves STORE and mixed cache keys 7/8/9. Mixed cache key 10
+requires optional `@yarnpkg/libzip`; an unavailable required backend produces
+`ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED` with the install remedy.
+
+The entire byte path has mandatory, overridable safety ceilings: 384 MiB
+compressed; 3 GiB each for inflated bytes, cumulative tar content, and repacked
+zip; and 7 GiB simultaneously live. Callers may raise or lower the representation
+defaults and add per-tarball overrides, but cannot disable checks. A diagnostic
+records whether the implementation default or a caller-provided ceiling was
+reached. The live meter may govern large-artifact throughput; adding workers is
+not a remedy for that bound.
 
 For compatibility, the facade also accepts the split `RefurbishSources` pair and
 the older combined `TarballSource`, preserving both capabilities in either

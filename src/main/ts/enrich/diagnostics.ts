@@ -8,6 +8,10 @@
 // §7.3: NodeId for per-node events, the `'graph'` literal for the per-call one.
 
 import type { Diagnostic, NodeId } from '../graph.ts'
+import type {
+  ArtifactLimitOrigin,
+  ArtifactRepresentation,
+} from '../recipe/artifact-envelope.ts'
 
 export type EnrichDiagnosticCode =
   | 'ENRICH_FIELD_FILLED'
@@ -16,6 +20,22 @@ export type EnrichDiagnosticCode =
   | 'ENRICH_OVERRIDE_AUTHORITY_UNKNOWN'
   | 'ENRICH_OVERRIDE_AUTHORITY_CONFLICT'
   | 'ENRICH_ADAPTER_STATE_INVALIDATED'
+  | 'ENRICH_ARTIFACT_ROUTE_MISSING'
+  | 'ENRICH_ARTIFACT_ROUTE_AMBIGUOUS'
+  | 'ENRICH_ARTIFACT_URL_UNAUTHORIZED'
+  | 'ENRICH_ARTIFACT_REGISTRY_METADATA_FAILED'
+  | 'ENRICH_ARTIFACT_REDIRECT_REJECTED'
+  | 'ENRICH_ARTIFACT_FETCH_FAILED'
+  | 'ENRICH_ARTIFACT_HTTP_FAILED'
+  | 'ENRICH_ARTIFACT_CONTENT_LENGTH_MISMATCH'
+  | 'ENRICH_ARTIFACT_INTEGRITY_MISSING'
+  | 'ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED'
+  | 'ENRICH_ARTIFACT_INTEGRITY_MISMATCH'
+  | 'ENRICH_ARTIFACT_COMPRESSED_LIMIT'
+  | 'ENRICH_ARTIFACT_INFLATED_LIMIT'
+  | 'ENRICH_ARTIFACT_TAR_CONTENT_LIMIT'
+  | 'ENRICH_ARTIFACT_REPACKED_LIMIT'
+  | 'ENRICH_ARTIFACT_LIVE_LIMIT'
 
 export interface EnrichDiagnostic extends Diagnostic {
   code: EnrichDiagnosticCode
@@ -74,4 +94,49 @@ export function enrichAdapterStateInvalidated(
     message: `source adapter state was invalidated for ${subjects.length} subject(s)`,
     data: { format, subjects: [...subjects] },
   }
+}
+
+export type EnrichArtifactDiagnosticCode = Extract<
+  EnrichDiagnosticCode,
+  `ENRICH_ARTIFACT_${string}`
+>
+
+export function enrichArtifactDiagnostic(
+  code: EnrichArtifactDiagnosticCode,
+  subject: string,
+  message: string,
+  data?: Record<string, unknown>,
+): EnrichDiagnostic {
+  return {
+    code,
+    severity: 'warning',
+    subject,
+    message: `enrich: artifact bytes for ${subject} ${message}`,
+    ...(data === undefined ? {} : { data }),
+  }
+}
+
+const limitCode: Record<ArtifactRepresentation, EnrichArtifactDiagnosticCode> = {
+  compressed: 'ENRICH_ARTIFACT_COMPRESSED_LIMIT',
+  inflated: 'ENRICH_ARTIFACT_INFLATED_LIMIT',
+  'tar-content': 'ENRICH_ARTIFACT_TAR_CONTENT_LIMIT',
+  repacked: 'ENRICH_ARTIFACT_REPACKED_LIMIT',
+  live: 'ENRICH_ARTIFACT_LIVE_LIMIT',
+}
+
+export function enrichArtifactLimit(
+  subject: string,
+  representation: ArtifactRepresentation,
+  limitBytes: number,
+  origin: ArtifactLimitOrigin,
+): EnrichDiagnostic {
+  const callerProvided = origin !== 'default'
+  return enrichArtifactDiagnostic(
+    limitCode[representation],
+    subject,
+    callerProvided
+      ? `reached the caller-provided ${representation} ceiling of ${limitBytes} bytes`
+      : `exceeded the default ${representation} safety ceiling of ${limitBytes} bytes; override the resource policy for this accepted package-manager artifact`,
+    { representation, limitBytes, origin },
+  )
 }

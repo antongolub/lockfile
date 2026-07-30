@@ -208,7 +208,7 @@ sources: {
     'yarn-berry:./.yarn/cache',
     'npm:./.cache/npm/_cacache',
     'pnpm:./.cache/pnpm/v3',
-    { registry }, // retained remote descriptor; artifact download is opt-in separately
+    { registry }, // explicit network consent, after the ordered local sources
   ],
 }
 ```
@@ -219,6 +219,39 @@ decomposed store deliberately supplies no archive. Those byte kinds are never
 relabelled. Existing callers may still pass either a split
 `RefurbishSources` object or the deprecated combined `TarballSource`; the direct
 `refurbish` primitive keeps its object contract.
+
+Only a `LiveRegistryAdapter` is byte-capable. Build a scope-aware one with
+`liveRegistry.fromConfig(cwd, options)` and place `{ registry }` in the ordered
+artifact list; omitting it is visibly offline. A remote URL is requested only
+when it is inside that package's configured route or is attested by exact
+name-and-version metadata. Redirects are followed manually and re-authorized
+per hop, while credentials are attached only after route authorization. Returned
+tgz bytes are always checked against lock-recorded integrity before a target
+checksum is recomputed; absence, unsupported integrity, and mismatch are separate
+named deferrals.
+
+That central check also applies to local bytes. A hand-written legacy
+`TarballSource.tarball()` that returns bytes for a graph with no verifiable
+digest previously produced a checksum; it now defers with
+`ENRICH_ARTIFACT_INTEGRITY_MISSING`. Real npm-family locks carry tgz integrity,
+and Berry locks use the source-domain verification path described below.
+
+Artifact processing is fail-closed under mandatory safety ceilings for compressed
+input, inflated tar, cumulative tar content, repacked zip, and simultaneously
+live materializations. Defaults are intentionally generous (384 MiB compressed,
+3 GiB for each materialized expansion, 7 GiB live) and can be raised or lowered
+globally or per tarball through `artifactResources`; a limit diagnostic
+distinguishes the implementation default from a caller-provided ceiling. Large
+artifact throughput can therefore be bounded by the live-byte meter; increasing
+worker concurrency is not a remedy.
+
+When moving between Berry cache keys, an existing checksum remains source-domain
+verification evidence: the tgz must first reproduce it before the one Yarn-
+emittable checksum is superseded with the target-domain digest. The pure-JS pako
+path is required because Berry lock syntax cannot carry npm tgz SRI evidence.
+It covers STORE plus mixed cache keys 7, 8, and 9. Mixed cache key 10 requires
+the optional `@yarnpkg/libzip`; when it is absent and actually required,
+`ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED` names that installation remedy.
 
 Calling the primitives directly is supported but incomplete: `completeTransitives`
 plus `refurbish` does not materialise Berry target-compatibility entries, and

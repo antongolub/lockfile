@@ -110,7 +110,12 @@ export type {
 } from './completeness/types.ts'
 
 export { frozenRegistry } from './registry/frozen.ts'
-export { liveRegistry, type LiveRegistryOptions } from './registry/live.ts'
+export {
+  liveRegistry,
+  type FromConfigOptions,
+  type LiveRegistryAdapter,
+  type LiveRegistryOptions,
+} from './registry/live.ts'
 export {
   yarnBerryCache,
   withYarnCacheChecksums,
@@ -119,12 +124,14 @@ export {
 export { npmCache, type NpmCacheOptions } from './registry/cache-npm.ts'
 export { pnpmCache, type PnpmCacheOptions } from './registry/cache-pnpm.ts'
 export type {
+  ArtifactRoute,
   CacheAdapter,
   NpmCacheAdapter,
   NpmTarballSource,
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  RemoteArtifactRegistry,
   YarnBerryCacheAdapter,
   YarnBerryChecksumSource,
 } from './registry/types.ts'
@@ -159,3 +166,12 @@ export type {
   ArtifactSourcesInput,
   RemoteArtifactSource,
 } from './enrich/artifact-sources.ts'
+export {
+  DEFAULT_ARTIFACT_MAX_LIVE_BYTES,
+  DEFAULT_ARTIFACT_RESOURCE_LIMITS,
+} from './recipe/artifact-envelope.ts'
+export type {
+  ArtifactRepresentation,
+  ArtifactResourceLimits,
+  ArtifactResourcePolicy,
+} from './recipe/artifact-envelope.ts'

@@ -39,6 +39,7 @@ export {
 export { npmCache, type NpmCacheOptions } from './cache-npm.ts'
 export { pnpmCache, type PnpmCacheOptions } from './cache-pnpm.ts'
 export type {
+  ArtifactRoute,
   CacheAdapter,
   Limiter,
   NpmCacheAdapter,
@@ -46,6 +47,7 @@ export type {
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  RemoteArtifactRegistry,
   YarnBerryCacheAdapter,
   YarnBerryChecksumSource,
 } from './types.ts'

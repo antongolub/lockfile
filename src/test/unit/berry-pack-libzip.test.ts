@@ -10,6 +10,10 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { computeBerryChecksumViaLibzip } from '../../main/ts/recipe/berry-pack-libzip.ts'
+import {
+  ArtifactEnvelopeError,
+  artifactResourceLimits,
+} from '../../main/ts/recipe/artifact-envelope.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const tgz = (rel: string): Buffer => readFileSync(resolve(here, '../resources/fixtures/tarballs', rel))
@@ -33,5 +37,17 @@ describe('recipe/berry-pack-libzip (optional @yarnpkg/libzip backend)', () => {
 
   it('returns undefined for a malformed cacheKey — caller defers', async () => {
     expect(await computeBerryChecksumViaLibzip(tgz('ms-2.1.3.tgz'), 'ms', 'nope')).toBeUndefined()
+  })
+
+  it.skipIf(!hasLibzip)('enforces the exact libzip repacked-byte ceiling', async () => {
+    const limits = artifactResourceLimits({
+      defaults: { maxRepackedBytes: 1 },
+    }, 'ms@2.1.3')
+    await expect(computeBerryChecksumViaLibzip(
+      tgz('ms-2.1.3.tgz'),
+      'ms',
+      '10',
+      limits,
+    )).rejects.toBeInstanceOf(ArtifactEnvelopeError)
   })
 })

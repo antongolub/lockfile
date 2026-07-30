@@ -265,6 +265,22 @@ output, and receipt failures use `error`.
 | `ENRICH_OVERRIDE_AUTHORITY_UNKNOWN` | warning | Transitive completion lacks authoritative override policy. | Supply manifests/config evidence. |
 | `ENRICH_OVERRIDE_AUTHORITY_CONFLICT` | warning | Override authorities disagree, so completion was skipped. | Reconcile policy sources. |
 | `ENRICH_ADAPTER_STATE_INVALIDATED` | warning | Enrichment changed subjects whose source-adapter sidecar state is no longer valid. | Re-emit/reparse or refresh adapter evidence. |
+| `ENRICH_ARTIFACT_ROUTE_MISSING` | warning | No byte-capable remote route claims the package. | Add the intended `LiveRegistryAdapter` to `sources.artifacts`, or remain offline and accept the checksum defer. |
+| `ENRICH_ARTIFACT_ROUTE_AMBIGUOUS` | warning | More than one distinct remote route claims the package; sibling fallback is forbidden. | Supply one authoritative route for the package. |
+| `ENRICH_ARTIFACT_URL_UNAUTHORIZED` | warning | Neither the configured route nor exact name-and-version metadata authorizes the candidate URL. | Correct the lock URL/registry configuration or provide exact-version attestation. |
+| `ENRICH_ARTIFACT_REGISTRY_METADATA_FAILED` | warning | Exact-version route attestation could not be obtained. | Restore registry metadata access; no artifact request was made. |
+| `ENRICH_ARTIFACT_REDIRECT_REJECTED` | warning | A redirect target failed per-hop authorization, lacked `Location`, or exceeded the hop bound. | Correct the registry redirect chain; cross-route redirects must be separately authorized. |
+| `ENRICH_ARTIFACT_FETCH_FAILED` | warning | Authorized artifact transport failed before an HTTP response. | Restore network/proxy/CA transport or use a local artifact source. |
+| `ENRICH_ARTIFACT_HTTP_FAILED` | warning | The authorized artifact endpoint returned a non-success status. | Correct credentials/route or restore the endpoint. |
+| `ENRICH_ARTIFACT_CONTENT_LENGTH_MISMATCH` | warning | The response declared an invalid length or returned a different byte count. | Repair the endpoint/proxy; partial bytes are never checksummed. |
+| `ENRICH_ARTIFACT_INTEGRITY_MISSING` | warning | Bytes arrived but the lock carries no integrity evidence that can authorize them. | Supply a lock-recorded integrity member; fetched bytes do not reach recompute. |
+| `ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED` | warning | Lock integrity exists but this installation cannot reproduce or verify its algorithm or Berry source domain. | Use a supported hash/backend; for mixed Berry cache key 10, install optional `@yarnpkg/libzip` when named by the diagnostic. |
+| `ENRICH_ARTIFACT_INTEGRITY_MISMATCH` | warning | Returned tgz bytes disagree with lock integrity or with the reproduced Berry source checksum. | Treat the source as untrusted or stale and restore the lock's original artifact. |
+| `ENRICH_ARTIFACT_COMPRESSED_LIMIT` | warning | Compressed input exceeded its mandatory ceiling. | For an accepted PM artifact, override the implementation default; if caller-provided, that ceiling was reached. |
+| `ENRICH_ARTIFACT_INFLATED_LIMIT` | warning | Inflated tar bytes exceeded their mandatory ceiling. | For an accepted PM artifact, override the implementation default; if caller-provided, that ceiling was reached. |
+| `ENRICH_ARTIFACT_TAR_CONTENT_LIMIT` | warning | Cumulative tar entry content exceeded its mandatory ceiling. | For an accepted PM artifact, override the implementation default; if caller-provided, that ceiling was reached. |
+| `ENRICH_ARTIFACT_REPACKED_LIMIT` | warning | The target repacked zip exceeded its mandatory ceiling. | For an accepted PM artifact, override the implementation default; if caller-provided, that ceiling was reached. |
+| `ENRICH_ARTIFACT_LIVE_LIMIT` | warning | Simultaneously live artifact representations exceeded the operation ceiling. | Reduce live materialization or override the default; increasing worker concurrency is not a remedy. |
 | `OPTIMIZE_NODE_REMOVED` | info | Reachability GC removed an orphan. | No action. |
 | `OPTIMIZE_NOOP` | info | Reachability GC reached a fixpoint. | No action. |
 | `OPTIMIZE_NO_ROOTS` | warning | Non-empty graph has no workspace/preserve anchor; optimizer preserved everything. | Supply `preserve` roots for rootless graphs. |

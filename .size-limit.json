@@ -6,7 +6,7 @@
       "README.md",
       "LICENSE"
     ],
-    "limit": "1220 kB",
+    "limit": "1500 kB",
     "brotli": false,
     "gzip": false
   },
