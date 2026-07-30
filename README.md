@@ -120,9 +120,9 @@ stringify(graph, 'yarn-berry-v10')
 // LockfileError ENRICH_REQUIRED — v10 keys its cache differently, so
 // @napi-rs/nice-android-arm-eabi@1.0.1 would emit without a checksum
 
-const ready = await enrich(graph, { artifacts }, {   // artifacts reads .yarn/cache,
-  target: { format: 'yarn-berry-v10' },              // where the digest sits in the
-  contract: 'project',                               // zip filename
+const ready = await enrich(graph, { artifacts }, {   // artifacts hashes the zip
+  target: { format: 'yarn-berry-v10' },              // yarn already cached, so no
+  contract: 'project',                               // download and no repack
 })
 const out = stringify(ready.graph, 'yarn-berry-v10')
 

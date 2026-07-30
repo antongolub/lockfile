@@ -494,8 +494,9 @@ export async function refurbish(
     | { kind: 'fill';  node: Node; merged: TarballPayload }
   const resolved = await mapPool(cands, concurrency, async (c): Promise<Resolved> => {
     if (c.kind !== 'fetch') return c
-    // Fast path: a caller-supplied cached digest (e.g. from `.yarn/cache`, where
-    // the hash is in the filename) skips the fetch + recompute entirely.
+    // Fast path: a caller-supplied digest (e.g. sha512 of yarn's own `.yarn/cache`
+    // archive) skips the fetch + repack entirely. The cache FILENAME carries the
+    // locator hash, not the digest — see spec/pm/yarn.md §2.3.
     let hex = source.berryChecksum !== undefined
       ? await source.berryChecksum(c.node.name, c.node.version, c.cacheKey)
       : undefined

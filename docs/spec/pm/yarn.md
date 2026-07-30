@@ -243,6 +243,31 @@ true`). Committing `.yarn/cache/` + `.pnp.cjs` to VCS yields a
 **zero-install** repo: `git clone` is already installed, `yarn install` is
 a no-op ([PnP](https://yarnpkg.com/features/pnp)).
 
+**On-disk naming.** `Cache.getLocatorPath` produces two shapes:
+
+| Shape | When | Filename |
+| --- | --- | --- |
+| version-based | default | `<slug>-<cacheKey>.zip` |
+| checksum-based | project-local mirror, checksum known | `<slug>-<contentChecksum-slice10>.zip` |
+
+`<slug>` is `<slugifyIdent>-<protocol>-<version>-<locatorHash-slice10>`, where
+`slugifyIdent` rewrites `@types/node` as `@types-node`. A version-based entry
+therefore reads
+`@aashutoshrathi-word-wrap-npm-1.2.6-5b1d95e487-10c0.zip`.
+
+The 10-hex segment is the **locator** hash, not a content digest. In a global
+cache holding 11,260 archives, the same package at the same version carries the
+identical slice `5b1d95e487` under cacheKey `8`, `10` and `10c0` — the bytes
+differ per generation, the slice does not. Every one of those 11,260 entries was
+version-based; the checksum-based shape requires a project-local mirror and did
+not occur (measured 2026-07-30, `~/.yarn/berry/cache`).
+
+**Consequence for checksum recovery.** The filename identifies
+`(name, version, cache generation)` and nothing more. It does **not** carry the
+`checksum:` value of [§6.3](#63-integrity-verification), so a reader recovering
+that value must hash the archive bytes; there is no free lookup. A cache hit
+still avoids the network, which is the whole of its advantage here.
+
 ### 2.4 Focused install — `yarn workspaces focus`
 
 A monorepo-specific **partial install**. `yarn workspaces focus` runs an

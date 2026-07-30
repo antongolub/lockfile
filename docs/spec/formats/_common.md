@@ -457,8 +457,9 @@ fresh-convert fill with no anchor) — on the lazy default (the yarn 3.6+/4
 convention); a discriminating anchor that matches NEITHER order drops it (a
 foreign build). The generation-specific libzip backend is trusted ONLY on a
 positive match. On neither, the gap defers — or a caller-supplied oracle
-(`source.berryChecksum`, e.g. yarn's own `.yarn/cache` filename, where the digest
-is the filename) pins yarn's real digest with no recompute at all.
+(`source.berryChecksum`, e.g. hashing yarn's own `.yarn/cache` archive — the
+filename carries the locator, not the digest) pins yarn's real digest without a
+fetch or a repack.
 
 The table above is the DIGEST algorithm — which cacheKeys reproduce byte-exact.
 Whether enrich actually WRITES a recomputed value is separately gated by the
