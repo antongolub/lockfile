@@ -31,13 +31,21 @@ export {
   type RegistryConfig,
   type ResolveRegistryOptions,
 } from './config.ts'
-export { yarnBerryCache, type YarnBerryCacheOptions } from './cache-yarn-berry.ts'
+export {
+  withYarnCacheChecksums,
+  yarnBerryCache,
+  type YarnBerryCacheOptions,
+} from './cache-yarn-berry.ts'
 export { npmCache, type NpmCacheOptions } from './cache-npm.ts'
 export { pnpmCache, type PnpmCacheOptions } from './cache-pnpm.ts'
 export type {
   CacheAdapter,
   Limiter,
+  NpmCacheAdapter,
+  NpmTarballSource,
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  YarnBerryCacheAdapter,
+  YarnBerryChecksumSource,
 } from './types.ts'

@@ -21,13 +21,10 @@
 // the bundled manifest carries everything we need for `packument()` —
 // name, version, and dist-tag-irrelevant version-level metadata.
 //
-// `tarball(name, version)` returns `undefined` BY DESIGN. pnpm
-// decomposes tarballs into per-file content-addressable blobs at
-// install time and discards the original archive. Re-tarring on demand
-// would require reading every file referenced by the index, applying
-// the mode, and rebuilding gzip bytes — out of scope for v1, and the
-// caller cannot trust the bytes against the original tarball integrity
-// since gzip is not deterministic across implementations.
+// This adapter exposes no tarball-byte capability BY DESIGN. pnpm decomposes
+// tarballs into per-file content-addressable blobs at install time and discards
+// the original archive. Re-tarring on demand would not reproduce the registry
+// artifact and therefore cannot be trusted against its integrity.
 //
 // SQLite migration. pnpm CHANGELOG v1001.0.0 (post-pnpm-10) migrates
 // the index from `.mpk` (MessagePack) files to a single `index.db`
@@ -104,12 +101,6 @@ export function pnpmCache(opts: PnpmCacheOptions = {}): CacheAdapter {
       return packument
     },
 
-    // Architectural miss: pnpm does not retain original tarballs — the
-    // content-addressable store holds per-file decomposed blobs only.
-    // Returning undefined is correct, not a defect.
-    async tarball() {
-      return undefined
-    },
   }
 }
 

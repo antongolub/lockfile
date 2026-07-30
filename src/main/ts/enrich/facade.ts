@@ -66,7 +66,12 @@ import {
   enrichOverrideAuthority,
 } from './diagnostics.ts'
 import { hydrateMetadata } from './hydrate-metadata.ts'
-import { berryCacheKeyFor, refurbish, type TarballSource } from './refurbish.ts'
+import {
+  berryCacheKeyFor,
+  refurbish,
+  type RefurbishSources,
+  type TarballSource,
+} from './refurbish.ts'
 import {
   materializeYarnBerryPluginCompat,
   yarnBerryPluginCompatRegistry,
@@ -78,7 +83,7 @@ import { projectYarnBerryDerivedDependencies } from './yarn-berry-derived-depend
 export interface EnrichSources {
   readonly manifests?: Readonly<Record<string, Manifest>>
   readonly registry?: RegistryAdapter
-  readonly artifacts?: TarballSource
+  readonly artifacts?: RefurbishSources | TarballSource
   readonly config?: PmConfigEvidence
 }
 

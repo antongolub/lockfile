@@ -36,7 +36,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { parseSri, isEmptyIntegrity } from '../recipe/integrity.ts'
 import path from 'node:path'
-import type { CacheAdapter, Packument, PackumentVersion } from './types.ts'
+import type { NpmCacheAdapter, Packument, PackumentVersion } from './types.ts'
 
 export interface NpmCacheOptions {
   /**
@@ -65,7 +65,7 @@ const KEY_URL_RE =
 
 // === API ====================================================================
 
-export function npmCache(opts: NpmCacheOptions = {}): CacheAdapter {
+export function npmCache(opts: NpmCacheOptions = {}): NpmCacheAdapter {
   const cacheDir = resolveCacheDir(opts)
 
   let indexPromise: Promise<CacheIndex> | undefined

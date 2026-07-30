@@ -88,15 +88,30 @@ export interface RegistryAdapter {
  * A cache keyed by package IDENTITY (name / name@version) — for OFFLINE / FROZEN
  * resolution and reuse of a PM's on-disk store, NOT an HTTP response cache (that
  * belongs in `LiveRegistryOptions.fetch`, keyed by URL). Read *instead of* the
- * network. Returned bytes MUST match what the registry would serve for that
- * identity — a cache that returns different bytes across runs breaks the
- * frozen-clean invariant (a different lock). Not wired into `completeTransitives`
- * today; consume it where reads happen (e.g. a future `cachedRegistry(cache, live)`).
+ * network. Byte capabilities are separate because npm tarballs, Yarn cache zips,
+ * and pnpm's decomposed store are not interchangeable. Not wired into
+ * `completeTransitives` today; consume it where reads happen (e.g. a future
+ * `cachedRegistry(cache, live)`).
  */
 export interface CacheAdapter {
   /** Lookup packument by package name. Undefined = cache miss. */
   packument(name: string): Promise<Packument | undefined>
-
-  /** Optional tarball-bytes cache. Frozen Phase C implementations miss here. */
-  tarball?(name: string, version: string): Promise<Uint8Array | undefined>
 }
+
+/** Supplies original npm registry tarball (`.tgz`) bytes. A PM-specific cache
+ *  must implement this only when it retains the registry artifact byte-for-byte. */
+export interface NpmTarballSource {
+  tarball(name: string, version: string): Promise<Uint8Array | undefined>
+}
+
+/** Supplies the digest of Yarn's own repacked cache zip for one cache profile.
+ *  The zip bytes are deliberately not exposed as an npm tarball. */
+export interface YarnBerryChecksumSource {
+  berryChecksum(name: string, version: string, cacheKey: string): Promise<string | undefined>
+}
+
+/** npm cacache metadata plus byte-identical registry tarballs. */
+export interface NpmCacheAdapter extends CacheAdapter, NpmTarballSource {}
+
+/** Yarn cache metadata plus checksum evidence over Yarn's repacked zip. */
+export interface YarnBerryCacheAdapter extends CacheAdapter, YarnBerryChecksumSource {}

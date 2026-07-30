@@ -119,9 +119,13 @@ export { npmCache, type NpmCacheOptions } from './registry/cache-npm.ts'
 export { pnpmCache, type PnpmCacheOptions } from './registry/cache-pnpm.ts'
 export type {
   CacheAdapter,
+  NpmCacheAdapter,
+  NpmTarballSource,
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  YarnBerryCacheAdapter,
+  YarnBerryChecksumSource,
 } from './registry/types.ts'
 
 export { modify } from './modify/modify.ts'

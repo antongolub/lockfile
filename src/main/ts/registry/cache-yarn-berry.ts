@@ -29,7 +29,7 @@
 import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
-import type { CacheAdapter, Packument, PackumentVersion } from './types.ts'
+import type { Packument, PackumentVersion, YarnBerryCacheAdapter } from './types.ts'
 import type { TarballSource } from '../enrich/refurbish.ts'
 
 export interface YarnBerryCacheOptions {
@@ -58,7 +58,7 @@ export interface YarnBerryCacheOptions {
 const CACHE_ENTRY_RE =
   /^(?<rest>.+)-(?<hash>[a-f0-9]{10})(?:-(?<cacheKey>[a-z0-9]+))?\.zip$/
 
-export function yarnBerryCache(opts: YarnBerryCacheOptions = {}): CacheAdapter {
+export function yarnBerryCache(opts: YarnBerryCacheOptions = {}): YarnBerryCacheAdapter {
   const cacheFolder = resolveCacheFolder(opts)
 
   return {
@@ -92,16 +92,8 @@ export function yarnBerryCache(opts: YarnBerryCacheOptions = {}): CacheAdapter {
       return packument
     },
 
-    async tarball(name, version) {
-      const entries = await scanCacheFolder(cacheFolder, name)
-      const hit = entries.find(e => e.version === version)
-      if (hit === undefined) return undefined
-      try {
-        const bytes = await readFile(path.join(cacheFolder, hit.filename))
-        return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-      } catch {
-        return undefined
-      }
+    async berryChecksum(name, version, cacheKey) {
+      return await cacheZipChecksum(cacheFolder, name, version, cacheKey)
     },
   }
 }

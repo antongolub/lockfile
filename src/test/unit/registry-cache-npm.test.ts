@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { npmCache } from '../../main/ts/index.ts'
+import { npmCache, type NpmTarballSource } from '../../main/ts/index.ts'
 import { parseSri } from '../../main/ts/recipe/integrity.ts'
 
 const dirs: string[] = []
@@ -249,8 +249,9 @@ describe('registry/cache-npm — npmCache tarball()', () => {
       writeContent(dir, sri, tarballBytes)
     })
     const cache = npmCache({ cacheDir })
+    const tarballs: NpmTarballSource = cache
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
+    const bytes = await tarballs.tarball('lodash', '4.17.21')
     expect(bytes).toBeDefined()
     expect(bytes!.length).toBe(tarballBytes.length)
     expect(bytes![0]).toBe(0x1f)
@@ -265,7 +266,7 @@ describe('registry/cache-npm — npmCache tarball()', () => {
     })
     const cache = npmCache({ cacheDir })
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
+    const bytes = await cache.tarball('lodash', '4.17.21')
     expect(bytes).toBeUndefined()
   })
 
@@ -275,7 +276,7 @@ describe('registry/cache-npm — npmCache tarball()', () => {
     })
     const cache = npmCache({ cacheDir })
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
+    const bytes = await cache.tarball('lodash', '4.17.21')
     expect(bytes).toBeUndefined()
   })
 
@@ -287,7 +288,7 @@ describe('registry/cache-npm — npmCache tarball()', () => {
     })
     const cache = npmCache({ cacheDir })
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
+    const bytes = await cache.tarball('lodash', '4.17.21')
     expect(bytes).toBeUndefined()
   })
 
@@ -300,7 +301,7 @@ describe('registry/cache-npm — npmCache tarball()', () => {
     })
     const cache = npmCache({ cacheDir })
 
-    const bytes = await cache.tarball!('@types/node', '20.0.0')
+    const bytes = await cache.tarball('@types/node', '20.0.0')
     expect(bytes).toBeDefined()
     expect(bytes!.length).toBe(4)
     expect(bytes![0]).toBe(0xca)

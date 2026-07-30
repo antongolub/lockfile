@@ -30,6 +30,52 @@ console.log(`fix-dts: rewrote .ts→.js specifiers in ${fixed} declaration files
 // files are not consumer surfaces; retaining them only inflates the tarball.
 const pkg = JSON.parse(await readFile('package.json', 'utf8'))
 const declarationFiles = files.filter(rel => rel.endsWith('.d.ts'))
+
+// `tsconfig.dts.json` deliberately strips comments to keep the published type
+// surface within its size budget. Preserve the one consumer-visible deprecation
+// that is part of the public compatibility contract without restoring every
+// source comment.
+const deprecatedTarballSourcePath = 'enrich/refurbish.d.ts'
+const deprecatedTarballSourceAnchor =
+  'export interface TarballSource extends NpmTarballSource {'
+const deprecatedTarballSourceMarker =
+  '/** @deprecated Pass RefurbishSources so npm tarballs and Yarn cache checksum evidence cannot be conflated. */'
+const deprecatedTarballSourceFile = `${DIST}/${deprecatedTarballSourcePath}`
+let deprecatedTarballSource = await readFile(deprecatedTarballSourceFile, 'utf8')
+const countExact = (source, value) => source.split(value).length - 1
+const markerCount = countExact(deprecatedTarballSource, deprecatedTarballSourceMarker)
+const anchorCount = countExact(deprecatedTarballSource, deprecatedTarballSourceAnchor)
+if (anchorCount !== 1 || markerCount > 1) {
+  throw new Error(
+    `fix-dts: expected one TarballSource anchor and at most one deprecation marker; found ${anchorCount} anchor(s), ${markerCount} marker(s)`,
+  )
+}
+if (markerCount === 0) {
+  deprecatedTarballSource = deprecatedTarballSource.replace(
+    deprecatedTarballSourceAnchor,
+    `${deprecatedTarballSourceMarker}\n${deprecatedTarballSourceAnchor}`,
+  )
+  await writeFile(deprecatedTarballSourceFile, deprecatedTarballSource)
+}
+
+let declarationJsdocCount = 0
+for (const rel of declarationFiles) {
+  const source = await readFile(`${DIST}/${rel}`, 'utf8')
+  const comments = source.match(/\/\*\*[\s\S]*?\*\//g) ?? []
+  declarationJsdocCount += comments.length
+  if (rel === deprecatedTarballSourcePath) {
+    if (comments.length !== 1 || comments[0] !== deprecatedTarballSourceMarker) {
+      throw new Error('fix-dts: TarballSource deprecation marker is missing or not unique')
+    }
+  } else if (comments.length > 0) {
+    throw new Error(`fix-dts: unexpected declaration JSDoc in ${rel}`)
+  }
+}
+if (declarationJsdocCount !== 1) {
+  throw new Error(`fix-dts: expected exactly one declaration JSDoc, found ${declarationJsdocCount}`)
+}
+console.log('fix-dts: preserved 1 public deprecation annotation')
+
 const publicEntries = new Set()
 const deniedExports = Object.entries(pkg.exports)
   .filter(([, target]) => target === null)

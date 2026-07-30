@@ -22,14 +22,26 @@ import {
   enrichFieldFilled,
   enrichNoop,
 } from './diagnostics.ts'
+import type {
+  NpmTarballSource,
+  YarnBerryChecksumSource,
+} from '../registry/types.ts'
 
 // === REFURBISHMENT CONTRACT =================================================
 
-/** Supplies what refurbish needs to fill a berry `checksum` (ADR-0034 §3) — wired
- *  by the orchestrator (a CacheAdapter, a registry-backed fetch, or both). */
-export interface TarballSource {
-  /** npm tarball bytes to recompute the berry-zip digest from (the fallback). */
-  tarball(name: string, version: string): Promise<Uint8Array | undefined>
+/** Keeps npm tarball bytes and Yarn cache checksum evidence in separate,
+ *  non-interchangeable capabilities. */
+export interface RefurbishSources {
+  readonly npmTarballs: NpmTarballSource
+  readonly yarnBerryChecksums?: YarnBerryChecksumSource
+}
+
+/** Supplies what refurbish needs to fill a berry `checksum` (ADR-0034 §3).
+ *
+ * @deprecated Pass {@link RefurbishSources} so npm tarballs and Yarn cache
+ * checksum evidence cannot be conflated.
+ */
+export interface TarballSource extends NpmTarballSource {
   /**
    * OPTIONAL fast path — a ready `berry-zip` sha512 (lowercase hex, NO `cacheKey/`
    * prefix) for `(name, version)` under `cacheKey`, sourced however the caller
@@ -42,6 +54,18 @@ export interface TarballSource {
    * library never hardcodes a cache location.
    */
   berryChecksum?(name: string, version: string, cacheKey: string): Promise<string | undefined>
+}
+
+function normalizeRefurbishSources(
+  source: RefurbishSources | TarballSource,
+): RefurbishSources {
+  if ('npmTarballs' in source) return source
+  if (source.berryChecksum === undefined) return { npmTarballs: source }
+  const berryChecksum = source.berryChecksum.bind(source)
+  return {
+    npmTarballs: source,
+    yarnBerryChecksums: { berryChecksum },
+  }
 }
 
 export interface RefurbishOptions {
@@ -281,7 +305,7 @@ type Recompute = (tgz: Uint8Array, name: string, cacheKey: string) => Promise<st
  *                      against (a bare-era / fresh-convert lock, all gaps).
  *  A wrong digest hard-fails `yarn install --immutable` (YN0018), so the caller
  *  trusts the generation-specific libzip ONLY on a positive `match`. */
-async function calibrate(graph: Graph, cacheKey: string, source: TarballSource, recompute: Recompute): Promise<'match' | 'mismatch' | 'no-anchor'> {
+async function calibrate(graph: Graph, cacheKey: string, source: NpmTarballSource, recompute: Recompute): Promise<'match' | 'mismatch' | 'no-anchor'> {
   for (const node of graph.nodes()) {
     if (node.workspacePath !== undefined || node.patch !== undefined) continue
     const integrity = graph.tarballOf(node.id)?.integrity
@@ -315,7 +339,7 @@ async function calibrate(graph: Graph, cacheKey: string, source: TarballSource, 
  *      order (the yarn 3.6+/4 convention, and this module's prior sole behavior).
  *  A wrong digest hard-fails `--immutable`, so an unresolvable order defers rather
  *  than guess — never a wrong value. */
-async function selectPakoProfile(graph: Graph, cacheKey: string, source: TarballSource): Promise<Recompute | undefined> {
+async function selectPakoProfile(graph: Graph, cacheKey: string, source: NpmTarballSource): Promise<Recompute | undefined> {
   const mk = (dirsFirst: boolean): Recompute => (tgz, name, ck) => Promise.resolve(computeBerryChecksum(tgz, name, ck, dirsFirst))
   for (const node of graph.nodes()) {
     if (node.workspacePath !== undefined || node.patch !== undefined) continue
@@ -369,9 +393,12 @@ async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T) =
 export async function refurbish(
   graph:  Graph,
   format: string,
-  source: TarballSource,
+  source: RefurbishSources | TarballSource,
   opts:   RefurbishOptions = {},
 ): Promise<RefurbishResult> {
+  const sources      = normalizeRefurbishSources(source)
+  const npmTarballs  = sources.npmTarballs
+  const berryChecksums = sources.yarnBerryChecksums
   const onDiagnostic = opts.onDiagnostic
   const seed         = opts.seed
   const concurrency  = opts.concurrency ?? 16
@@ -419,7 +446,7 @@ export async function refurbish(
   //     generation its INSTALLED version was built for (libzip 3.x → cacheKey 10, its
   //     zlib-ng), so it is trusted ONLY on a positive `match`. `@yarnpkg/libzip` is an
   //     optional peer the consumer installs; absent → this branch no-ops.
-  // On neither the gap defers — or the caller's oracle (`source.berryChecksum`) supplies
+  // On neither the gap defers — or the caller's `yarnBerryChecksums` oracle supplies
   // yarn's own digest below. A wrong digest hard-fails `--immutable`, strictly worse than
   // a clean omit yarn self-heals.
   let recompute: Recompute | undefined
@@ -431,11 +458,11 @@ export async function refurbish(
     // fill a 7/8/9 lock (which it can license off a generation-independent STORE
     // sibling) writes cacheKey-10 bytes yarn rejects (YN0018). So NO libzip fallback
     // for a pako-reproducible cacheKey — pako refuses ⇒ defer.
-    recompute = await selectPakoProfile(graph, cacheKey, source)
+    recompute = await selectPakoProfile(graph, cacheKey, npmTarballs)
   } else if (cacheKey !== undefined) {
     // ONLY a cacheKey pako can't reproduce (mixed 10 = zlib-ng, explicit `cN`) may
     // fall to the OPTIONAL `@yarnpkg/libzip` — trusted solely on a positive `match`.
-    if ((await calibrate(graph, cacheKey, source, computeBerryChecksumViaLibzip)) === 'match') recompute = computeBerryChecksumViaLibzip
+    if ((await calibrate(graph, cacheKey, npmTarballs, computeBerryChecksumViaLibzip)) === 'match') recompute = computeBerryChecksumViaLibzip
   }
   const reproducible = recompute !== undefined
 
@@ -451,12 +478,12 @@ export async function refurbish(
   type Cand =
     | { kind: 'defer'; id: NodeId }
     | { kind: 'fetch'; node: Node; payload: TarballPayload; cacheKey: string }
-  // A caller-supplied oracle (`source.berryChecksum`) can hand us yarn's OWN digest
+  // A caller-supplied `yarnBerryChecksums` oracle can hand us yarn's OWN digest
   // for a cacheKey we CAN'T byte-reproduce — the security-preserving path for a
   // `mixed` bump when yarn is installed: PIN the real integrity instead of omitting
   // it. So a non-reproducible node is still a `fetch` candidate when an oracle exists
   // (the resolved step asks it first, and DEFERS only if it can't supply).
-  const canSupply = source.berryChecksum !== undefined
+  const canSupply = berryChecksums !== undefined
   const ordinaryRequired = ordinaryRequiredNodes(graph, format)
   const resolutionDependencies = resolutionDependencyNodes(graph)
   const cands: Cand[] = []
@@ -497,8 +524,8 @@ export async function refurbish(
     // Fast path: a caller-supplied digest (e.g. sha512 of yarn's own `.yarn/cache`
     // archive) skips the fetch + repack entirely. The cache FILENAME carries the
     // locator hash, not the digest — see spec/pm/yarn.md §2.3.
-    let hex = source.berryChecksum !== undefined
-      ? await source.berryChecksum(c.node.name, c.node.version, c.cacheKey)
+    let hex = berryChecksums !== undefined
+      ? await berryChecksums.berryChecksum(c.node.name, c.node.version, c.cacheKey)
       : undefined
     if (hex === undefined) {
       // The oracle couldn't supply. RECOMPUTE only with a calibrated backend; a
@@ -506,7 +533,7 @@ export async function refurbish(
       // (yarn recomputes on install). The candidate existed because the oracle MIGHT
       // have supplied — it didn't, so fall back to reproduce-or-defer.
       if (recompute === undefined) return { kind: 'defer', id: c.node.id }
-      const tgz = await source.tarball(c.node.name, c.node.version)
+      const tgz = await npmTarballs.tarball(c.node.name, c.node.version)
       if (tgz === undefined) return { kind: 'defer', id: c.node.id }   // no fetchable tarball
       try {
         hex = await recompute(tgz, c.node.name, c.cacheKey)           // calibrated pako (STORE / mixed 7/8/9) or libzip (10)

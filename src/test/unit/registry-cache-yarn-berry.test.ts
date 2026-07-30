@@ -6,10 +6,11 @@
 // parsing, packument synthesis, and the cache-folder probe order.
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { yarnBerryCache } from '../../main/ts/index.ts'
+import { yarnBerryCache, type YarnBerryChecksumSource } from '../../main/ts/index.ts'
 
 function fixtureCache(setup: (cacheDir: string) => void): string {
   const cacheDir = mkdtempSync(resolve(tmpdir(), 'lockfile-fscache-'))
@@ -156,23 +157,21 @@ describe('registry/cache — yarnBerryCache packument()', () => {
   })
 })
 
-describe('registry/cache — yarnBerryCache tarball()', () => {
-  it('returns the zip bytes on cache hit', async () => {
+describe('registry/cache — yarnBerryCache berryChecksum()', () => {
+  it('returns sha512 evidence for the matching Yarn cache zip, never tarball bytes', async () => {
+    const zipBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0xde, 0xad, 0xbe, 0xef])
     const cacheDir = freshCache(dir => {
       writeFileSync(
         resolve(dir, 'lodash-npm-4.17.21-c8c0e3a1bc-10c0.zip'),
-        Buffer.from([0x50, 0x4b, 0x03, 0x04, 0xde, 0xad, 0xbe, 0xef]),
+        zipBytes,
       )
     })
     const cache = yarnBerryCache({ cacheFolder: cacheDir })
+    const checksumSource: YarnBerryChecksumSource = cache
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
-    expect(bytes).toBeDefined()
-    expect(bytes!.length).toBe(8)
-    expect(bytes![0]).toBe(0x50)
-    expect(bytes![1]).toBe(0x4b)
-    expect(bytes![2]).toBe(0x03)
-    expect(bytes![3]).toBe(0x04)
+    expect(await checksumSource.berryChecksum('lodash', '4.17.21', '10c0'))
+      .toBe(createHash('sha512').update(zipBytes).digest('hex'))
+    expect('tarball' in cache).toBe(false)
   })
 
   it('returns undefined on cache miss (no zip)', async () => {
@@ -181,8 +180,7 @@ describe('registry/cache — yarnBerryCache tarball()', () => {
     })
     const cache = yarnBerryCache({ cacheFolder: cacheDir })
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
-    expect(bytes).toBeUndefined()
+    expect(await cache.berryChecksum('lodash', '4.17.21', '10c0')).toBeUndefined()
   })
 
   it('returns undefined when a matching zip exists for a different version', async () => {
@@ -191,24 +189,36 @@ describe('registry/cache — yarnBerryCache tarball()', () => {
     })
     const cache = yarnBerryCache({ cacheFolder: cacheDir })
 
-    const bytes = await cache.tarball!('lodash', '4.17.21')
-    expect(bytes).toBeUndefined()
+    expect(await cache.berryChecksum('lodash', '4.17.21', '10c0')).toBeUndefined()
   })
 
-  it('handles scoped package tarball lookups', async () => {
+  it('handles scoped package checksum lookups', async () => {
+    const zipBytes = Buffer.from([0xca, 0xfe])
     const cacheDir = freshCache(dir => {
       writeFileSync(
         resolve(dir, '@types-node-npm-20.0.0-abcdef1234-10c0.zip'),
-        Buffer.from([0xca, 0xfe]),
+        zipBytes,
       )
     })
     const cache = yarnBerryCache({ cacheFolder: cacheDir })
 
-    const bytes = await cache.tarball!('@types/node', '20.0.0')
-    expect(bytes).toBeDefined()
-    expect(bytes!.length).toBe(2)
-    expect(bytes![0]).toBe(0xca)
-    expect(bytes![1]).toBe(0xfe)
+    expect(await cache.berryChecksum('@types/node', '20.0.0', '10c0'))
+      .toBe(createHash('sha512').update(zipBytes).digest('hex'))
+  })
+
+  it('selects the requested cacheKey instead of a sibling compression profile', async () => {
+    const mixed = Buffer.from('mixed-10')
+    const store = Buffer.from('store-10c0')
+    const cacheDir = freshCache(dir => {
+      writeFileSync(resolve(dir, 'lodash-npm-4.17.21-aaaaaaaaaa-10.zip'), mixed)
+      writeFileSync(resolve(dir, 'lodash-npm-4.17.21-bbbbbbbbbb-10c0.zip'), store)
+    })
+    const cache = yarnBerryCache({ cacheFolder: cacheDir })
+
+    expect(await cache.berryChecksum('lodash', '4.17.21', '10'))
+      .toBe(createHash('sha512').update(mixed).digest('hex'))
+    expect(await cache.berryChecksum('lodash', '4.17.21', '10c0'))
+      .toBe(createHash('sha512').update(store).digest('hex'))
   })
 })
 

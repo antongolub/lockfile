@@ -244,8 +244,8 @@ describe('registry/cache-pnpm — pnpmCache packument()', () => {
   })
 })
 
-describe('registry/cache-pnpm — pnpmCache tarball() is architecturally undefined', () => {
-  it('returns undefined even when packument() would succeed', async () => {
+describe('registry/cache-pnpm — pnpmCache has no archive-byte capability', () => {
+  it('does not expose tarball() even when packument() succeeds', async () => {
     const storeDir = freshStore(filesDir => {
       placeIndex(filesDir, { name: 'lodash', version: '4.17.21' })
     })
@@ -255,17 +255,10 @@ describe('registry/cache-pnpm — pnpmCache tarball() is architecturally undefin
     const packument = await cache.packument('lodash')
     expect(packument).toBeDefined()
 
-    // tarball() never returns bytes — pnpm decomposes archives into
-    // per-file content-addressable blobs and discards the original.
-    const bytes = await cache.tarball!('lodash', '4.17.21')
-    expect(bytes).toBeUndefined()
-  })
-
-  it('returns undefined on clean miss too', async () => {
-    const storeDir = freshStore()
-    const cache = pnpmCache({ storeDir })
-    const bytes = await cache.tarball!('lodash', '4.17.21')
-    expect(bytes).toBeUndefined()
+    // pnpm decomposes archives into per-file content-addressable blobs and
+    // discards the original, so an always-missing tarball method is a false
+    // capability rather than a useful source.
+    expect('tarball' in cache).toBe(false)
   })
 })
 

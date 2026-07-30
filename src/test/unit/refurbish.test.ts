@@ -7,7 +7,11 @@ import { gzipSync } from 'node:zlib'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LockfileError, parse, stringify } from '../../main/ts/index.ts'
-import { refurbish, type TarballSource } from '../../main/ts/enrich/refurbish.ts'
+import {
+  refurbish,
+  type RefurbishSources,
+  type TarballSource,
+} from '../../main/ts/enrich/refurbish.ts'
 import { computeBerryChecksum } from '../../main/ts/recipe/berry-checksum.ts'
 import { emitBerryChecksum, emptyIntegrity, mergeIntegrity } from '../../main/ts/recipe/integrity.ts'
 import { sentinelHashOf } from '../../main/ts/recipe/patch.ts'
@@ -472,7 +476,7 @@ describe('enrich/refurbish (ADR-0034 + ADR-0035)', () => {
     expect(r.enriched).toEqual([...r.enriched].sort())
   })
 
-  it('uses a caller-supplied cached berryChecksum — NO tarball fetch, no recompute', async () => {
+  it('preserves a legacy combined TarballSource berryChecksum without tarball recompute', async () => {
     const graph = graphOf(b => { addPackage(b, { name: 'ms', version: '2.1.3' }) })
     // the true STORE digest, supplied "from .yarn/cache" — tarball must NOT be touched.
     const cachedHex = computeBerryChecksum(tgz('ms-2.1.3.tgz'), 'ms', '10c0')
@@ -486,6 +490,29 @@ describe('enrich/refurbish (ADR-0034 + ADR-0035)', () => {
     const r = await refurbish(graph, 'yarn-berry-v8', source)
 
     expect(tarballCalled).toBe(false)                  // fast path — no fetch, no recompute
+    expect(r.enriched).toEqual(['ms@2.1.3'])
+    expect(emitBerryChecksum(r.graph.tarballOf('ms@2.1.3')!.integrity!)).toBe(cachedHex)
+  })
+
+  it('routes preferred split checksum evidence without calling npm tarballs', async () => {
+    const graph = graphOf(b => { addPackage(b, { name: 'ms', version: '2.1.3' }) })
+    const cachedHex = computeBerryChecksum(tgz('ms-2.1.3.tgz'), 'ms', '10c0')
+    let tarballCalled = false
+    const sources: RefurbishSources = {
+      npmTarballs: {
+        async tarball() { tarballCalled = true; return undefined },
+      },
+      yarnBerryChecksums: {
+        async berryChecksum(name, version, cacheKey) {
+          return name === 'ms' && version === '2.1.3' && cacheKey === '10c0'
+            ? cachedHex
+            : undefined
+        },
+      },
+    }
+    const r = await refurbish(graph, 'yarn-berry-v8', sources)
+
+    expect(tarballCalled).toBe(false)
     expect(r.enriched).toEqual(['ms@2.1.3'])
     expect(emitBerryChecksum(r.graph.tarballOf('ms@2.1.3')!.integrity!)).toBe(cachedHex)
   })
