@@ -63,7 +63,7 @@
 | Peer-dep virtualization                   | ✗ | still flat |
 | `npm:` alias                              | ✓ | `name@npm:<other>@…` shape |
 | `git` / `github` protocols                | ✓ | `resolved` carries git URL |
-| `file` / `link` / `portal`                | ~ | `link: true` for symlink |
+| `file` / `link` / `portal`                | ~ | workspace symlinks use `link: true`; a non-link `resolved` local spec parses as a directory and retains its native spelling |
 | `patch:` protocol                         | ✗ | |
 | Integrity hashes                          | ✓ | sha512 |
 | `dev` / `optional` / `peer` separation    | ✓ | per-entry flags + `peerDependencies` block |
@@ -108,6 +108,11 @@ this is only how npm-2 *carries* it.
   for npm to skip optional/incompatible installs.
 - Workspaces appear under their on-disk path (`packages/foo`) **and** as
   symlinks at `node_modules/<name>` with `link: true, resolved: "packages/foo"`.
+- A non-link package entry whose `resolved` field is `file:`, `link:`, or
+  `portal:` is a local directory dependency, not workspace identity. Parse
+  stores the directory canonical and retains the exact protocol spelling for
+  same-format replay; only `link: true` plus the bare path denotes the
+  workspace-link shape above.
 - A local workspace edge whose retained `workspaceRange.specifier` is empty is
   an inferred binding, not authored `workspace:` syntax. It requires workspace
   support only. A non-empty `workspace:` specifier requires the separate

@@ -154,6 +154,13 @@ describe('recipe/resolution — parse directory case', () => {
     const c = parseResolution('file:./vendor/local-pkg', { sourceKind: 'npm-resolved' })
     expect(c).toEqual({ type: 'directory', path: './vendor/local-pkg' })
   })
+  it.each(['link:', 'portal:'])(
+    'npm non-link entry `%s<path>` → directory canonical',
+    protocol => {
+      const c = parseResolution(`${protocol}./vendor/local-pkg`, { sourceKind: 'npm-resolved' })
+      expect(c).toEqual({ type: 'directory', path: './vendor/local-pkg' })
+    },
+  )
   it('yarn-berry `<n>@portal:<path>` → directory canonical', () => {
     const c = parseResolution('foo@portal:./../some/dir', { sourceKind: 'yarn-berry-locator', name: 'foo' })
     expect(c).toEqual({ type: 'directory', path: './../some/dir' })

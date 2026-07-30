@@ -105,6 +105,20 @@ export function parse(raw: string, options: ParseOptions = {}): ResolutionCanoni
     // fall through to URL / file: detection below
   }
 
+  // npm package entries distinguish workspace links structurally with
+  // `link: true` + a bare workspace path. A non-link package entry whose
+  // `resolved` value uses yarn's local `link:` / `portal:` spelling is instead
+  // a local directory dependency. Keep this source-kind-sensitive: pnpm uses
+  // bare `link:` for workspace identity and its adapters must intercept it
+  // before calling this primitive.
+  if (options.sourceKind === 'npm-resolved') {
+    for (const protocol of ['link:', 'portal:'] as const) {
+      if (raw.startsWith(protocol) && raw.length > protocol.length) {
+        return { type: 'directory', path: normalizeDirectoryPath(raw.slice(protocol.length)) }
+      }
+    }
+  }
+
   // file: prefix → directory (npm / pnpm non-workspace).
   if (raw.startsWith('file:')) {
     return { type: 'directory', path: normalizeDirectoryPath(raw.slice('file:'.length)) }

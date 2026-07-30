@@ -189,9 +189,29 @@ nodes, **11** neutral root memberships, and **22** still-unproven alias facts:
 `544 + 11 + 11 + 22 = 588`.
 
 Wasya now has no source removal or source change; its only deltas are the two
-neutral-root additions. The remaining ten source-carried losses are the three
-`link:` / `portal:` canonical-directory facts and seven webpack alias-identity
-facts, handled as separate change-sets before any comparator relaxation.
+neutral-root additions. At that boundary, the remaining ten source-carried
+losses were the three `link:` / `portal:` canonical-directory facts and seven
+webpack alias-identity facts.
+
+The local-directory increment fixes the three reader-owned facts without
+changing the emitter or comparator. Yarn Classic → npm-3 already emitted the
+literal `link:` / `portal:` values; the npm reader had reparsed those non-link
+package entries as `unknown`. npm-1/2/3/4 now parse them as `directory` while a
+native-resolution carrier preserves the exact protocol spelling on replay.
+The post-root-authority vector therefore moves exactly as predicted:
+
+| Attribute fact | Root-authority boundary | After local-directory reader |
+| --- | ---: | ---: |
+| User-carried loss | 10 | **7** |
+| Adapter-inferred loss | 0 | **0** |
+| Target structural impossibility | 0 | **0** |
+| Target additions | 588 | **588** |
+| Of which unproven | 22 | **22** |
+
+Hahazexia and Magento now have no source removal or change; each has only its
+neutral root and root-membership additions. The seven remaining losses and 22
+unproven additions are all confined to webpack alias identity and remain a
+separate change-set before any comparator relaxation.
 
 With Lodash's exact root manifest supplied, the same audit has no loss or
 unproven addition: its 544 additions are all SHA-1 promotions derivable from

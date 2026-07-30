@@ -934,6 +934,12 @@ function tarballPayloadOf(entry: NpmEntry, subject: string, diagnostics: Diagnos
   // ADR-0014 §4.F3 — canonical resolution from npm `resolved` URL.
   if (typeof entry.resolved === 'string' && !entry.link) {
     const canonical = parseResolutionRecipe(entry.resolved, { sourceKind: 'npm-resolved' })
+    // A local directory may use `file:`, `link:`, or `portal:` spelling.
+    // Canonical F3 intentionally collapses those spellings, so retain the
+    // native npm entry value for exact same-format replay.
+    if (canonical.type === 'directory') {
+      payload.nativeResolution = entry.resolved
+    }
     if (canonical.type === 'unknown') {
       diagnostics.push(unknownResolutionDiagnostic(subject, entry.resolved))
     }

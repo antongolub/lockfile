@@ -72,7 +72,7 @@
 | Peer-dep virtualization                   | ✗ | flat tree only |
 | `npm:` alias                              | ~ | partial; needs `requires` rewriting |
 | `git` / `github` protocols                | ~ | resolved URL stored in `version` |
-| `file` / `link` / `portal`                | ~ | as `file:` URL |
+| `file` / `link` / `portal`                | ~ | non-workspace `resolved` parses as a directory; native spelling replays exactly, canonical fallback uses `file:` |
 | `patch:` protocol                         | ✗ | |
 | Integrity hashes                          | ✓ | `sha512` (and legacy `sha1`) |
 | `dev` / `optional` / `peer` separation    | ~ | per-entry flags, not separate buckets |
