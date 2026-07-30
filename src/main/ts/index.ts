@@ -167,6 +167,14 @@ export type {
   RemoteArtifactSource,
 } from './enrich/artifact-sources.ts'
 export {
+  artifactStore,
+  DEFAULT_ARTIFACT_STORE_MAX_BYTES,
+} from './enrich/artifact-store.ts'
+export type {
+  ArtifactStoreOptions,
+  ArtifactStoreSource,
+} from './enrich/artifact-store.ts'
+export {
   DEFAULT_ARTIFACT_MAX_LIVE_BYTES,
   DEFAULT_ARTIFACT_RESOURCE_LIMITS,
 } from './recipe/artifact-envelope.ts'

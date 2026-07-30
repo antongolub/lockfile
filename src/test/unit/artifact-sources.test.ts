@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  artifactStore,
+  DEFAULT_ARTIFACT_STORE_MAX_BYTES,
+} from '../../main/ts/enrich/artifact-store.ts'
 import {
   normalizeArtifactSources,
   type ArtifactSourceList,
@@ -13,6 +17,7 @@ import type { RegistryAdapter } from '../../main/ts/registry/types.ts'
 const dirs: string[] = []
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -73,6 +78,36 @@ function yarnCacheWith(
 }
 
 describe('enrich/artifact-sources — three accepted shapes', () => {
+  it('resolves the explicit and XDG-aware artifact-store paths eagerly', () => {
+    const xdg = freshDir('lockgraph-artifact-xdg-')
+    vi.stubEnv('XDG_CACHE_HOME', xdg)
+    expect(artifactStore()).toEqual({
+      kind: 'lockgraph-artifact-store',
+      path: resolve(xdg, 'lockgraph'),
+      maxBytes: DEFAULT_ARTIFACT_STORE_MAX_BYTES,
+    })
+
+    const explicit = resolve(freshDir('lockgraph-artifact-explicit-'), 'project-store')
+    expect(artifactStore({ path: explicit, maxBytes: 123 })).toEqual({
+      kind: 'lockgraph-artifact-store',
+      path: explicit,
+      maxBytes: 123,
+    })
+  })
+
+  it('ignores a relative XDG cache root and falls back to the user cache', () => {
+    vi.stubEnv('XDG_CACHE_HOME', 'relative-cache')
+    expect(artifactStore().path).toBe(resolve(homedir(), '.cache', 'lockgraph'))
+  })
+
+  it('fails eagerly on invalid artifact-store options', () => {
+    expect(() => artifactStore({ path: '' })).toThrow(/path/)
+    expect(() => artifactStore({ maxBytes: 0 })).toThrow(/maxBytes/)
+    expect(() => artifactStore({ maxBytes: Number.POSITIVE_INFINITY }))
+      .toThrow(/maxBytes/)
+    expect(() => artifactStore({ path: resolve('/') })).toThrow(/filesystem root/)
+  })
+
   it('preserves both capabilities of a bare legacy TarballSource', async () => {
     const tarball = vi.fn(async () => new Uint8Array([1]))
     const berryChecksum = vi.fn(async () => 'a'.repeat(128))

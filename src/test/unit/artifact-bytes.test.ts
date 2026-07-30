@@ -1,7 +1,21 @@
 import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
-import { enrich, liveRegistry, parse } from '../../main/ts/index.ts'
+import {
+  artifactStore,
+  enrich,
+  liveRegistry,
+  parse,
+} from '../../main/ts/index.ts'
 import * as enrichDiagnostics from '../../main/ts/enrich/diagnostics.ts'
 import { computeBerryChecksum } from '../../main/ts/recipe/berry-checksum.ts'
 import type {
@@ -152,6 +166,20 @@ function hashes(
   return id === undefined
     ? []
     : result.graph.tarballOf(id)?.integrity?.hashes ?? []
+}
+
+function filesBelow(root: string): string[] {
+  if (!existsSync(root)) return []
+  const files: string[] = []
+  const visit = (path: string): void => {
+    for (const name of readdirSync(path)) {
+      const child = resolve(path, name)
+      if (statSync(child).isDirectory()) visit(child)
+      else files.push(child)
+    }
+  }
+  visit(root)
+  return files
 }
 
 describe('remote artifact bytes — authorization ladder', () => {
@@ -436,6 +464,44 @@ describe('remote artifact bytes — central verification', () => {
     )
     expect(codes(result)).toContain('ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED')
     expect(codes(result)).not.toContain('ENRICH_ARTIFACT_INTEGRITY_MISSING')
+  })
+
+  it.each([
+    ['missing', 'ENRICH_ARTIFACT_INTEGRITY_MISSING'],
+    ['mismatch', 'ENRICH_ARTIFACT_INTEGRITY_MISMATCH'],
+    ['envelope', 'ENRICH_ARTIFACT_COMPRESSED_LIMIT'],
+  ] as const)('never persists bytes rejected for %s verification', async (kind, code) => {
+    const root = mkdtempSync(resolve(tmpdir(), 'lockgraph-artifact-rejected-'))
+    try {
+      const bytes = tarballOf()
+      const graph = kind === 'missing'
+        ? npmGraph(bytes)
+        : npmGraph(bytes, {
+            integrity: kind === 'mismatch'
+              ? sri(tarballOf('different\n'))
+              : sri(bytes),
+          })
+      const result = await enrich(graph, {
+        sources: {
+          artifacts: [
+            artifactStore({ path: root }),
+            { registry: remote({
+              fetch: vi.fn(async () => new Response(bytes)) as unknown as typeof fetch,
+            }) },
+          ],
+        },
+        target: 'yarn-berry-v8',
+        contract: 'snapshot',
+        cacheKey: '10c0',
+        ...(kind === 'envelope'
+          ? { artifactResources: { defaults: { maxCompressedBytes: 1 } } }
+          : {}),
+      } as never)
+      expect(result.diagnostics.map(item => item.code)).toContain(code)
+      expect(filesBelow(resolve(root, 'objects'))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

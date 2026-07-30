@@ -281,6 +281,11 @@ output, and receipt failures use `error`.
 | `ENRICH_ARTIFACT_TAR_CONTENT_LIMIT` | warning | Cumulative tar entry content exceeded its mandatory ceiling. | For an accepted PM artifact, override the implementation default; if caller-provided, that ceiling was reached. |
 | `ENRICH_ARTIFACT_REPACKED_LIMIT` | warning | The target repacked zip exceeded its mandatory ceiling. | For an accepted PM artifact, override the implementation default; if caller-provided, that ceiling was reached. |
 | `ENRICH_ARTIFACT_LIVE_LIMIT` | warning | Simultaneously live artifact representations exceeded the operation ceiling. | Reduce live materialization or override the default; increasing worker concurrency is not a remedy. |
+| `ENRICH_ARTIFACT_STORE_CORRUPT` | warning | A canonical object, digest alias, or current-lock alias verification failed. The invalid object/index was removed before source traversal continued. | Restore a verified local/remote source; the next centrally verified bytes self-heal the removed store entry. |
+| `ENRICH_ARTIFACT_STORE_READ_FAILED` | warning | Private-root validation, coordination recovery, locking, or object I/O prevented a store read. | Repair ownership/permissions or remove the damaged store; later artifact sources remain eligible. |
+| `ENRICH_ARTIFACT_STORE_WRITE_FAILED` | warning | Atomic private persistence failed after bytes had already verified. | Repair store ownership/filesystem availability. Enrichment succeeded without persistence. |
+| `ENRICH_ARTIFACT_STORE_CAPACITY_EXCEEDED` | warning | An artifact exceeded configured capacity, or live pins left insufficient evictable room. | Increase `artifactStore({ maxBytes })`, wait for in-flight readers, or omit persistence; verified bytes still serve the operation. |
+| `ENRICH_ARTIFACT_STORE_EVICTION_FAILED` | warning | The store could not scan/delete enough stable entries to prove room for a commit. | Repair store filesystem state/permissions. No unproved-capacity commit is made. |
 | `OPTIMIZE_NODE_REMOVED` | info | Reachability GC removed an orphan. | No action. |
 | `OPTIMIZE_NOOP` | info | Reachability GC reached a fixpoint. | No action. |
 | `OPTIMIZE_NO_ROOTS` | warning | Non-empty graph has no workspace/preserve anchor; optimizer preserved everything. | Supply `preserve` roots for rootless graphs. |

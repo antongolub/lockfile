@@ -1,3 +1,4 @@
+import { dirname, isAbsolute } from 'node:path'
 import { LockfileError } from '../api/errors.ts'
 import { npmCache } from '../registry/cache-npm.ts'
 import { pnpmCache } from '../registry/cache-pnpm.ts'
@@ -8,6 +9,7 @@ import type {
   RegistryAdapter,
   YarnBerryChecksumSource,
 } from '../registry/types.ts'
+import type { ArtifactStoreSource } from './artifact-store.ts'
 import type { RefurbishSources, TarballSource } from './refurbish.ts'
 
 export type ArtifactCacheFamily = 'npm' | 'yarn-berry' | 'pnpm'
@@ -23,6 +25,7 @@ export interface RemoteArtifactSource {
 export type ArtifactSourceList = readonly (
   | ArtifactCacheSpecifier
   | RemoteArtifactSource
+  | ArtifactStoreSource
 )[]
 
 export type ArtifactSourcesInput =
@@ -40,12 +43,17 @@ export type NormalizedArtifactSource =
       kind: 'remote'
       registry: RegistryAdapter
     }>
+  | Readonly<{
+      kind: 'store'
+      store: ArtifactStoreSource
+    }>
 
 export interface NormalizedArtifactSources {
   readonly refurbish: RefurbishSources
   readonly entries: readonly NormalizedArtifactSource[]
   readonly caches: readonly CacheAdapter[]
   readonly remotes: readonly RegistryAdapter[]
+  readonly store?: ArtifactStoreSource
 }
 
 const emptyNpmTarballs: NpmTarballSource = Object.freeze({
@@ -70,6 +78,18 @@ function isRegistryAdapter(value: unknown): value is RegistryAdapter {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const candidate = value as Record<string, unknown>
   return hasFunction(candidate, 'packument') && hasFunction(candidate, 'resolve')
+}
+
+function isArtifactStoreSource(value: unknown): value is ArtifactStoreSource {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return candidate.kind === 'lockgraph-artifact-store'
+    && typeof candidate.path === 'string'
+    && candidate.path.length > 0
+    && isAbsolute(candidate.path)
+    && dirname(candidate.path) !== candidate.path
+    && Number.isSafeInteger(candidate.maxBytes)
+    && (candidate.maxBytes as number) > 0
 }
 
 function remoteRegistryOf(value: unknown, index: number): RegistryAdapter {
@@ -165,6 +185,7 @@ function normalizeList(list: ArtifactSourceList): NormalizedArtifactSources {
   const remotes: RegistryAdapter[] = []
   const npmTarballs: NpmTarballSource[] = []
   const yarnBerryChecksums: YarnBerryChecksumSource[] = []
+  let store: ArtifactStoreSource | undefined
 
   for (let index = 0; index < list.length; index++) {
     const item = list[index]
@@ -183,6 +204,12 @@ function normalizeList(list: ArtifactSourceList): NormalizedArtifactSources {
       if (capabilities.yarnBerryChecksums !== undefined) {
         yarnBerryChecksums.push(capabilities.yarnBerryChecksums)
       }
+    } else if (isArtifactStoreSource(item)) {
+      if (store !== undefined) {
+        throw invalidArtifactSource('only one artifact store may be configured')
+      }
+      store = item
+      entries.push(Object.freeze({ kind: 'store', store }))
     } else {
       const registry = remoteRegistryOf(item, index)
       remotes.push(registry)
@@ -200,6 +227,7 @@ function normalizeList(list: ArtifactSourceList): NormalizedArtifactSources {
     entries: Object.freeze(entries),
     caches: Object.freeze(caches),
     remotes: Object.freeze(remotes),
+    ...(store === undefined ? {} : { store }),
   })
 }
 

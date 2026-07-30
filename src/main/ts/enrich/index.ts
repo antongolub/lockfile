@@ -12,6 +12,14 @@ export type {
   ArtifactSourcesInput,
   RemoteArtifactSource,
 } from './artifact-sources.ts'
+export {
+  artifactStore,
+  DEFAULT_ARTIFACT_STORE_MAX_BYTES,
+} from './artifact-store.ts'
+export type {
+  ArtifactStoreOptions,
+  ArtifactStoreSource,
+} from './artifact-store.ts'
 export { hydrateMetadata } from './hydrate-metadata.ts'
 export type { HydrateMetadataResult } from './hydrate-metadata.ts'
 export { enrich } from './facade.ts'

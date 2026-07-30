@@ -39,6 +39,12 @@ import {
   enrichArtifactLimit,
   type EnrichArtifactDiagnosticCode,
 } from './diagnostics.ts'
+import {
+  readArtifactStore,
+  writeArtifactStore,
+  type ArtifactStoreAlias,
+  type ArtifactStoreEvidence,
+} from './artifact-store.ts'
 
 export interface ArtifactTarballRequest {
   readonly node: Node
@@ -401,19 +407,7 @@ async function verifyIntegrity(
   limits: EffectiveArtifactResourceLimits,
   liveMeter: ArtifactLiveMeter,
 ): Promise<void> {
-  const hashes = [...(request.payload.integrity?.hashes
-    .filter(hash => hash.origin !== 'berry-zip') ?? [])]
-  const rawResolution = request.payload.nativeResolution
-    ?? (request.payload.resolution?.type === 'tarball'
-      ? request.payload.resolution.url
-      : undefined)
-  const fragment = rawResolution !== undefined
-    ? /\.tgz#([0-9a-f]{40})$/i.exec(rawResolution)?.[1]?.toLowerCase()
-    : undefined
-  if (fragment !== undefined && !hashes.some(hash =>
-    hash.algorithm === 'sha1' && hash.digest === fragment)) {
-    hashes.push({ algorithm: 'sha1', digest: fragment, origin: 'url-fragment' })
-  }
+  const hashes = verificationHashes(request)
   if (hashes.length === 0) {
     const sourceDigest = request.payload.integrity?.hashes.find(hash =>
       hash.algorithm === 'sha512' && hash.origin === 'berry-zip')?.digest
@@ -514,6 +508,162 @@ async function verifyIntegrity(
   }
 }
 
+interface VerificationHash {
+  readonly algorithm: string
+  readonly digest: string
+  readonly origin: string
+}
+
+function verificationHashes(
+  request: ArtifactTarballRequest,
+): VerificationHash[] {
+  const hashes: VerificationHash[] = [...(request.payload.integrity?.hashes
+    .filter(hash => hash.origin !== 'berry-zip') ?? [])]
+  const rawResolution = request.payload.nativeResolution
+    ?? (request.payload.resolution?.type === 'tarball'
+      ? request.payload.resolution.url
+      : undefined)
+  const fragment = rawResolution !== undefined
+    ? /\.tgz#([0-9a-f]{40})$/i.exec(rawResolution)?.[1]?.toLowerCase()
+    : undefined
+  if (fragment !== undefined && !hashes.some(hash =>
+    hash.algorithm === 'sha1' && hash.digest === fragment)) {
+    hashes.push({ algorithm: 'sha1', digest: fragment, origin: 'url-fragment' })
+  }
+  return hashes
+}
+
+const algorithmPriority: Record<ArtifactStoreAlias['algorithm'], number> = {
+  sha512: 0,
+  sha384: 1,
+  sha256: 2,
+  sha1: 3,
+}
+
+function artifactStoreEvidence(
+  request: ArtifactTarballRequest,
+): ArtifactStoreEvidence {
+  const aliases: ArtifactStoreAlias[] = []
+  for (const hash of verificationHashes(request)) {
+    if (hash.algorithm !== 'sha1'
+      && hash.algorithm !== 'sha256'
+      && hash.algorithm !== 'sha384'
+      && hash.algorithm !== 'sha512') continue
+    aliases.push({
+      namespace: 'tarball',
+      algorithm: hash.algorithm,
+      digest: hash.digest,
+    })
+  }
+  const sourceDigest = request.payload.integrity?.hashes.find(hash =>
+    hash.algorithm === 'sha512' && hash.origin === 'berry-zip')?.digest
+  const sourceCacheKey = request.payload.berryChecksumCacheKey
+  if (sourceDigest !== undefined && sourceCacheKey !== undefined) {
+    aliases.push({
+      namespace: 'berry-zip',
+      algorithm: 'sha512',
+      digest: sourceDigest,
+      cacheKey: sourceCacheKey,
+    })
+  }
+  const unique = new Map<string, ArtifactStoreAlias>()
+  for (const alias of aliases) {
+    const key = alias.namespace === 'berry-zip'
+      ? `${alias.namespace}:${alias.cacheKey}:${alias.algorithm}:${alias.digest}`
+      : `${alias.namespace}:${alias.algorithm}:${alias.digest}`
+    if (!unique.has(key)) unique.set(key, alias)
+  }
+  return {
+    aliases: Object.freeze([...unique.values()].sort((left, right) => {
+      const priority = algorithmPriority[left.algorithm]
+        - algorithmPriority[right.algorithm]
+      if (priority !== 0) return priority
+      if (left.namespace !== right.namespace) {
+        return left.namespace === 'tarball' ? -1 : 1
+      }
+      return left.digest.localeCompare(right.digest)
+    })),
+  }
+}
+
+async function settleHit(
+  action: () => Promise<void>,
+  key: TarballKey,
+  onDiagnostic: (diagnostic: Diagnostic) => void,
+): Promise<void> {
+  try {
+    await action()
+  } catch (error) {
+    onDiagnostic(enrichArtifactDiagnostic(
+      'ENRICH_ARTIFACT_STORE_READ_FAILED',
+      key,
+      'could not settle an artifact-store pin; stale coordination will be recovered later',
+      { cause: error instanceof Error ? error.message : String(error) },
+    ))
+  }
+}
+
+async function writeBack(
+  artifacts: NormalizedArtifactSources,
+  request: ArtifactTarballRequest,
+  bytes: Uint8Array,
+  onDiagnostic: (diagnostic: Diagnostic) => void,
+): Promise<void> {
+  if (artifacts.store === undefined) return
+  await writeArtifactStore(
+    artifacts.store,
+    artifactStoreEvidence(request),
+    bytes,
+    toTarballKey(request.node),
+    onDiagnostic,
+  )
+}
+
+async function checkedStoreHit(
+  entry: Extract<NormalizedArtifactSource, { kind: 'store' }>,
+  request: ArtifactTarballRequest,
+  policy: ArtifactResourcePolicy | undefined,
+  liveMeter: ArtifactLiveMeter,
+  onDiagnostic: (diagnostic: Diagnostic) => void,
+): Promise<{ bytes: Uint8Array; release: () => void } | undefined> {
+  const key = toTarballKey(request.node)
+  const limits = artifactResourceLimits(policy, key)
+  const evidence = artifactStoreEvidence(request)
+  let hit
+  while (true) {
+    hit = await readArtifactStore(
+      entry.store,
+      evidence,
+      key,
+      onDiagnostic,
+      Math.min(limits.maxCompressedBytes, liveMeter.remainingBytes),
+    )
+    if (hit === undefined) return undefined
+    if (!('exceededBytes' in hit)) break
+    try {
+      assertArtifactRepresentation('compressed', hit.exceededBytes, limits)
+      const release = liveMeter.acquire(hit.exceededBytes)
+      release()
+    } catch (error) {
+      translateEnvelopeError(key, error)
+    }
+    // Capacity may have become available after the store stat. Re-open under
+    // the current meter instead of materializing past the earlier reservation.
+  }
+  try {
+    const leased = await checked(hit.bytes, request, policy, liveMeter)
+    await settleHit(() => hit.accept(), key, onDiagnostic)
+    return leased
+  } catch (error) {
+    if (hit.viaAlias) {
+      await settleHit(() => hit.rejectAlias(), key, onDiagnostic)
+      return undefined
+    }
+    await settleHit(() => hit.release(), key, onDiagnostic)
+    throw error
+  }
+}
+
 async function checked(
   input: Uint8Array | { bytes: Uint8Array; release: () => void },
   request: ArtifactTarballRequest,
@@ -554,6 +704,7 @@ function npmTarballCapability(
 export function artifactTarballSource(
   artifacts: NormalizedArtifactSources,
   policy: ArtifactResourcePolicy | undefined,
+  onDiagnostic: (diagnostic: Diagnostic) => void = () => {},
 ): RequestNpmTarballSource {
   const fallback = artifacts.refurbish.npmTarballs
   const liveMeter = new ArtifactLiveMeter(policy)
@@ -586,11 +737,24 @@ export function artifactTarballSource(
 
       let remotesVisited = false
       for (const entry of artifacts.entries) {
+        if (entry.kind === 'store') {
+          const leased = await checkedStoreHit(
+            entry,
+            request,
+            policy,
+            liveMeter,
+            onDiagnostic,
+          )
+          if (leased !== undefined) return retain(leased)
+          continue
+        }
         const cache = npmTarballCapability(entry)
         if (cache !== undefined) {
           const bytes = await cache.tarball(request.node.name, request.node.version)
           if (bytes !== undefined) {
-            return retain(await checked(bytes, request, policy, liveMeter))
+            const leased = await checked(bytes, request, policy, liveMeter)
+            await writeBack(artifacts, request, leased.bytes, onDiagnostic)
+            return retain(leased)
           }
           continue
         }
@@ -605,7 +769,9 @@ export function artifactTarballSource(
         } catch (error) {
           translateEnvelopeError(key, error)
         }
-        return retain(await checked(leased, request, policy, liveMeter))
+        const checkedBytes = await checked(leased, request, policy, liveMeter)
+        await writeBack(artifacts, request, checkedBytes.bytes, onDiagnostic)
+        return retain(checkedBytes)
       }
       return undefined
     },

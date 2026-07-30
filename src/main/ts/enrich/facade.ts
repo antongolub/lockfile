@@ -698,7 +698,11 @@ export async function enrich(
       'observed-only',
     )
     if (hasBerryChecksumGap(before, artifactCacheKey)) {
-      const npmTarballs = artifactTarballSource(artifacts, options.artifactResources)
+      const npmTarballs = artifactTarballSource(
+        artifacts,
+        options.artifactResources,
+        diagnostic => diagnostics.push(diagnostic),
+      )
       const refurbished = await refurbish(before, targetRequest.format, {
         ...artifacts.refurbish,
         npmTarballs,

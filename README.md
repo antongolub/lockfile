@@ -208,6 +208,7 @@ sources: {
     'yarn-berry:./.yarn/cache',
     'npm:./.cache/npm/_cacache',
     'pnpm:./.cache/pnpm/v3',
+    artifactStore(), // verified tgz CAS; omit for no lockgraph persistence
     { registry }, // explicit network consent, after the ordered local sources
   ],
 }
@@ -244,6 +245,28 @@ globally or per tarball through `artifactResources`; a limit diagnostic
 distinguishes the implementation default from a caller-provided ceiling. Large
 artifact throughput can therefore be bounded by the live-byte meter; increasing
 worker concurrency is not a remedy.
+
+`artifactStore()` adds a lockgraph-owned, integrity-addressed tgz cache. It uses
+`$XDG_CACHE_HOME/lockgraph` when that variable is absolute and
+`~/.cache/lockgraph` otherwise; `artifactStore({ path })` is the explicit
+project override. Capacity defaults to 5 GiB and is always enforced by
+deterministic least-recently-used eviction; `maxBytes` changes that capacity.
+The store's list position controls read priority, while the one allowed store
+is the post-verification write-back sink regardless of position. Duplicate
+stores fail eagerly.
+
+Only bytes that have passed the same central envelope and current-lock
+integrity checks are written. A hit verifies its canonical SHA-512 object and
+then traverses those checks again. Digest aliases are lookup indexes, never
+remembered proof. Corrupt objects or aliases emit
+`ENRICH_ARTIFACT_STORE_CORRUPT`, are removed, and source traversal continues;
+the next verified fetch self-heals the object or index. Writes use private
+`0700` directories, `0600` files, same-filesystem temp-and-rename commits,
+cross-process pins, dead-owner recovery, and deterministic eviction that never
+removes an in-flight object. Stable paths and metadata contain no package name,
+URL, header, token, or raw diagnostic. A public tarball digest can itself be
+corpus-inverted, so the precise privacy claim is that the store adds no
+identifying material beyond what content addressing inherently implies.
 
 When moving between Berry cache keys, an existing checksum remains source-domain
 verification evidence: the tgz must first reproduce it before the one Yarn-

@@ -559,6 +559,38 @@ records whether the implementation default or a caller-provided ceiling was
 reached. The live meter may govern large-artifact throughput; adding workers is
 not a remedy for that bound.
 
+An explicit `artifactStore()` entry adds a lockgraph-owned CAS for original,
+centrally verified npm tgz bytes. Its default root is
+`$XDG_CACHE_HOME/lockgraph` when XDG supplies an absolute root, otherwise
+`~/.cache/lockgraph`; `path` is the project override. The default 5 GiB
+capacity is mandatory and `maxBytes` overrides it. Exactly one store is legal.
+Its list position controls read priority, but it is always the single
+post-verification sink after another source succeeds, irrespective of position.
+Omitting the entry proves that lockgraph performs no artifact persistence.
+
+Canonical objects use computed SHA-512 addressing. Supported lock SRI, Yarn
+Classic fragments, and Berry source-domain checksums may create digest-only
+indexes into that canonical object. An alias is only a lookup index, never
+proof: every hit self-verifies the canonical path and then passes unchanged
+central envelope and current-lock verification before recompute. Canonical
+self-hash failure removes the object and traversed alias; a stale or poisoned
+alias removes only that index because its object can remain valid for another
+lock. Both warn and fall through. A later verified source writes back and
+self-heals the removed object or alias.
+
+The CAS uses private `0700` directories and `0600` files, same-filesystem
+temporary files plus sync-and-rename commits, and digest-only metadata.
+Cross-process pin markers prevent eviction of in-flight objects; dead-owner
+pins and interrupted temps are recovered by the next locked operation.
+Completed unpinned victims are ordered deterministically by modification time
+and canonical digest. Capacity includes stable objects and aliases, and a
+commit is skipped when an individual object, live pins, or an eviction failure
+prevents proving room. No package identity, source URL, credential, header, or
+raw process diagnostic is added to paths or metadata. Content digests of public
+tarballs are corpus-invertible, so the CAS is not a privacy mechanism; it adds
+no identifying material beyond what integrity addressing inherently implies,
+and private permissions are the access boundary.
+
 For compatibility, the facade also accepts the split `RefurbishSources` pair and
 the older combined `TarballSource`, preserving both capabilities in either
 object form. This increment neither removes nor newly deprecates either shape;
