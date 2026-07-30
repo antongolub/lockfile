@@ -315,6 +315,11 @@ and therefore the [NodeId](./_common.md#41-nodeid) name — is `<target>`, **not
   `<alias>@npm:<target>@<range>` descriptor for each aliased incoming edge, and
   the consumer's dependency line re-keys under `<alias>` with the
   `npm:<target>@<range>` value.
+- Manifest enrichment follows the same rule for synthesized root and workspace
+  edges. When a declaration key binds an npm-alias descriptor to a canonical
+  target whose name differs, the edge retains the declaration key in
+  `attrs.alias`; binding the target and then discarding that key would make
+  distinct aliases collide during a later flat-layout projection.
 
 Unlike yarn-berry — which carries a `resolution:` field whose locator gives the
 authoritative target name directly — classic has **no** `resolution:` field, so

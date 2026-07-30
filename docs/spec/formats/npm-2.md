@@ -108,6 +108,13 @@ this is only how npm-2 *carries* it.
   for npm to skip optional/incompatible installs.
 - Workspaces appear under their on-disk path (`packages/foo`) **and** as
   symlinks at `node_modules/<name>` with `link: true, resolved: "packages/foo"`.
+- An ordinary registry package installed under an npm-alias path
+  (`node_modules/<alias>`) keeps its canonical package identity in the entry's
+  `name` field. The emitter derives that requirement from the actual planned
+  install paths, not only from an npm parse sidecar: if any path tail differs
+  from the canonical node name, the shared package entry carries
+  `name: <canonical>`. The same entry may therefore retain `name` at an
+  additional own-name path; this is intentional and is byte-stable under npm.
 - A non-link package entry whose `resolved` field is `file:`, `link:`, or
   `portal:` is a local directory dependency, not workspace identity. Parse
   stores the directory canonical and retains the exact protocol spelling for

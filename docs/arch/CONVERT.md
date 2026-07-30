@@ -213,6 +213,32 @@ neutral root and root-membership additions. The seven remaining losses and 22
 unproven additions are all confined to webpack alias identity and remain a
 separate change-set before any comparator relaxation.
 
+The alias-identity increment closes that final boundary without relaxing the
+comparator. Yarn Classic manifest synthesis retains the declared alias when it
+binds a canonical target, and the npm flat emitter writes the canonical package
+`name` whenever any planned install-path tail differs from it. The latter
+depends on the earlier reader rule that deduplicates repeated occurrences of
+the same alias edge: applying only the emitter correction before that rule
+produces duplicate alias edges on output reparse.
+
+The final 11-fixture directional audit is therefore:
+
+| Attribute fact | Before alias identity | After alias identity |
+| --- | ---: | ---: |
+| User-carried loss | 7 | **0** |
+| Adapter-inferred loss | 0 | **0** |
+| Target structural impossibility | 0 | **0** |
+| Target additions | 588 | **566** |
+| Of which unproven | 22 | **0** |
+
+All **566** retained additions are proven: **544** Yarn-resolved SHA-1
+promotions, **11** neutral root nodes, and **11** neutral root memberships.
+The exact webpack manifest exercises both alias-only and redundant own-name
+package entries. Pinned npm 9.9.4 accepts all 6,422 packages and leaves output
+hash
+`0eb28f7463c300ab54018631d22c0e75baca7afc9800d88255a68727c97a3e6d`
+byte-identical.
+
 With Lodash's exact root manifest supplied, the same audit has no loss or
 unproven addition: its 544 additions are all SHA-1 promotions derivable from
 Yarn's resolved-URL fragments. Pinned npm 9.9.4 accepts 1,274 packages and
@@ -477,6 +503,14 @@ used by current and staged refinement paths:
 | **`completeTransitives(graph, registry, …)`** | the **packument** (all versions of a name), memoised per operation and concurrency-bounded | To wire in transitive dependencies a partial lock is missing. Resolution is deterministic for a stable response set; repeatability across runs requires a frozen/snapshotted registry adapter. |
 | **Minting a node / staged metadata hydration** | the packument version plus, when available, the full exact-version manifest | To materialise a version not already in the lock or fill authoritative metadata absent from an existing payload. Corgi (npm's abbreviated packument) omits fields including `libc` and `license`, so it cannot prove project metadata completeness. Berry checksum recomputation additionally needs a separate artifact source; `RegistryAdapter` does not provide tarball bytes. |
 | **`audit(registryPackages(graph))`** | raw npm bulk advisories | Security audit of the graph's registry packages (severity and fix-selection stay the caller's). |
+
+Alias completion has two explicit fail-closed boundaries. npm-1, pnpm v5/v6/v9,
+and bun-text preserve aliases already proven by their native locks, but cannot
+reconstruct a missing aliased edge from a project manifest alone. Separately,
+`completeTransitives` does not split an npm-alias transitive manifest range into
+declared alias, canonical target, and target range; it defers that edge instead
+of binding the wrong package. Both are capability gaps, not permission to infer
+identity from a matching version or tarball.
 
 Registry routing and auth are resolved from the package-manager config, **never
 guessed**, and are ecosystem-scoped (`resolveRegistry(cwd, { ecosystem })` — a

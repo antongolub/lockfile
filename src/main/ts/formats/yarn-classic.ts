@@ -2061,7 +2061,9 @@ function desiredManifestEdges(
           attrs: { range, workspace: true, workspaceRange },
         })
       } else {
-        edges.push({ src: srcNodeId, dst: dstId, kind, attrs: { range } })
+        const attrs: EdgeAttrs = { range }
+        if (name !== nameOf(dstId)) attrs.alias = name
+        edges.push({ src: srcNodeId, dst: dstId, kind, attrs })
       }
     }
   }

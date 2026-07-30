@@ -295,7 +295,7 @@ export function stringifyFamily(
 
     const nodeSide = sidecar?.nodes.get(node.id)
     const paths = plannedInstallPaths.get(node.id) ?? [`node_modules/${node.name}`]
-    const entry = buildNodeModulesEntry(graph, node, nodeSide, config, emitDiagnostic)
+    const entry = buildNodeModulesEntry(graph, node, nodeSide, paths, config, emitDiagnostic)
     for (const path of paths) {
       packages[path] = entry
     }
@@ -1351,11 +1351,12 @@ function buildNodeModulesEntry(
   graph: Graph,
   node: Node,
   nodeSide: NpmFlatSidecar | undefined,
+  installPaths: readonly string[],
   config: NpmFamilyConfig,
   emitDiagnostic: (d: Diagnostic) => void = () => undefined,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {}
-  if (nodeSide !== undefined && nodeSide.installPaths.some(p => installPathTail(p) !== node.name)) {
+  if (installPaths.some(path => installPathTail(path) !== node.name)) {
     body.name = node.name
   }
   body.version = node.version
