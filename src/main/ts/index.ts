@@ -32,6 +32,17 @@ export {
 } from './api/format-api.ts'
 export { governingOverrideFor } from './recipe/descriptor-resolve.ts'
 
+export { completeTransitives } from './complete/tree-complete.ts'
+export {
+  engines,
+  license,
+  selectConstrained,
+} from './complete/constraints.ts'
+export type {
+  Condition,
+  ConditionContext,
+} from './complete/constraints.ts'
+
 export {
   certifyFrozen,
   convert,
@@ -110,12 +121,21 @@ export type {
 } from './completeness/types.ts'
 
 export { frozenRegistry } from './registry/frozen.ts'
+export { fetch as defaultFetch } from 'node-fetch-native'
 export {
   liveRegistry,
+  type AuditOptions,
   type FromConfigOptions,
   type LiveRegistryAdapter,
   type LiveRegistryOptions,
+  type RawAdvisory,
 } from './registry/live.ts'
+export { resolveRegistry } from './registry/config.ts'
+export type {
+  Ecosystem,
+  RegistryConfig,
+  ResolveRegistryOptions,
+} from './registry/config.ts'
 export {
   yarnBerryCache,
   withYarnCacheChecksums,
@@ -126,6 +146,7 @@ export { pnpmCache, type PnpmCacheOptions } from './registry/cache-pnpm.ts'
 export type {
   ArtifactRoute,
   CacheAdapter,
+  Limiter,
   NpmCacheAdapter,
   NpmTarballSource,
   Packument,
@@ -137,6 +158,7 @@ export type {
 } from './registry/types.ts'
 
 export { modify } from './modify/modify.ts'
+export { replaceVersion } from './modify/replace-version.ts'
 export type {
   ModifyResult,
   ModifyResultBase,
@@ -148,12 +170,15 @@ export type {
 } from './modify/context.ts'
 
 export { optimize } from './optimize/optimize.ts'
+export { pruneOrphans } from './optimize/prune.ts'
+export { registryPackages } from './optimize/registry-packages.ts'
 export type {
   OptimizeOptions,
   OptimizeResult,
 } from './optimize/optimize.ts'
 
 export { enrich } from './enrich/facade.ts'
+export { refurbish } from './enrich/refurbish.ts'
 export type {
   EnrichOptions,
   EnrichResult,

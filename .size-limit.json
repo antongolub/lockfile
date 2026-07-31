@@ -15,7 +15,7 @@
     "path": [
       "dist/**/*.d.ts"
     ],
-    "limit": "135 kB",
+    "limit": "140 kB",
     "brotli": false,
     "gzip": false
   }

@@ -24,18 +24,13 @@
       "default": "./dist/optimize/index.js"
     },
     "./registry": {
-      "types": "./dist/registry/index.d.ts",
-      "default": "./dist/registry/index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./enrich": {
       "types": "./dist/enrich/index.d.ts",
       "default": "./dist/enrich/index.js"
-    },
-    "./formats/*": {
-      "types": "./dist/formats/*.d.ts",
-      "default": "./dist/formats/*.js"
-    },
-    "./formats/_*": null
+    }
   },
   "typesVersions": {
     "*": {
@@ -49,13 +44,10 @@
         "./dist/optimize/index.d.ts"
       ],
       "registry": [
-        "./dist/registry/index.d.ts"
+        "./dist/index.d.ts"
       ],
       "enrich": [
         "./dist/enrich/index.d.ts"
-      ],
-      "formats/*": [
-        "./dist/formats/*.d.ts"
       ]
     }
   },

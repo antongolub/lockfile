@@ -111,8 +111,7 @@ Node ≥ 14.18, ESM only. CommonJS consumers use `await import('lockgraph')`.
 ## Use
 
 ```ts
-import { parse, stringify, convert } from 'lockgraph'
-import { enrich } from 'lockgraph/enrich'
+import { convert, enrich, parse, stringify } from 'lockgraph'
 
 const graph = parse(raw, 'yarn-berry-v8')   // or parse(raw) and let it detect
 
@@ -189,7 +188,7 @@ enrich(graph, options): Promise<{ graph, diagnostics }>
 
 **`enrich`** is the one to call. It is the target-aware facade: it completes the
 graph *and* materialises what the target manager expects, including overlays whose
-order matters. **`completeTransitives`** (`lockgraph/complete`) is the primitive
+order matters. **`completeTransitives`** is the primitive
 underneath — it wires the transitive closure from the registry, with optional
 node-local `engines` / `license` gates and declared overrides honoured so the
 result stays frozen-clean.
@@ -287,7 +286,12 @@ Re-resolution, checksum refill and advisory audit need a registry URL and its
 credentials — resolved from the package-manager config, never guessed.
 
 ```ts
-import { resolveRegistry, liveRegistry, frozenRegistry } from 'lockgraph/registry'
+import {
+  defaultFetch,
+  frozenRegistry,
+  liveRegistry,
+  resolveRegistry,
+} from 'lockgraph'
 ```
 
 `liveRegistry` talks to the network; `frozenRegistry` answers only from recorded
@@ -300,15 +304,53 @@ Everything not listed here works offline against the lockfile bytes alone.
 
 ### Sub-imports
 
+The root facade now carries the complete 27-symbol surface used by the known
+downstream consumer. Twelve were already available there; this step promotes the
+remaining fifteen without wrappers:
+
+| Already at root | Promoted to root |
+|---|---|
+| values: `LockfileError`, `detect`, `governingOverrideFor`, `liveRegistry`, `overridesOf`, `parse`, `stringify` | values: `completeTransitives`, `defaultFetch`, `engines`, `license`, `pruneOrphans`, `refurbish`, `registryPackages`, `replaceVersion`, `resolveRegistry`, `selectConstrained` |
+| types: `FormatId`, `Graph`, `Manifest`, `OverrideConstraint`, `RegistryAdapter` | types: `Condition`, `ConditionContext`, `Ecosystem`, `Limiter`, `RegistryConfig` |
+
+Downstream code may therefore migrate imports without changing invocation or
+implementation shapes:
+
+```ts
+import {
+  completeTransitives,
+  defaultFetch,
+  engines,
+  liveRegistry,
+  pruneOrphans,
+  refurbish,
+  replaceVersion,
+  resolveRegistry,
+  type Condition,
+  type Limiter,
+  type RegistryConfig,
+} from 'lockgraph'
+```
+
+The transition is staged. `lockgraph/registry` is now a literal package-specifier
+alias of `lockgraph`: both resolve to the same module namespace object and expose
+the whole root surface (41 runtime values and 115 types), including operations
+such as `convert`. It is retained only so existing imports keep working; it is no
+longer a registry-shaped namespace and owns no capability.
+
+The other four named subpaths remain explicit compatibility surfaces until their
+operation and diagnostic contracts move to the coherent root facade. Format
+adapters are no longer public subpaths; use root `check`, `detect`, `parse`, and
+`stringify`, which dispatch across every supported format.
+
 | Import | Contains |
 |---|---|
-| `lockgraph` | `detect`, `check`, `parse`, `stringify`, `convert`, `modify`, `optimize`, `overridesOf`, plus the `Graph`, `FormatId` and option types |
+| `lockgraph` | the complete supported facade, including conversion, graph operations, completion constraints, registry seams, and their implementable public types |
 | `lockgraph/modify` | the individual primitives behind `modify` |
 | `lockgraph/complete` | `completeTransitives` — registry-backed tree completion |
 | `lockgraph/enrich` | `enrich` — target-aware completion; `refurbish` — checksum and metadata field-fill only |
 | `lockgraph/optimize` | `optimize`, `pruneOrphans`, `registryPackages` |
-| `lockgraph/registry` | `liveRegistry`, `frozenRegistry`, `resolveRegistry`, and the manager cache readers |
-| `lockgraph/formats/<id>` | a single adapter directly — a test surface, not a primary API |
+| `lockgraph/registry` | exact alias of the complete `lockgraph` root namespace |
 
 ### Frozen certification
 
