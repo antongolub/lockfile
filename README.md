@@ -37,10 +37,8 @@ await writeFile('package-lock.json', stringify(graph, 'npm-3'))
 
 All of them detect, parse and stringify. Conversion is defined for every ordered
 pair; where a pair is unsupported, the contract states which evidence is missing
-rather than only failing. [API.md](./docs/arch/API.md) is the full
-contract; [SCHEMAS.md](./docs/arch/SCHEMAS.md) maps each id to the manager versions
-that emit it; [CONVERT.md](./docs/arch/CONVERT.md) holds the pair matrix and its
-loss table.
+rather than only failing. [API.md](./docs/arch/API.md) ·
+[SCHEMAS.md](./docs/arch/SCHEMAS.md) · [CONVERT.md](./docs/arch/CONVERT.md)
 
 ## Concept
 
@@ -243,7 +241,7 @@ await writeFile('yarn.lock', stringify(ready.graph, target))
 Bytes are checked against lock-recorded integrity before any checksum is recomputed,
 wherever they came from. That check is not overridable. Resource ceilings are:
 
-#### Guards, when you need them
+#### Ceilings you already have
 
 <!-- readme-example id="guards" mode="typecheck" -->
 ```ts
@@ -259,9 +257,9 @@ await convert(await readFile('package-lock.json', 'utf8'), {
 })
 ```
 
-A ceiling can abort an operation; it can never weaken verification. Tripping one
-ends that acquisition with a named diagnostic rather than returning bytes nobody
-checked.
+[Defaults](./docs/arch/API.md#guards) apply as a trivial safeguard; `guards` overrides
+them. A ceiling can abort an operation and never weakens verification: tripping one
+ends that acquisition with a named diagnostic rather than returning unchecked bytes.
 
 #### A cold machine
 
