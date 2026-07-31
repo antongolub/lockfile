@@ -3,6 +3,9 @@
 
 import type { Integrity } from '../recipe/integrity.ts'
 
+/** Injectable WHATWG transport used by public registry and artifact seams. */
+export type Fetch = typeof globalThis.fetch
+
 /**
  * Caller-defined scheduling policy for registry API calls — a concurrency pool
  * / rate limiter / debouncer. Runs ONE async task under the caller's scheduler
@@ -14,48 +17,48 @@ import type { Integrity } from '../recipe/integrity.ts'
 export type Limiter = <T>(task: () => Promise<T>) => Promise<T>
 
 export interface PackumentVersion {
-  name:                 string
-  version:              string
+  readonly name:                 string
+  readonly version:              string
   /** Multi-hash integrity carrier (ADR-0031). Undefined when no hash is known. */
-  integrity?:           Integrity
+  readonly integrity?:           Integrity
   /** Tarball URL at the registry origin when the source graph carried it. */
-  tarball?:             string
-  dependencies?:        Record<string, string>
-  devDependencies?:     Record<string, string>
-  optionalDependencies?: Record<string, string>
-  peerDependencies?:    Record<string, string>
-  peerDependenciesMeta?: Record<string, { optional?: boolean }>
-  engines?:             Record<string, string>
-  funding?:             unknown
-  os?:                  string[]
-  cpu?:                 string[]
-  libc?:                string[]
-  deprecated?:          string
-  bin?:                 string | Record<string, string>
-  bundledDependencies?: string[]
-  hasInstallScript?:    boolean
+  readonly tarball?:             string
+  readonly dependencies?:        Readonly<Record<string, string>>
+  readonly devDependencies?:     Readonly<Record<string, string>>
+  readonly optionalDependencies?: Readonly<Record<string, string>>
+  readonly peerDependencies?:    Readonly<Record<string, string>>
+  readonly peerDependenciesMeta?: Readonly<Record<string, Readonly<{ optional?: boolean }>>>
+  readonly engines?:             Readonly<Record<string, string>>
+  readonly funding?:             unknown
+  readonly os?:                  readonly string[]
+  readonly cpu?:                 readonly string[]
+  readonly libc?:                readonly string[]
+  readonly deprecated?:          string
+  readonly bin?:                 string | Readonly<Record<string, string>>
+  readonly bundledDependencies?: readonly string[]
+  readonly hasInstallScript?:    boolean
   /** SPDX license id (or expression). The abbreviated (corgi) packument OMITS
    *  this — it is present only on a FULL single-version manifest (see
    *  `RegistryAdapter.manifest`). Normalized from `license` string / legacy
    *  `{ type }` / `licenses[]` forms. Consumed by the completion `license`
    *  constraint. */
-  license?:             string
+  readonly license?:             string
   /** Module system — `'module'` (ESM) / `'commonjs'` (or absent = CJS). Full-
    *  manifest only (corgi omits it). For custom module-format constraints. */
-  type?:                string
+  readonly type?:                string
   /** CJS entry point. Full-manifest only. */
-  main?:                string
+  readonly main?:                string
   /** The `exports` map (string | conditions object). Full-manifest only; shape
    *  left open — a constraint inspects it. */
-  exports?:             unknown
+  readonly exports?:             unknown
 }
 
 export interface Packument {
-  name:     string
+  readonly name:     string
   /** dist-tag → version, e.g. `{ latest: '4.17.21' }`. */
-  distTags: Record<string, string>
+  readonly distTags: Readonly<Record<string, string>>
   /** Map of version → PackumentVersion. */
-  versions: Record<string, PackumentVersion>
+  readonly versions: Readonly<Record<string, PackumentVersion>>
 }
 
 export interface RegistryAdapter {
@@ -81,7 +84,24 @@ export interface RegistryAdapter {
   /** The scheduling policy this adapter runs its API calls under, if one was
    *  injected. Surfaced so completion can forward it to custom constraints via
    *  `ConditionContext.limit` — one quota across the registry AND user checkers. */
-  limit?: Limiter
+  readonly limit?: Limiter
+}
+
+type MutableField<Value> =
+  Value extends readonly (infer Item)[] ? Item[]
+    : Value extends Readonly<Record<string, infer Item>> ? Record<string, Item>
+      : Value
+
+/** @internal Mutable assembly form; never crosses a public adapter boundary. */
+export type MutablePackumentVersion = {
+  -readonly [Key in keyof PackumentVersion]: MutableField<PackumentVersion[Key]>
+}
+
+/** @internal Mutable assembly form; never crosses a public adapter boundary. */
+export interface MutablePackument {
+  name: string
+  distTags: Record<string, string>
+  versions: Record<string, PackumentVersion>
 }
 
 /** An explicitly configured registry route that is allowed to transport npm

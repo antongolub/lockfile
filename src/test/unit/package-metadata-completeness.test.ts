@@ -7,12 +7,11 @@ import {
 } from '../../main/ts/graph.ts'
 import { assessConversion } from '../../main/ts/completeness/assessment.ts'
 import {
-  completenessOf,
-  evidenceOf,
   parse,
-  stringifyAssessed,
-  withEvidence,
 } from '../../main/ts/index.ts'
+import { evidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
+import { completenessOf } from '../../main/ts/completeness/profile.ts'
+import { stringifyAssessed } from '../../main/ts/convert/orchestrator.ts'
 import {
   PACKAGE_METADATA_FIELDS,
   packageMetadataOfPayload,

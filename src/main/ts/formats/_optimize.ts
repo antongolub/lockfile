@@ -83,5 +83,5 @@ export function optimizeUnreachable(
     }
   })
 
-  return { graph: result.graph, diagnostics: result.unresolved }
+  return { graph: result.graph, diagnostics: [...result.unresolved] }
 }

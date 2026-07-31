@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { certifyFrozen, convert, prepareFrozen } from '../../main/ts/index.ts'
+import {
+  certifyFrozen,
+  convert,
+  prepareFrozen,
+} from '../../main/ts/convert/orchestrator.ts'
 import type {
   Packument,
   PackumentVersion,
@@ -285,6 +289,7 @@ describe('infra: frozen conversion native oracle', () => {
           ? nativeLockfile.match(/^\s+checksum:\s+(\S+)\s*$/m)?.[1]
           : undefined
         const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
+          store: false,
           from: 'deno-v5',
           to: adapter.format,
           strict: false,
@@ -369,6 +374,7 @@ describe('infra: frozen conversion native oracle', () => {
       const source = JSON.parse(readFileSync(denoNpmOnlyPath, 'utf8')) as unknown
       const diagnostics: unknown[] = []
       const lockfile = await convert(`${JSON.stringify(source, null, 2)}\n`, {
+        store: false,
         from: 'deno-v5',
         target: {
           format: adapter.format,
@@ -385,7 +391,7 @@ describe('infra: frozen conversion native oracle', () => {
           },
         },
         sources: {
-          artifacts: [{ registry: artifactRegistry }],
+          artifacts: [artifactRegistry],
         },
         onDiagnostic(diagnostic) {
           diagnostics.push(diagnostic)

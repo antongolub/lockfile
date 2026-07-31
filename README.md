@@ -123,14 +123,14 @@ stringify(graph, 'yarn-berry-v10')
 // LockfileError ENRICH_REQUIRED — v10 keys its cache differently, so
 // @napi-rs/nice-android-arm-eabi@1.0.1 would emit without a checksum
 
-const artifacts = [                                   // ordered, disk-only:
+const artifacts = [                                   // ordered byte sources:
   'yarn-berry:.yarn/cache',                           // Yarn's own cached zip hash
   'npm',                                              // original tgz fallback
-] as const
+]
 const ready = await enrich(graph, {
   sources: { artifacts },
   target: 'yarn-berry-v10',
-  contract: 'project',
+  contract: 'install',
 })
 const out = stringify(ready.graph, 'yarn-berry-v10')
 
@@ -176,32 +176,27 @@ care which manager produced the input.
   still-referenced dev, optional or peer dependency.
 - **`overridesOf(graph)`** reads the canonical overrides back out.
 
-Both sweeps are synchronous, deterministic and idempotent, and both answer a
-different question — so they are alternatives, not a pipeline:
+The public sweep is synchronous, deterministic and idempotent. It keeps every
+workspace-reachable node and reports the removed identities:
 
 <!-- readme-example id="graph-sweeps" mode="typecheck" -->
 ```ts
 import { readFile, writeFile } from 'node:fs/promises'
-import { optimize, parse, pruneOrphans, stringify } from 'lockgraph'
+import { parse, removeUnreachable, stringify } from 'lockgraph'
 
 const graph = parse(await readFile('pnpm-lock.yaml', 'utf8'))
 
 // Reachability — retires whatever the workspaces can no longer reach.
-const swept = optimize(graph)
+const swept = removeUnreachable(graph)
 console.log(swept.removed)      // content-sorted NodeIds
-console.log(swept.unresolved)   // OPTIMIZE_* diagnostics, in emission order
-
-// Reference counting — retires only what lost its last incoming edge. Seed it
-// with the nodes your change touched and the sweep stays bounded to that delta.
-const pruned = pruneOrphans(graph, { seed: new Set(['lodash@4.17.20']) })
-console.log(pruned.removed.length)
+console.log(swept.diagnostics)  // operation diagnostics, in emission order
 
 await writeFile('pnpm-lock.yaml', stringify(swept.graph, 'pnpm-v9'))
 ```
 
-Leave `seed` off and `pruneOrphans` sweeps the whole graph, which over-collects
-nodes whose only incoming edge failed to resolve at parse; it refuses to run at all
-on a lock with no workspace anchor rather than cascade-wiping it.
+The operation refuses a graph with no workspace anchor rather than
+cascade-wiping it. Delta-local orphan bookkeeping remains an internal part of
+ordered modification batches; it is not a second public graph-cleanup verb.
 
 ### Completing what a change introduced
 
@@ -236,43 +231,41 @@ default cache; `family:path` selects an explicit location:
 ```ts
 import { readFile, writeFile } from 'node:fs/promises'
 import {
-  artifactStore,
   enrich,
   liveRegistry,
   parse,
   stringify,
-  type ArtifactSourceList,
 } from 'lockgraph'
 
 const target = 'yarn-berry-v10'
 const graph = parse(await readFile('yarn.lock', 'utf8'))
-const registry = liveRegistry.fromConfig(process.cwd(), {
-  ecosystem: 'yarn-berry',
+const registry = liveRegistry({
+  cwd: process.cwd(),
+  config: 'yarn-berry',
 })
 const artifacts = [
   'yarn-berry:./.yarn/cache',
   'npm:./.cache/npm/_cacache',
-  'pnpm:./.cache/pnpm/v3',
-  artifactStore(), // verified tgz CAS; omit for no lockgraph persistence
-  { registry }, // explicit network consent, after the ordered local sources
-] satisfies ArtifactSourceList
+  registry, // explicit remote-byte authority, after the ordered local sources
+]
 const ready = await enrich(graph, {
   sources: { artifacts },
   target,
-  contract: 'project',
+  contract: 'install',
 })
 await writeFile('yarn.lock', stringify(ready.graph, target))
 ```
 
-The recognized families are `npm`, `yarn-berry`, and `pnpm`. npm can supply the
-original registry tgz, Yarn can supply its own repacked-zip checksum, and pnpm's
-decomposed store deliberately supplies no archive. Those byte kinds are never
+The recognized families are `npm` and `yarn-berry`. npm can supply the original
+registry tgz and Yarn can supply its own repacked-zip checksum. `pnpm` and
+`pnpm:*` fail closed: the decomposed pnpm store supplies neither a retained
+registry tarball nor a lock-carried archive checksum. Those byte kinds are never
 relabelled. Existing callers may still pass either a split
 `RefurbishSources` object or the deprecated combined `TarballSource`; the direct
 `refurbish` primitive keeps its object contract.
 
 Only a `LiveRegistryAdapter` is byte-capable. Build a scope-aware one with
-`liveRegistry.fromConfig(cwd, options)` and place `{ registry }` in the ordered
+`liveRegistry.fromConfig(cwd, options)` and place `registry` in the ordered
 artifact list; omitting it is visibly offline. A remote URL is requested only
 when it is inside that package's configured route or is attested by exact
 name-and-version metadata. Redirects are followed manually and re-authorized
@@ -296,14 +289,17 @@ distinguishes the implementation default from a caller-provided ceiling. Large
 artifact throughput can therefore be bounded by the live-byte meter; increasing
 worker concurrency is not a remedy.
 
-`artifactStore()` adds a lockgraph-owned, integrity-addressed tgz cache. It uses
+Lockgraph persistence is enabled by default and is separate from the ordered
+artifact-source list. The operation first checks its lockgraph-owned,
+integrity-addressed tgz store, then traverses the configured external sources,
+and writes back only centrally verified bytes. Pass `store: false` to disable
+both reads and writes. `store: lockgraphStore(path, { maxBytes })` replaces the
+global store for that operation. The default store uses
 `$XDG_CACHE_HOME/lockgraph` when that variable is absolute and
-`~/.cache/lockgraph` otherwise; `artifactStore({ path })` is the explicit
-project override. Capacity defaults to 5 GiB and is always enforced by
-deterministic least-recently-used eviction; `maxBytes` changes that capacity.
-The store's list position controls read priority, while the one allowed store
-is the post-verification write-back sink regardless of position. Duplicate
-stores fail eagerly.
+`~/.cache/lockgraph` otherwise. Capacity defaults to 5 GiB and is always
+enforced by deterministic least-recently-used eviction. Before the operation's
+first store filesystem mutation, `STORE_PATH_RESOLVED` reports the resolved
+path exactly once.
 
 Only bytes that have passed the same central envelope and current-lock
 integrity checks are written. A hit verifies its canonical SHA-512 object and
@@ -354,56 +350,34 @@ concurrency are seams: pass your own `fetch` for proxy or CA handling, and your 
 
 Everything not listed here works offline against the lockfile bytes alone.
 
-### Sub-imports
+### One public entry point
 
-The root facade now carries the complete 27-symbol surface used by the known
-downstream consumer. Twelve were already available there; this step promotes the
-remaining fifteen without wrappers:
-
-| Already at root | Promoted to root |
-|---|---|
-| values: `LockfileError`, `detect`, `governingOverrideFor`, `liveRegistry`, `overridesOf`, `parse`, `stringify` | values: `completeTransitives`, `defaultFetch`, `engines`, `license`, `pruneOrphans`, `refurbish`, `registryPackages`, `replaceVersion`, `resolveRegistry`, `selectConstrained` |
-| types: `FormatId`, `Graph`, `Manifest`, `OverrideConstraint`, `RegistryAdapter` | types: `Condition`, `ConditionContext`, `Ecosystem`, `Limiter`, `RegistryConfig` |
-
-Downstream code may therefore migrate imports without changing invocation or
-implementation shapes:
+The package publishes one coherent facade: import every supported operation,
+constructor and extension type from `lockgraph`. Implementation modules and the
+former operation/registry subpaths are private, so callers never need to know how
+the library is laid out internally.
 
 <!-- readme-example id="root-facade-imports" mode="typecheck" -->
 ```ts
 import {
-  completeTransitives,
+  complete,
   defaultFetch,
   engines,
+  enrich,
   liveRegistry,
-  pruneOrphans,
-  refurbish,
-  replaceVersion,
+  modify,
+  removeUnreachable,
   resolveRegistry,
+  selectConstrained,
   type Condition,
   type Limiter,
   type RegistryConfig,
 } from 'lockgraph'
 ```
 
-The transition is staged. `lockgraph/registry` is now a literal package-specifier
-alias of `lockgraph`: both resolve to the same module namespace object and expose
-the whole root surface (41 runtime values and 115 types), including operations
-such as `convert`. It is retained only so existing imports keep working; it is no
-longer a registry-shaped namespace and owns no capability.
-
-The other four named subpaths remain explicit compatibility surfaces until their
-operation and diagnostic contracts move to the coherent root facade. Format
-adapters are no longer public subpaths; use root `check`, `detect`, `parse`, and
-`stringify`, which dispatch across every supported format.
-
-| Import | Contains |
-|---|---|
-| `lockgraph` | the complete supported facade, including conversion, graph operations, completion constraints, registry seams, and their implementable public types |
-| `lockgraph/modify` | the individual primitives behind `modify` |
-| `lockgraph/complete` | `completeTransitives` — registry-backed tree completion |
-| `lockgraph/enrich` | `enrich` — target-aware completion; `refurbish` — checksum and metadata field-fill only |
-| `lockgraph/optimize` | `optimize`, `pruneOrphans`, `registryPackages` |
-| `lockgraph/registry` | exact alias of the complete `lockgraph` root namespace |
+Use root `check`, `detect`, `parse`, and `stringify` for every supported format.
+The root also exposes the registry and transport seams needed to implement
+offline or custom-network operation policies without importing private modules.
 
 ### Frozen certification
 

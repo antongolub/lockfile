@@ -35,7 +35,10 @@ import { DEFAULT_NPM_REGISTRY } from '../recipe/resolution.ts'
 export const DEFAULT_REGISTRY = DEFAULT_NPM_REGISTRY
 
 /** Which package-manager config to read — selects the deterministic source set. */
-export type Ecosystem = 'npm' | 'pnpm' | 'yarn-classic' | 'yarn-berry'
+export type RegistryConfigDialect = 'npm' | 'pnpm' | 'yarn-classic' | 'yarn-berry'
+
+/** @internal pre-0.6 name retained for implementation and test compatibility. */
+export type Ecosystem = RegistryConfigDialect
 
 /** Registry routing + host-scoped auth resolved from PM config (§registry/config). */
 export interface RegistryConfig {
@@ -48,20 +51,26 @@ export interface RegistryConfig {
   authHeaderFor(registryUrl: string): string | undefined
   /** The BEARER token bound to `registryUrl` (convenience for the modern case);
    *  `undefined` when the bound credential is Basic, absent, or the URL is http. */
+  /** @internal pre-0.6 convenience accessor. */
   tokenFor(registryUrl: string): string | undefined
 }
 
 export interface ResolveRegistryOptions {
-  /** REQUIRED — the PM ecosystem. Fixes which config files + env namespace are
+  /** REQUIRED — the PM config dialect. Fixes which config files + env namespace are
    *  read (and their order); npm and yarn directives never mix. */
-  ecosystem: Ecosystem
+  readonly config: RegistryConfigDialect
   /** Explicit default-registry override (highest precedence). */
-  registry?: string
+  readonly registry?: string
   /** Env source for the ecosystem's namespace + `${VAR}` expansion. Default
    *  `process.env`; pass `{}` to ignore env entirely (max determinism). */
-  env?: Record<string, string | undefined>
+  readonly env?: Readonly<Record<string, string | undefined>>
   /** Home dir for the per-user global config. Default `os.homedir()`. */
-  home?: string
+  readonly home?: string
+}
+
+/** @internal pre-0.6 input spelling. */
+interface LegacyResolveRegistryOptions extends Omit<ResolveRegistryOptions, 'config'> {
+  ecosystem: RegistryConfigDialect
 }
 
 type FileKind = 'npmrc' | 'yarnrc-yml' | 'yarnrc'
@@ -70,7 +79,7 @@ interface SourceProfile {
   env: 'npm' | 'yarn'
 }
 const FILE_NAME: Record<FileKind, string> = { npmrc: '.npmrc', 'yarnrc-yml': '.yarnrc.yml', yarnrc: '.yarnrc' }
-const PROFILES: Record<Ecosystem, SourceProfile> = {
+const PROFILES: Record<RegistryConfigDialect, SourceProfile> = {
   npm:            { files: [['npmrc', 'project'], ['npmrc', 'user']], env: 'npm' },
   pnpm:           { files: [['npmrc', 'project'], ['npmrc', 'user']], env: 'npm' },
   'yarn-classic': { files: [['yarnrc', 'project'], ['npmrc', 'project'], ['npmrc', 'user']], env: 'npm' },
@@ -214,10 +223,16 @@ function parseYarnrc(text: string, reg: RegMap): void {
  * ecosystem's sources are read, in a fixed order, first writer wins —
  * `opts.registry` → env → project files → user files.
  */
-export function resolveRegistry(cwd: string, opts: ResolveRegistryOptions): RegistryConfig {
+export function resolveRegistry(cwd: string, opts: ResolveRegistryOptions): RegistryConfig
+/** @internal pre-0.6 overload. */
+export function resolveRegistry(cwd: string, opts: LegacyResolveRegistryOptions): RegistryConfig
+export function resolveRegistry(
+  cwd: string,
+  opts: ResolveRegistryOptions | LegacyResolveRegistryOptions,
+): RegistryConfig {
   const env = opts.env ?? process.env
   const home = opts.home ?? os.homedir()
-  const profile = PROFILES[opts.ecosystem]
+  const profile = PROFILES['config' in opts ? opts.config : opts.ecosystem]
   const reg: RegMap = { scopes: Object.create(null) as Record<string, string> }
   const tokens: AuthEntry[] = []
   const basic: BasicParts = new Map()

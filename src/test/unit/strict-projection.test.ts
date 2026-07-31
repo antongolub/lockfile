@@ -3,11 +3,11 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  LockfileError,
   parse,
   stringify,
   type FormatId,
 } from '../../main/ts/index.ts'
+import { LockfileError } from '../../main/ts/api/errors.ts'
 import { stringifyProjected } from '../../main/ts/api/format-api.ts'
 import { isStructuralExpectedDrop } from '../../main/ts/completeness/projection.ts'
 import { newBuilder, type Graph, type TarballPayload } from '../../main/ts/graph.ts'

@@ -7,6 +7,7 @@ import {
   type ProjectionRemedy,
 } from '../api/errors.ts'
 import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
+import type { FileSource } from '../api/operation.ts'
 import {
   assessedDiagnostic,
   canonicalProjectionGraphSnapshot,
@@ -22,6 +23,7 @@ import {
 import { captureOverrides } from '../recipe/overrides.ts'
 import { isSentinelPatch } from '../recipe/patch.ts'
 import {
+  attachEvidence,
   attachParsedEvidence,
   evidenceOf,
   internalEvidenceOf,
@@ -55,7 +57,8 @@ import type {
   FrozenVerificationReceipt,
   ManifestCoverage,
   ProjectConversionResult,
-  ProjectEvidenceInput,
+  InternalProjectEvidenceInput,
+  PinnedTargetRequest,
   RequirementAssessment,
   StringifyAssessedOptions,
   TargetInput,
@@ -74,6 +77,7 @@ import {
 import {
   materializeOverrides,
   prepareConvertInput,
+  prepareManifestSource,
   structuralEqual,
   type PreparedConvertInput,
 } from './input.ts'
@@ -86,26 +90,26 @@ import type {
 
 // === BASE CONVERSION ========================================================
 
-interface NormalizedConvertOptions extends ConvertCommonOptions {
-  readonly to: FormatId
-  readonly targetVersion?: string
+interface NormalizedConvertOptions extends Omit<ConvertCommonOptions, 'cacheKey'> {
+  readonly target: TargetRequest
 }
 
 interface NormalizedFrozenPreparationOptions extends NormalizedConvertOptions {
   readonly sourceVersion?: string
   readonly manifestCoverage?: ManifestCoverage
-  readonly evidenceInputs?: readonly ProjectEvidenceInput[]
+  readonly evidenceInputs?: readonly InternalProjectEvidenceInput[]
 }
 
 type NormalizedStringifyAssessedOptions = Omit<StringifyAssessedOptions, 'target'> & {
   readonly target: TargetRequest
 }
 
-function targetFieldsOf(options: Readonly<{
+function normalizedTargetOf(options: Readonly<{
   readonly target?: TargetInput
   readonly to?: FormatId
   readonly targetVersion?: string
-}>): Readonly<{ to: FormatId; targetVersion?: string }> {
+  readonly cacheKey?: string
+}>): TargetRequest {
   const modern = 'target' in options
   const legacy = 'to' in options || 'targetVersion' in options
   if (modern && legacy) {
@@ -122,12 +126,20 @@ function targetFieldsOf(options: Readonly<{
       })
     }
     const target = targetRequestOf(options.target)
-    return {
-      to: target.format,
-      ...(target.managerVersion === undefined
-        ? {}
-        : { targetVersion: target.managerVersion }),
+    if (options.cacheKey === undefined) return target
+    if (!target.format.startsWith('yarn-berry-')) {
+      throw new LockfileError({
+        code: 'INVALID_INPUT',
+        message: 'cacheKey is valid only for Yarn Berry targets',
+      })
     }
+    if ('cacheKey' in target && target.cacheKey !== undefined && target.cacheKey !== options.cacheKey) {
+      throw new LockfileError({
+        code: 'INVALID_INPUT',
+        message: 'target.cacheKey cannot be combined with a different legacy cacheKey',
+      })
+    }
+    return { ...target, cacheKey: options.cacheKey } as TargetRequest
   }
   if (options.to === undefined) {
     throw new LockfileError({
@@ -135,31 +147,48 @@ function targetFieldsOf(options: Readonly<{
       message: 'target is required',
     })
   }
-  return {
-    to: options.to,
+  return targetRequestOf({
+    format: options.to,
     ...(options.targetVersion === undefined
       ? {}
-      : { targetVersion: options.targetVersion }),
-  }
+      : { managerVersion: options.targetVersion }),
+    ...(options.cacheKey === undefined ? {} : { cacheKey: options.cacheKey }),
+  } as TargetRequest)
 }
 
 function normalizeConvertOptions(options: ConvertOptions): NormalizedConvertOptions {
-  const { target: _target, to: _to, targetVersion: _targetVersion, ...common } = options
-  return { ...common, ...targetFieldsOf(options) }
+  const {
+    target: _target,
+    to: _to,
+    targetVersion: _targetVersion,
+    cacheKey: _cacheKey,
+    ...common
+  } = options
+  return { ...common, target: normalizedTargetOf(options) }
 }
 
 function normalizeFrozenPreparationOptions(
   options: FrozenPreparationOptions,
 ): NormalizedFrozenPreparationOptions {
-  const { target: _target, to: _to, targetVersion: _targetVersion, ...common } = options
-  return { ...common, ...targetFieldsOf(options) }
+  const {
+    target: _target,
+    to: _to,
+    targetVersion: _targetVersion,
+    cacheKey: _cacheKey,
+    ...common
+  } = options
+  return { ...common, target: normalizedTargetOf(options) }
+}
+
+function targetCacheKeyOf(target: TargetRequest): string | undefined {
+  return 'cacheKey' in target ? target.cacheKey : undefined
 }
 
 function mergeManifestSources(
   sourceFormat: FormatId,
   prepared: PreparedConvertInput['manifests'],
   legacy: ConvertCommonOptions['manifests'],
-  supplied: EnrichSources['manifests'],
+  supplied: Readonly<Record<string, Manifest>> | undefined,
 ): Readonly<Record<string, Manifest>> | undefined {
   const output: Record<string, Manifest> = {}
   for (const source of [prepared, legacy, supplied]) {
@@ -195,18 +224,42 @@ function canonicalManifestForMerge(format: FormatId, manifest: Manifest): Manife
     : { ...fields, overrides: materializeOverrides(captureOverrides(block, pm).canonical) }
 }
 
-function mergedEnrichSources(
+function manifestFileSource(
+  source: NonNullable<EnrichSources['manifests']>,
+): source is FileSource {
+  return Array.isArray(source) || Object.values(source).every(value =>
+    typeof value === 'string' || value instanceof Uint8Array)
+}
+
+type ResolvedEnrichSources = Omit<EnrichSources, 'manifests'> & Readonly<{
+  manifests?: Readonly<Record<string, Manifest>>
+}>
+
+async function mergedEnrichSources(
   prepared: PreparedConvertInput,
   options: NormalizedConvertOptions,
-): EnrichSources {
+): Promise<ResolvedEnrichSources> {
+  const supplied = options.sources?.manifests
+  const suppliedManifests = supplied === undefined
+    ? undefined
+    : manifestFileSource(supplied)
+      ? (await prepareManifestSource(
+          supplied,
+          prepared.source,
+          options.cwd ?? process.cwd(),
+          options.fs,
+        )).manifests
+      : supplied
   const manifests = mergeManifestSources(
     prepared.source,
     prepared.manifests,
     options.manifests,
-    options.sources?.manifests,
+    suppliedManifests,
   )
   return {
     ...(manifests === undefined ? {} : { manifests }),
+    ...(options.sources?.packuments === undefined ? {} : { packuments: options.sources.packuments }),
+    ...(options.sources?.policy === undefined ? {} : { policy: options.sources.policy }),
     ...(options.sources?.registry === undefined ? {} : { registry: options.sources.registry }),
     ...(options.sources?.artifacts === undefined ? {} : { artifacts: options.sources.artifacts }),
     ...(options.sources?.config === undefined ? {} : { config: options.sources.config }),
@@ -345,20 +398,20 @@ async function prepareConversionRuntime(
   }
   const prepared = await prepareConvertInput(input, options, { detect }, dependencies)
   for (const diagnostic of prepared.diagnostics) report(diagnostic)
-  const sources = mergedEnrichSources(prepared, options)
+  const sources = await mergedEnrichSources(prepared, options)
   if (
     !isDenoFormat(prepared.source)
-    && isDenoFormat(options.to)
+    && isDenoFormat(options.target.format)
   ) {
     throw new LockfileError({
       code: 'CAPABILITY_LACK',
-      message: `convert: ${prepared.source} -> ${options.to} is unsupported; lockgraph has no target-specific producer-certified synthesis of Deno native npm ids, peer suffixes, integrity, and root specifier bindings. Source-level package transformation may use Deno's https://github.com/denoland/dnt, but lockgraph does not invoke or certify dnt`,
+      message: `convert: ${prepared.source} -> ${options.target.format} is unsupported; lockgraph has no target-specific producer-certified synthesis of Deno native npm ids, peer suffixes, integrity, and root specifier bindings. Source-level package transformation may use Deno's https://github.com/denoland/dnt, but lockgraph does not invoke or certify dnt`,
     })
   }
   if (
     isDenoFormat(prepared.source)
     && prepared.source !== 'deno-v5'
-    && options.to === 'deno-v5'
+    && options.target.format === 'deno-v5'
   ) {
     throw new LockfileError({
       code: 'CAPABILITY_LACK',
@@ -367,13 +420,13 @@ async function prepareConversionRuntime(
   }
   if (
     isDenoFormat(prepared.source)
-    && !isDenoFormat(options.to)
+    && !isDenoFormat(options.target.format)
     && sources.manifests?.[''] === undefined
   ) {
     const diagnostic: Diagnostic = {
       code: 'DENO_MANIFEST_REQUIRED',
       severity: 'error',
-      message: `convert: ${prepared.source} -> ${options.to} requires sibling deno.json/package.json manifest evidence because deno.lock does not encode root dev/production scope`,
+      message: `convert: ${prepared.source} -> ${options.target.format} requires sibling deno.json/package.json manifest evidence because deno.lock does not encode root dev/production scope`,
     }
     report(diagnostic)
     throw new LockfileError({
@@ -381,18 +434,18 @@ async function prepareConversionRuntime(
       message: diagnostic.message,
     })
   }
-  let graph = parse(prepared.source, prepared.lockfile, {
+  let graph = prepared.graph ?? parse(prepared.source, prepared.lockfile, {
     workspaceRoot: options.workspaceRoot,
     manifests: sources.manifests === undefined ? undefined : { ...sources.manifests },
     onDiagnostic: report,
   })
-  if (isDenoFormat(prepared.source) && !isDenoFormat(options.to)) {
+  if (isDenoFormat(prepared.source) && !isDenoFormat(options.target.format)) {
     const counts = denoNonNpmSectionCounts(graph)
     if ((counts?.jsr ?? 0) > 0) {
       report({
         code: 'DENO_JSR_PACKAGES_DROPPED',
         severity: 'warning',
-        message: `convert: ${prepared.source} -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.jsr} JSR package${counts!.jsr === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
+        message: `convert: ${prepared.source} -> ${options.target.format} projects only the npm resolution subgraph and omits ${counts!.jsr} JSR package${counts!.jsr === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
         data: { feature: 'deno:jsr', count: counts!.jsr },
       })
     }
@@ -400,25 +453,34 @@ async function prepareConversionRuntime(
       report({
         code: 'DENO_REMOTE_PACKAGES_DROPPED',
         severity: 'warning',
-        message: `convert: ${prepared.source} -> ${options.to} projects only the npm resolution subgraph and omits ${counts!.remote} remote module${counts!.remote === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
+        message: `convert: ${prepared.source} -> ${options.target.format} projects only the npm resolution subgraph and omits ${counts!.remote} remote module${counts!.remote === 1 ? '' : 's'}; transform source dependencies first with https://github.com/denoland/dnt when npm output is required`,
         data: { feature: 'deno:remote', count: counts!.remote },
       })
     }
   }
   for (const diagnostic of patchByteDiagnostics(prepared, graph)) report(diagnostic)
   const enriched = await enrichGraph(graph, sources, {
-    target: {
-      format: options.to,
-      ...(options.targetVersion === undefined ? {} : { managerVersion: options.targetVersion }),
-    },
+    target: options.target,
     contract,
-    ...(options.cacheKey === undefined ? {} : { cacheKey: options.cacheKey }),
     ...(options.workspaceRoot === undefined ? {} : { workspaceRoot: options.workspaceRoot }),
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.artifactResources === undefined
       ? {}
       : { artifactResources: options.artifactResources }),
+    ...(options.store === undefined ? {} : { store: options.store }),
+    ...(options.guards === undefined ? {} : { guards: options.guards }),
   })
   graph = enriched.graph
+  if (prepared.manifests !== undefined && prepared.manifestCoverage !== undefined) {
+    attachEvidence(graph, withEvidence(evidenceOf(graph), {
+      kind: 'repository-manifests',
+      manifests: prepared.manifests,
+      coverage: prepared.manifestCoverage,
+    }))
+  }
+  if (options.evidence !== undefined && options.evidence.length > 0) {
+    attachEvidence(graph, withEvidence(evidenceOf(graph), options.evidence))
+  }
   for (const diagnostic of enriched.diagnostics) report(diagnostic)
   return { graph, prepared, diagnostics: Object.freeze(diagnostics) }
 }
@@ -428,22 +490,25 @@ async function _convert(
   options: NormalizedConvertOptions,
   dependencies: ConvertDependencies,
 ): Promise<string> {
+  const contract = options.contract === 'install'
+    ? 'project'
+    : options.contract ?? 'snapshot'
   const { graph, diagnostics } = await prepareConversionRuntime(
     input,
     options,
     dependencies,
-    'snapshot',
+    contract,
   )
-  const projected = stringifyProjected(options.to, graph, {
+  const projected = stringifyProjected(options.target.format, graph, {
     lineEnding: options.lineEnding,
-    cacheKey: options.cacheKey,
-    targetVersion: options.targetVersion,
+    cacheKey: targetCacheKeyOf(options.target),
+    targetVersion: options.target.managerVersion,
     onDiagnostic: options.onDiagnostic,
   })
   if (options.strict ?? true) {
     const losses = dedupeProjectionLosses([
-      ...projectionDiagnosticLosses(diagnostics, options.to),
-      ...snapshotProjectionLosses(graph, options.to, options.targetVersion),
+      ...projectionDiagnosticLosses(diagnostics, options.target.format),
+      ...snapshotProjectionLosses(graph, options.target.format, options.target.managerVersion),
       ...projected.losses,
     ])
     const blocking = blockingProjectionLosses(losses)
@@ -458,6 +523,48 @@ export async function convert(input: ConvertInput, options: ConvertOptions): Pro
   return _convert(input, normalized, {
     ...(normalized.fs === undefined ? {} : { fs: normalized.fs }),
     defaultFileSystem,
+  })
+}
+
+/** @internal Async project boundary used only by the root 0.6 facade. */
+export async function convertProjectRuntime(
+  input: ConvertInput,
+  options: ConvertOptions,
+): Promise<Readonly<{
+  lockfile: string
+  companions: readonly CompanionSetOperation[]
+}>> {
+  const normalized = normalizeConvertOptions(options)
+  const { graph } = await prepareConversionRuntime(input, normalized, {
+    ...(normalized.fs === undefined ? {} : { fs: normalized.fs }),
+    defaultFileSystem,
+  }, 'project')
+  const runtime = stringifyAssessedRuntime(graph, {
+    contract: 'project',
+    target: normalized.target,
+    evidence: evidenceOf(graph),
+    lineEnding: normalized.lineEnding,
+    cacheKey: targetCacheKeyOf(normalized.target),
+  }, normalized.onDiagnostic)
+  const companions = runtime.companions?.result.patches
+  if (runtime.output === undefined || companions === undefined) {
+    const unmet = runtime.assessment.requirements
+      .filter(requirement => requirement.status !== 'satisfied')
+      .map(requirement => `${requirement.key}:${requirement.status}`)
+    const reasonCodes = runtime.assessment.diagnostics.map(diagnostic => diagnostic.code)
+    throw new LockfileError({
+      code: 'ENRICH_REQUIRED',
+      message: `convert: install contract is not satisfied${unmet.length === 0
+        ? ''
+        : ` (${unmet.join(', ')})`}${reasonCodes.length === 0
+        ? ''
+        : ` [${reasonCodes.join(', ')}]`}`,
+      diagnostics: runtime.assessment.diagnostics,
+    })
+  }
+  return Object.freeze({
+    lockfile: runtime.output,
+    companions: Object.freeze([...companions]),
   })
 }
 
@@ -1051,7 +1158,7 @@ interface PreparedAssessedConversion {
 function prepareAssessedConversion(
   input: string,
   options: ConvertAssessedOptions,
-  evidenceInputs: readonly ProjectEvidenceInput[] = [],
+  evidenceInputs: readonly InternalProjectEvidenceInput[] = [],
 ): PreparedAssessedConversion | AssessedOutput {
   const from = options.from ?? detect(input)
   if (from === undefined) {
@@ -1224,7 +1331,7 @@ function frozenPreparationFailure(
   const requirement = frozenRequirement('unsatisfied', diagnostic)
   const assessment = assessConversion(graph, {
     contract: 'frozen',
-    target: { format: options.to, managerVersion: options.targetVersion },
+    target: options.target,
   }, {
     outputProbe: { accepted: false, diagnostics: [diagnostic] },
     targetRequirements: [requirement],
@@ -1232,18 +1339,29 @@ function frozenPreparationFailure(
   return Object.freeze({ assessment })
 }
 
-function preparationEvidence(
+async function preparationEvidence(
   graph: Graph,
   prepared: PreparedConvertInput,
   options: NormalizedFrozenPreparationOptions,
-): EvidenceContext {
+): Promise<EvidenceContext> {
   let evidence = evidenceOf(graph)
   if (options.sourceVersion !== undefined) evidence = withSourceVersion(evidence, options.sourceVersion)
+  const supplied = options.sources?.manifests
+  const suppliedManifests = supplied === undefined
+    ? undefined
+    : manifestFileSource(supplied)
+      ? (await prepareManifestSource(
+          supplied,
+          prepared.source,
+          options.cwd ?? process.cwd(),
+          options.fs,
+        )).manifests
+      : supplied
   const manifests = mergeManifestSources(
     prepared.source,
     prepared.manifests,
     options.manifests,
-    options.sources?.manifests,
+    suppliedManifests,
   )
   if (options.manifestCoverage === 'complete') {
     if (manifests === undefined) throw new TypeError('complete manifest coverage requires supplied manifests')
@@ -1272,19 +1390,19 @@ async function prepareFrozenRuntime(
   input: ConvertInput,
   options: NormalizedFrozenPreparationOptions,
 ): Promise<FrozenPreparationResult> {
-  const targetVersion = options.targetVersion
+  const targetVersion = options.target.managerVersion
   if (targetVersion === undefined || !EXACT_MANAGER_VERSION.test(targetVersion)) {
     return frozenPreparationFailure(options, assessedDiagnostic(
       'COMPLETENESS_FROZEN_TARGET_UNPINNED',
       'frozen verification requires an exact full target manager version',
-      { target: options.to, managerVersion: targetVersion },
+      { target: options.target.format, managerVersion: targetVersion },
     ))
   }
-  if (options.to === 'lockgraph') {
+  if (options.target.format === 'lockgraph') {
     return frozenPreparationFailure(options, assessedDiagnostic(
       'COMPLETENESS_FROZEN_ORACLE_UNAVAILABLE',
       'lockgraph has no native package-manager frozen oracle',
-      { target: options.to },
+      { target: options.target.format },
     ))
   }
 
@@ -1298,13 +1416,13 @@ async function prepareFrozenRuntime(
     return frozenPreparationFailure(options, assessedDiagnostic(
       'COMPLETENESS_FROZEN_PREPARATION_FAILED',
       error instanceof Error ? error.message : 'frozen candidate preparation failed',
-      { target: options.to },
+      { target: options.target.format },
     ))
   }
 
   let evidence: EvidenceContext
   try {
-    evidence = preparationEvidence(preparedRuntime.graph, preparedRuntime.prepared, options)
+    evidence = await preparationEvidence(preparedRuntime.graph, preparedRuntime.prepared, options)
   } catch (error) {
     return frozenPreparationFailure(options, assessedDiagnostic(
       'COMPLETENESS_EVIDENCE_INVALID',
@@ -1312,7 +1430,10 @@ async function prepareFrozenRuntime(
     ))
   }
 
-  const preparationLosses = projectionDiagnosticLosses(preparedRuntime.diagnostics, options.to)
+  const preparationLosses = projectionDiagnosticLosses(
+    preparedRuntime.diagnostics,
+    options.target.format,
+  )
   if (preparationLosses.some(loss => loss.class !== 'berry-checksum')) {
     const first = preparationLosses.find(loss => loss.class !== 'berry-checksum')!
     return frozenPreparationFailure(options, assessedDiagnostic(
@@ -1324,10 +1445,10 @@ async function prepareFrozenRuntime(
 
   const runtime = stringifyAssessedRuntime(preparedRuntime.graph, {
     contract: 'frozen',
-    target: { format: options.to, managerVersion: targetVersion },
+    target: options.target,
     evidence,
     lineEnding: options.lineEnding,
-    cacheKey: options.cacheKey,
+    cacheKey: targetCacheKeyOf(options.target),
   }, options.onDiagnostic, { allowFrozenCandidate: true })
   const companions = runtime.companions?.result.patches
   if (runtime.output === undefined
@@ -1338,7 +1459,7 @@ async function prepareFrozenRuntime(
     return Object.freeze({ assessment: runtime.assessment })
   }
 
-  const target = Object.freeze({ format: options.to, managerVersion: targetVersion })
+  const target = options.target as PinnedTargetRequest
   const projectionDigest = frozenProjectionDigest(target, runtime.output, companions)
   const candidate: FrozenCandidate = Object.freeze({
     protocol: FROZEN_PROJECTION_PROTOCOL,

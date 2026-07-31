@@ -11,7 +11,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { npmCache, type NpmTarballSource } from '../../main/ts/index.ts'
+import { npmCache } from '../../main/ts/registry/cache-npm.ts'
+import type { NpmTarballSource } from '../../main/ts/registry/types.ts'
 import { parseSri } from '../../main/ts/recipe/integrity.ts'
 
 const dirs: string[] = []

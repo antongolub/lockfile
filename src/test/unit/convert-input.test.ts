@@ -7,9 +7,8 @@ import {
   check,
   convert,
   type ConvertFileSystem,
-  type Diagnostic,
-  type Manifest,
 } from '../../main/ts/index.ts'
+import type { Diagnostic, Manifest } from '../../main/ts/graph.ts'
 import { globSegmentRegExp, matchesGlobSet } from '../../main/ts/convert/glob.ts'
 import type { Packument, RegistryAdapter } from '../../main/ts/registry/types.ts'
 

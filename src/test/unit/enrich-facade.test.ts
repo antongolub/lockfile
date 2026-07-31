@@ -4,27 +4,27 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  completenessOf,
   enrich,
-  evidenceOf,
   frozenRegistry,
   parse,
   stringify,
   type FormatId,
-  type Manifest,
-  type PmConfigEvidence,
 } from '../../main/ts/index.ts'
+import { completenessOf } from '../../main/ts/completeness/profile.ts'
 import {
   newBuilder,
   type DependencyManifest,
   type Graph,
+  type Manifest,
   type OverrideConstraint,
 } from '../../main/ts/graph.ts'
 import {
   attachEvidence,
   deriveEnrichedEvidence,
+  evidenceOf,
   withEvidence,
 } from '../../main/ts/completeness/evidence.ts'
+import type { PmConfigEvidence } from '../../main/ts/completeness/types.ts'
 import type { Packument, PackumentVersion, RegistryAdapter } from '../../main/ts/registry/types.ts'
 import type { TarballSource } from '../../main/ts/enrich/refurbish.ts'
 import * as bunText from '../../main/ts/formats/bun-text.ts'
@@ -353,6 +353,76 @@ describe('target-aware enrich facade', () => {
     })
 
     expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+    expect(registry.resolveCalls.get('bar@^1.0.0')).toBe(1)
+  })
+
+  it('loads the manifest authority from a complete virtual FileSource', async () => {
+    const registry = registryHarness()
+    const result = await enrich(parse('yarn-classic', CLASSIC), {
+      store: false,
+      sources: {
+        manifests: {
+          'package.json': JSON.stringify({
+            name: 'root',
+            version: '1.0.0',
+            dependencies: { foo: '^1.0.0' },
+          }),
+        },
+        packuments: [registry.adapter],
+      },
+      target: 'npm-3',
+      contract: 'project',
+    })
+
+    expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+    expect(registry.resolveCalls.get('bar@^1.0.0')).toBe(1)
+  })
+
+  it('resolves path-based manifest FileSource entries from the operation cwd', async () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'lockgraph-manifest-source-'))
+    try {
+      writeFileSync(resolve(root, 'package.json'), JSON.stringify({
+        name: 'root',
+        version: '1.0.0',
+        dependencies: { foo: '^1.0.0' },
+      }))
+      const registry = registryHarness()
+      const result = await enrich(parse('yarn-classic', CLASSIC), {
+        cwd: root,
+        store: false,
+        sources: {
+          manifests: ['package.json'],
+          packuments: [registry.adapter],
+        },
+        target: 'npm-3',
+        contract: 'project',
+      })
+
+      expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+      expect(registry.resolveCalls.get('bar@^1.0.0')).toBe(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('queries ordered packument authorities until the first metadata hit', async () => {
+    const registry = registryHarness()
+    const miss: RegistryAdapter = {
+      packument: vi.fn(async () => undefined),
+      resolve: vi.fn(async () => undefined),
+    }
+    const result = await enrich(parse('yarn-classic', CLASSIC), {
+      store: false,
+      sources: {
+        manifests: emptyRootManifest,
+        packuments: [miss, registry.adapter],
+      },
+      target: 'npm-3',
+      contract: 'project',
+    })
+
+    expect(result.graph.getNode('bar@1.5.0')).toBeDefined()
+    expect(miss.resolve).toHaveBeenCalledWith('bar', '^1.0.0')
     expect(registry.resolveCalls.get('bar@^1.0.0')).toBe(1)
   })
 
@@ -701,6 +771,7 @@ describe('target-aware enrich facade', () => {
     const digest = createHash('sha512').update(zip).digest('hex')
     try {
       const explicit = await enrich(input, {
+        store: false,
         sources: {
           artifacts: {
             npmTarballs: { async tarball() { return undefined } },
@@ -714,6 +785,7 @@ describe('target-aware enrich facade', () => {
         cacheKey: '10c0',
       })
       const listed = await enrich(input, {
+        store: false,
         sources: { artifacts: [`yarn-berry:${cacheDir}`] },
         target: 'yarn-berry-v8',
         contract: 'snapshot',

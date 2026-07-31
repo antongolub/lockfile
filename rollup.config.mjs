@@ -17,16 +17,10 @@ const external = (id) =>
   optionalPeers.some((d) => id === d || id.startsWith(`${d}/`))
 
 const SRC = 'src/main/ts'
-// One input per package.json `exports` subpath; preserveModules emits the whole
-// reachable module tree at its real source-mirrored path (no hashed chunks).
-// `lockgraph/registry` points at the root entry itself, while format adapters
-// remain internal dependencies of the root format registry.
+// The public package has one root facade. preserveModules still emits its whole
+// reachable implementation tree, but package exports expose none of those paths.
 const input = [
   `${SRC}/index.ts`,
-  `${SRC}/modify/index.ts`,
-  `${SRC}/complete/index.ts`,
-  `${SRC}/optimize/index.ts`,
-  `${SRC}/enrich/index.ts`,
 ]
 
 export default {

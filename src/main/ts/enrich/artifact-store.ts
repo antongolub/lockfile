@@ -20,6 +20,7 @@ import {
   resolve,
   sep,
 } from 'node:path'
+import { parseByteSize, type ByteSize } from '../api/operation.ts'
 import type { Diagnostic } from '../graph.ts'
 import {
   enrichArtifactDiagnostic,
@@ -37,6 +38,19 @@ export interface ArtifactStoreSource {
   readonly kind: 'lockgraph-artifact-store'
   readonly path: string
   readonly maxBytes: number
+}
+
+declare const lockgraphStoreBrand: unique symbol
+
+/** Opaque operation-level verified-content store handle. */
+export interface Store {
+  readonly [lockgraphStoreBrand]: true
+}
+
+/** Shared persistence policy for graph operations that may materialize artifacts. */
+export interface ArtifactPersistenceOptions {
+  /** Omitted uses the global XDG-aware store; false disables persistence. */
+  readonly store?: Store | false
 }
 
 export type ArtifactStoreAlias =
@@ -117,6 +131,44 @@ export function artifactStore(
     path,
     maxBytes,
   })
+}
+
+/** Creates the coherent operation-level store. */
+export function lockgraphStore(
+  path?: string,
+  options: Readonly<{ maxBytes?: ByteSize }> = {},
+): Store {
+  return artifactStore({
+    ...(path === undefined ? {} : { path }),
+    ...(options.maxBytes === undefined
+      ? {}
+      : { maxBytes: parseByteSize(options.maxBytes, 'lockgraphStore.maxBytes') }),
+  }) as unknown as Store
+}
+
+export function validateArtifactStoreSource(value: unknown): ArtifactStoreSource {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw invalidStore('store must be created by artifactStore()')
+  }
+  const candidate = value as Partial<ArtifactStoreSource>
+  if (candidate.kind !== 'lockgraph-artifact-store'
+    || typeof candidate.path !== 'string'
+    || candidate.path.length === 0
+    || !isAbsolute(candidate.path)
+    || dirname(candidate.path) === candidate.path
+    || !Number.isSafeInteger(candidate.maxBytes)
+    || candidate.maxBytes! <= 0) {
+    throw invalidStore('store path and maxBytes are invalid')
+  }
+  return candidate as ArtifactStoreSource
+}
+
+/** Resolves one operation's default/custom/disabled persistence policy. */
+export function operationArtifactStore(
+  value: Store | false | undefined,
+): ArtifactStoreSource | undefined {
+  if (value === false) return undefined
+  return value === undefined ? artifactStore() : validateArtifactStoreSource(value)
 }
 
 function canonicalDigest(bytes: Uint8Array): string {

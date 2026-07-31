@@ -10,45 +10,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./modify": {
-      "types": "./dist/modify/index.d.ts",
-      "default": "./dist/modify/index.js"
-    },
-    "./complete": {
-      "types": "./dist/complete/index.d.ts",
-      "default": "./dist/complete/index.js"
-    },
-    "./optimize": {
-      "types": "./dist/optimize/index.d.ts",
-      "default": "./dist/optimize/index.js"
-    },
-    "./registry": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./enrich": {
-      "types": "./dist/enrich/index.d.ts",
-      "default": "./dist/enrich/index.js"
-    }
-  },
-  "typesVersions": {
-    "*": {
-      "modify": [
-        "./dist/modify/index.d.ts"
-      ],
-      "complete": [
-        "./dist/complete/index.d.ts"
-      ],
-      "optimize": [
-        "./dist/optimize/index.d.ts"
-      ],
-      "registry": [
-        "./dist/index.d.ts"
-      ],
-      "enrich": [
-        "./dist/enrich/index.d.ts"
-      ]
     }
   },
   "files": [

@@ -1,31 +1,28 @@
-import { dirname, isAbsolute } from 'node:path'
 import { LockfileError } from '../api/errors.ts'
 import { npmCache } from '../registry/cache-npm.ts'
-import { pnpmCache } from '../registry/cache-pnpm.ts'
 import { yarnBerryCache } from '../registry/cache-yarn-berry.ts'
 import type {
   CacheAdapter,
   NpmTarballSource,
   RegistryAdapter,
+  RemoteArtifactRegistry,
   YarnBerryChecksumSource,
 } from '../registry/types.ts'
-import type { ArtifactStoreSource } from './artifact-store.ts'
+import {
+  validateArtifactStoreSource,
+  type ArtifactStoreSource,
+} from './artifact-store.ts'
 import type { RefurbishSources, TarballSource } from './refurbish.ts'
 
-export type ArtifactCacheFamily = 'npm' | 'yarn-berry' | 'pnpm'
+export type ArtifactCacheFamily = 'npm' | 'yarn-berry'
 
 export type ArtifactCacheSpecifier =
   | ArtifactCacheFamily
   | `${ArtifactCacheFamily}:${string}`
 
-export interface RemoteArtifactSource {
-  readonly registry: RegistryAdapter
-}
-
 export type ArtifactSourceList = readonly (
-  | ArtifactCacheSpecifier
-  | RemoteArtifactSource
-  | ArtifactStoreSource
+  | string
+  | RemoteArtifactRegistry
 )[]
 
 export type ArtifactSourcesInput =
@@ -42,10 +39,6 @@ export type NormalizedArtifactSource =
   | Readonly<{
       kind: 'remote'
       registry: RegistryAdapter
-    }>
-  | Readonly<{
-      kind: 'store'
-      store: ArtifactStoreSource
     }>
 
 export interface NormalizedArtifactSources {
@@ -80,27 +73,20 @@ function isRegistryAdapter(value: unknown): value is RegistryAdapter {
   return hasFunction(candidate, 'packument') && hasFunction(candidate, 'resolve')
 }
 
-function isArtifactStoreSource(value: unknown): value is ArtifactStoreSource {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
-  const candidate = value as Record<string, unknown>
-  return candidate.kind === 'lockgraph-artifact-store'
-    && typeof candidate.path === 'string'
-    && candidate.path.length > 0
-    && isAbsolute(candidate.path)
-    && dirname(candidate.path) !== candidate.path
-    && Number.isSafeInteger(candidate.maxBytes)
-    && (candidate.maxBytes as number) > 0
-}
-
-function remoteRegistryOf(value: unknown, index: number): RegistryAdapter {
+function remoteRegistryOf(value: unknown, index: number): RemoteArtifactRegistry {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw invalidArtifactSource(`list item ${index} must be a cache specifier or { registry }`)
+    throw invalidArtifactSource(`list item ${index} must be a cache specifier or remote registry`)
   }
-  const candidate = value as Record<string, unknown>
-  if (!('registry' in candidate) || !isRegistryAdapter(candidate.registry)) {
+  if (!isRegistryAdapter(value)) {
     throw invalidArtifactSource(`list item ${index} has no valid registry adapter`)
   }
-  return candidate.registry
+  const candidate = value as RegistryAdapter & Record<string, unknown>
+  if (!hasFunction(candidate, 'artifactRoute')) {
+    throw invalidArtifactSource(
+      `list item ${index} has no explicit remote artifact route`,
+    )
+  }
+  return candidate as unknown as RemoteArtifactRegistry
 }
 
 interface ParsedCacheSpecifier {
@@ -112,7 +98,12 @@ function cacheSpecifierOf(value: string, index: number): ParsedCacheSpecifier {
   const separator = value.indexOf(':')
   const family = (separator < 0 ? value : value.slice(0, separator)) as ArtifactCacheFamily
   const path = separator < 0 ? undefined : value.slice(separator + 1)
-  if (family !== 'npm' && family !== 'yarn-berry' && family !== 'pnpm') {
+  if ((family as string) === 'pnpm') {
+    throw invalidArtifactSource(
+      `list item ${index} selects pnpm, which supplies no retained registry tarball and no lock-carried archive checksum`,
+    )
+  }
+  if (family !== 'npm' && family !== 'yarn-berry') {
     throw invalidArtifactSource(`list item ${index} has unknown cache family ${JSON.stringify(family)}`)
   }
   if (path !== undefined && path.length === 0) {
@@ -147,11 +138,7 @@ function cacheCapabilitiesOf(
     )
     return { cache, yarnBerryChecksums: cache }
   }
-  return {
-    cache: pnpmCache(
-      specifier.path === undefined ? {} : { storeDir: specifier.path },
-    ),
-  }
+  throw invalidArtifactSource(`unsupported cache family ${JSON.stringify(specifier.family)}`)
 }
 
 function firstNpmTarball(
@@ -195,7 +182,6 @@ function normalizeList(
   const remotes: RegistryAdapter[] = []
   const npmTarballs: NpmTarballSource[] = []
   const yarnBerryChecksums: YarnBerryChecksumSource[] = []
-  let store: ArtifactStoreSource | undefined
 
   for (let index = 0; index < list.length; index++) {
     const item = list[index]
@@ -214,12 +200,6 @@ function normalizeList(
       if (capabilities.yarnBerryChecksums !== undefined) {
         yarnBerryChecksums.push(capabilities.yarnBerryChecksums)
       }
-    } else if (isArtifactStoreSource(item)) {
-      if (store !== undefined) {
-        throw invalidArtifactSource('only one artifact store may be configured')
-      }
-      store = item
-      entries.push(Object.freeze({ kind: 'store', store }))
     } else {
       const registry = remoteRegistryOf(item, index)
       remotes.push(registry)
@@ -237,7 +217,6 @@ function normalizeList(
     entries: Object.freeze(entries),
     caches: Object.freeze(caches),
     remotes: Object.freeze(remotes),
-    ...(store === undefined ? {} : { store }),
   })
 }
 
@@ -285,13 +264,25 @@ function normalizeLegacy(source: TarballSource): NormalizedArtifactSources {
 
 export function normalizeArtifactSources(
   source: ArtifactSourcesInput,
-  context: Readonly<{ workspaceRoot?: string }> = {},
+  context: Readonly<{
+    workspaceRoot?: string
+    store?: ArtifactStoreSource
+  }> = {},
 ): NormalizedArtifactSources {
-  if (Array.isArray(source)) return normalizeList(source as ArtifactSourceList, context)
-  if (source === null || typeof source !== 'object') {
-    throw invalidArtifactSource('expected a source object or ordered list')
+  let normalized: NormalizedArtifactSources
+  if (Array.isArray(source)) {
+    normalized = normalizeList(source as ArtifactSourceList, context)
+  } else {
+    if (source === null || typeof source !== 'object') {
+      throw invalidArtifactSource('expected a source object or ordered list')
+    }
+    if ('npmTarballs' in source) normalized = normalizeSplit(source as RefurbishSources)
+    else if ('tarball' in source) normalized = normalizeLegacy(source as TarballSource)
+    else throw invalidArtifactSource('object matches neither RefurbishSources nor TarballSource')
   }
-  if ('npmTarballs' in source) return normalizeSplit(source as RefurbishSources)
-  if ('tarball' in source) return normalizeLegacy(source as TarballSource)
-  throw invalidArtifactSource('object matches neither RefurbishSources nor TarballSource')
+  if (context.store === undefined) return normalized
+  return Object.freeze({
+    ...normalized,
+    store: validateArtifactStoreSource(context.store),
+  })
 }

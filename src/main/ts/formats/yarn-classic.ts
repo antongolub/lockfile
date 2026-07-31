@@ -1,5 +1,8 @@
 import semver from 'semver'
 import {
+  accessGraphGoverningOverride,
+  accessGraphOverrides,
+  accessGraphRegistryPackages,
   GraphError,
   newBuilder,
   nameOf,
@@ -898,7 +901,8 @@ function remapSidecar(
 function withSidecarPropagation(graph: Graph, sidecar: YarnClassicSidecar): Graph {
   // Thin delegation proxy — only `mutate` is overridden; everything else
   // forwards to the underlying graph so the object is still a true Graph.
-  const proxy: Graph = {
+  let proxy: Graph
+  proxy = {
     getNode:     (...args) => graph.getNode(...args),
     nodes:       ()        => graph.nodes(),
     byName:      (...args) => graph.byName(...args),
@@ -912,6 +916,9 @@ function withSidecarPropagation(graph: Graph, sidecar: YarnClassicSidecar): Grap
     tarball:     (...args) => graph.tarball(...args),
     tarballOf:   (...args) => graph.tarballOf(...args),
     tarballs:    ()        => graph.tarballs(),
+    overrides:   ()        => accessGraphOverrides(proxy),
+    governingOverride: (...args) => accessGraphGoverningOverride(proxy, ...args),
+    registryPackages: () => accessGraphRegistryPackages(proxy),
     diagnostics: ()        => graph.diagnostics(),
     layoutHints: ()        => graph.layoutHints(),
     mutate(transaction: (m: Mutator) => void): MutateResult {
@@ -930,7 +937,7 @@ function withSidecarPropagation(graph: Graph, sidecar: YarnClassicSidecar): Grap
       const bumpedNodes = new Map<string, Node>()   // same-name version bump → carry in-range descriptors
       for (const rec of result.applied) {
         if (rec.kind !== 'node-replaced' && rec.kind !== 'peer-context-replaced') continue
-        const oldId = rec.oldSubject
+        const oldId = rec.previous
         if (oldId === undefined) continue // id unchanged — no remap needed
         const newNode = result.graph.getNode(rec.subject)
         if (newNode === undefined) continue

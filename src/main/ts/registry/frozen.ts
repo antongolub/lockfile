@@ -1,9 +1,14 @@
 import semver from 'semver'
 import type { Graph, Node, TarballPayload } from '../graph.ts'
-import type { Packument, PackumentVersion, RegistryAdapter } from './types.ts'
+import type {
+  MutablePackumentVersion,
+  Packument,
+  PackumentVersion,
+  RegistryAdapter,
+} from './types.ts'
 
 interface IndexedVersion {
-  readonly version: PackumentVersion
+  readonly version: MutablePackumentVersion
   readonly bundledDependencies: Set<string>
 }
 
@@ -90,7 +95,7 @@ function createIndexedVersion(node: Node, tarball: TarballPayload | undefined): 
   }
 }
 
-function mergePayload(target: PackumentVersion, tarball: TarballPayload | undefined): void {
+function mergePayload(target: MutablePackumentVersion, tarball: TarballPayload | undefined): void {
   if (tarball === undefined) return
   if (target.integrity === undefined) target.integrity = tarball.integrity
   if (target.tarball === undefined && tarball.resolution?.type === 'tarball') {
@@ -131,7 +136,7 @@ function mergeEdges(target: IndexedVersion, node: Node, graph: Graph): void {
 }
 
 function upsertDependency(
-  version: PackumentVersion,
+  version: MutablePackumentVersion,
   field: 'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies',
   name: string,
   range: string,

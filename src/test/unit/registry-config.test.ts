@@ -15,11 +15,11 @@ const mkdir = (files: Record<string, string>): string => {
   for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
   return dir
 }
-type Opts = { ecosystem?: Ecosystem; env?: Record<string, string | undefined>; registry?: string }
+type Opts = { config?: Ecosystem; env?: Record<string, string | undefined>; registry?: string }
 // Project files + an EMPTY temp home (isolate from real ~/.npmrc) + empty env;
 // ecosystem defaults to npm. Overridable via opts.
 const resolve = (files: Record<string, string>, opts: Opts = {}) =>
-  resolveRegistry(mkdir(files), { ecosystem: 'npm', home: mkdir({}), env: {}, ...opts })
+  resolveRegistry(mkdir(files), { config: 'npm', home: mkdir({}), env: {}, ...opts })
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64')
 const basic = (cred: string) => `Basic ${b64(cred)}`
@@ -37,7 +37,7 @@ describe('registry/config — resolveRegistry', () => {
     expect(npm.registryFor('@acme/widget')).toBe('https://acme.example.com')
     expect(npm.registryFor('lodash')).toBe(DEFAULT_REGISTRY)
 
-    const yarn = resolve({ '.yarnrc.yml': 'npmScopes:\n  acme:\n    npmRegistryServer: "https://acme.example.com"\n' }, { ecosystem: 'yarn-berry' })
+    const yarn = resolve({ '.yarnrc.yml': 'npmScopes:\n  acme:\n    npmRegistryServer: "https://acme.example.com"\n' }, { config: 'yarn-berry' })
     expect(yarn.registryFor('@acme/widget')).toBe('https://acme.example.com')
   })
 
@@ -50,7 +50,7 @@ describe('registry/config — resolveRegistry', () => {
   })
 
   it('yarn `npmRegistries: "//host"` token resolves (the silently-dropped bug)', () => {
-    const c = resolve({ '.yarnrc.yml': 'npmRegistries:\n  "//acme.example.com/":\n    npmAuthToken: "YARN_TOK"\n' }, { ecosystem: 'yarn-berry' })
+    const c = resolve({ '.yarnrc.yml': 'npmRegistries:\n  "//acme.example.com/":\n    npmAuthToken: "YARN_TOK"\n' }, { config: 'yarn-berry' })
     expect(c.tokenFor('https://acme.example.com')).toBe('YARN_TOK')
     expect(c.tokenFor('https://other.example.com')).toBeUndefined()
   })
@@ -99,14 +99,14 @@ describe('registry/config — resolveRegistry', () => {
 
   it('project config wins over global ~/.npmrc — first writer wins (yaf #9)', () => {
     const home = mkdir({ '.npmrc': 'registry=https://global.example.com/\n' })
-    const c = resolveRegistry(mkdir({ '.npmrc': 'registry=https://project.example.com/\n' }), { ecosystem: 'npm', home, env: {} })
+    const c = resolveRegistry(mkdir({ '.npmrc': 'registry=https://project.example.com/\n' }), { config: 'npm', home, env: {} })
     expect(c.registryFor('x')).toBe('https://project.example.com')
   })
 
   it('yarn .yarnrc.yml — npmScopes routing + npmRegistries `//host` token together (yaf #7)', () => {
     const c = resolve(
       { '.yarnrc.yml': 'npmScopes:\n  acme:\n    npmRegistryServer: "https://npm.acme.com"\nnpmRegistries:\n  "//npm.acme.com":\n    npmAuthToken: "YML_TOKEN"\n' },
-      { ecosystem: 'yarn-berry' },
+      { config: 'yarn-berry' },
     )
     expect(c.registryFor('@acme/x')).toBe('https://npm.acme.com')
     expect(c.tokenFor('https://npm.acme.com')).toBe('YML_TOKEN')
@@ -132,7 +132,7 @@ describe('registry/config — auth taxonomy (§2)', () => {
   })
 
   it('yarn `npmAuthIdent` → Basic header', () => {
-    const c = resolve({ '.yarnrc.yml': 'npmRegistryServer: "https://y.example.com"\nnpmAuthIdent: "user:pass"\n' }, { ecosystem: 'yarn-berry' })
+    const c = resolve({ '.yarnrc.yml': 'npmRegistryServer: "https://y.example.com"\nnpmAuthIdent: "user:pass"\n' }, { config: 'yarn-berry' })
     expect(c.authHeaderFor('https://y.example.com')).toBe(basic('user:pass'))
   })
 
@@ -146,7 +146,7 @@ describe('registry/config — auth taxonomy (§2)', () => {
   })
 
   it('YARN_NPM_* env globals — registry + Basic ident', () => {
-    const c = resolve({}, { ecosystem: 'yarn-berry', env: { YARN_NPM_REGISTRY_SERVER: 'https://y.example.com/', YARN_NPM_AUTH_IDENT: 'user:pass' } })
+    const c = resolve({}, { config: 'yarn-berry', env: { YARN_NPM_REGISTRY_SERVER: 'https://y.example.com/', YARN_NPM_AUTH_IDENT: 'user:pass' } })
     expect(c.registryFor('x')).toBe('https://y.example.com')
     expect(c.authHeaderFor('https://y.example.com')).toBe(basic('user:pass'))
   })
@@ -158,26 +158,26 @@ describe('registry/config — ecosystem ISOLATION (no npm/yarn directive mixing)
 
   it('npm/pnpm ignore a planted .yarnrc.yml', () => {
     const files = { '.npmrc': 'registry=https://good.example.com/\n', '.yarnrc.yml': PLANTED_YARN }
-    for (const ecosystem of ['npm', 'pnpm'] as const) {
-      const c = resolve(files, { ecosystem })
+    for (const config of ['npm', 'pnpm'] as const) {
+      const c = resolve(files, { config })
       expect(c.registryFor('x')).toBe('https://good.example.com')        // .yarnrc.yml not read
       expect(c.tokenFor('https://evil.example.com')).toBeUndefined()
     }
   })
 
   it('yarn-berry ignores a planted .npmrc', () => {
-    const c = resolve({ '.yarnrc.yml': 'npmRegistryServer: "https://good.example.com"\n', '.npmrc': PLANTED_NPMRC }, { ecosystem: 'yarn-berry' })
+    const c = resolve({ '.yarnrc.yml': 'npmRegistryServer: "https://good.example.com"\n', '.npmrc': PLANTED_NPMRC }, { config: 'yarn-berry' })
     expect(c.registryFor('x')).toBe('https://good.example.com')          // .npmrc not read
     expect(c.tokenFor('https://evil.example.com')).toBeUndefined()
   })
 
   it('env namespaces do not cross — npm ignores YARN_*, yarn-berry ignores npm_config_*', () => {
-    expect(resolve({}, { ecosystem: 'npm', env: { YARN_NPM_REGISTRY_SERVER: 'https://evil.example.com/' } }).registryFor('x')).toBe(DEFAULT_REGISTRY)
-    expect(resolve({}, { ecosystem: 'yarn-berry', env: { npm_config_registry: 'https://evil.example.com/' } }).registryFor('x')).toBe(DEFAULT_REGISTRY)
+    expect(resolve({}, { config: 'npm', env: { YARN_NPM_REGISTRY_SERVER: 'https://evil.example.com/' } }).registryFor('x')).toBe(DEFAULT_REGISTRY)
+    expect(resolve({}, { config: 'yarn-berry', env: { npm_config_registry: 'https://evil.example.com/' } }).registryFor('x')).toBe(DEFAULT_REGISTRY)
   })
 
   it('yarn-classic reads .yarnrc + .npmrc (its real sources), not .yarnrc.yml', () => {
-    const c = resolve({ '.yarnrc': 'registry "https://good.example.com/"\n', '.npmrc': '//good.example.com/:_authToken=CLASSIC_TOK\n', '.yarnrc.yml': PLANTED_YARN }, { ecosystem: 'yarn-classic' })
+    const c = resolve({ '.yarnrc': 'registry "https://good.example.com/"\n', '.npmrc': '//good.example.com/:_authToken=CLASSIC_TOK\n', '.yarnrc.yml': PLANTED_YARN }, { config: 'yarn-classic' })
     expect(c.registryFor('x')).toBe('https://good.example.com')
     expect(c.tokenFor('https://good.example.com')).toBe('CLASSIC_TOK')
     expect(c.tokenFor('https://evil.example.com')).toBeUndefined()        // .yarnrc.yml not read
@@ -193,7 +193,7 @@ describe('registry/config — liveRegistry.fromConfig', () => {
       return { ok: true, status: 200, json: async () => ({ name: '@acme/widget', versions: {} }) }
     }) as unknown as typeof fetch
 
-    const reg = liveRegistry.fromConfig(cwd, '@acme/widget', { ecosystem: 'npm', home: mkdir({}), env: {}, fetch: fetchSpy })
+    const reg = liveRegistry.fromConfig(cwd, '@acme/widget', { config: 'npm', home: mkdir({}), env: {}, fetch: fetchSpy })
     await reg.packument('@acme/widget')
 
     expect(calls[0]!.url).toBe('https://acme.example.com/@acme%2Fwidget')

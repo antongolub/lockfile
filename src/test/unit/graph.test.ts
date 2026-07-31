@@ -687,7 +687,7 @@ describe('mutate', () => {
     expect(g2.out(newId, 'peer').map(e => e.dst)).toEqual(['react@17.0.0'])
     // react@18.0.0 no longer the peer target
     expect(g2.in('react@18.0.0', 'peer')).toEqual([])
-    expect(applied).toEqual([{ kind: 'peer-context-replaced', subject: newId, oldSubject: 'rd@18.0.0(react@18.0.0)' }])
+    expect(applied).toEqual([{ kind: 'peer-context-replaced', subject: newId, previous: 'rd@18.0.0(react@18.0.0)' }])
   })
 
   it('mutate result graph and original both remain valid', () => {
@@ -701,6 +701,20 @@ describe('mutate', () => {
   })
 
   // ADR-0023 §8.6 — Mutator.diagnostic write-side surface.
+  it('GraphMutation.addDiagnostic returns only this transaction diagnostics', () => {
+    const original = seed().mutate(mutation => {
+      mutation.addDiagnostic({ code: 'A', severity: 'info', message: 'existing' })
+    }).graph
+    const result = original.mutate(mutation => {
+      mutation.addDiagnostic({ code: 'B', severity: 'warning', message: 'current' })
+    })
+
+    expect(result.diagnostics).toEqual([
+      { code: 'B', severity: 'warning', message: 'current' },
+    ])
+    expect(result.graph.diagnostics().map(diagnostic => diagnostic.code)).toEqual(['A', 'B'])
+  })
+
   it('Mutator.diagnostic appends a diagnostic to the resulting Graph', () => {
     const g = seed()
     const { graph: g2 } = g.mutate(m => {

@@ -36,6 +36,7 @@ export const DEFAULT_ARTIFACT_RESOURCE_LIMITS: Readonly<ArtifactResourceLimits> 
 })
 
 export const DEFAULT_ARTIFACT_MAX_LIVE_BYTES = 7 * 1024 * 1024 * 1024
+export const DEFAULT_ARTIFACT_MAX_NETWORK_TRAFFIC_BYTES = 5 * 1024 * 1024 * 1024
 
 const fieldOf = (representation: Exclude<ArtifactRepresentation, 'live'>): keyof ArtifactResourceLimits => {
   if (representation === 'compressed') return 'maxCompressedBytes'
@@ -88,6 +89,51 @@ export class ArtifactLiveMeter {
 
   get remainingBytes(): number {
     return this.limitBytes - this.#liveBytes
+  }
+}
+
+export class ArtifactTrafficError extends Error {
+  readonly actualBytes: number
+  readonly limitBytes: number
+  readonly origin: ArtifactLimitOrigin
+
+  constructor(actualBytes: number, limitBytes: number, origin: ArtifactLimitOrigin) {
+    super(`artifact network traffic exceeds ${limitBytes} bytes`)
+    this.name = 'ArtifactTrafficError'
+    this.actualBytes = actualBytes
+    this.limitBytes = limitBytes
+    this.origin = origin
+  }
+}
+
+/** Atomic, operation-wide accounting for HTTP response-body bytes. */
+export class ArtifactTrafficMeter {
+  readonly limitBytes: number
+  readonly origin: ArtifactLimitOrigin
+  #consumedBytes = 0
+
+  constructor(
+    limitBytes = DEFAULT_ARTIFACT_MAX_NETWORK_TRAFFIC_BYTES,
+    origin: ArtifactLimitOrigin = 'default',
+  ) {
+    this.limitBytes = limitBytes
+    this.origin = origin
+  }
+
+  assertCanConsume(bytes: number): void {
+    this.#assert(this.#consumedBytes + bytes)
+  }
+
+  consume(bytes: number): void {
+    const next = this.#consumedBytes + bytes
+    this.#assert(next)
+    this.#consumedBytes = next
+  }
+
+  #assert(next: number): void {
+    if (!Number.isSafeInteger(next) || next < 0 || next > this.limitBytes) {
+      throw new ArtifactTrafficError(next, this.limitBytes, this.origin)
+    }
   }
 }
 

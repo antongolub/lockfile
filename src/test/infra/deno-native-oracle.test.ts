@@ -12,9 +12,9 @@ import { describe, expect, it } from 'vitest'
 import {
   parse,
   stringify,
-  type DenoFormatId,
-  type Diagnostic,
 } from '../../main/ts/index.ts'
+import type { Diagnostic } from '../../main/ts/graph.ts'
+import type { DenoFormatId } from '../../main/ts/api/format-contract.ts'
 
 interface DenoOracle {
   readonly lockVersion: '3' | '4' | '5'

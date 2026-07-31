@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { newBuilder, type Manifest } from '../../main/ts/graph.ts'
+import { parse } from '../../main/ts/index.ts'
+import type { EvidenceContext } from '../../main/ts/completeness/types.ts'
 import {
   evidenceOf,
-  parse,
+  internalEvidenceOf,
   withEvidence,
-  type EvidenceContext,
-} from '../../main/ts/index.ts'
-import { internalEvidenceOf } from '../../main/ts/completeness/evidence.ts'
+} from '../../main/ts/completeness/evidence.ts'
 
 const npmLock = JSON.stringify({
   name: 'root',

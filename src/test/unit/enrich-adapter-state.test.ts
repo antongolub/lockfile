@@ -3,9 +3,8 @@ import {
   enrich,
   parse,
   type FormatId,
-  type Manifest,
 } from '../../main/ts/index.ts'
-import { newBuilder, type Graph } from '../../main/ts/graph.ts'
+import { newBuilder, type Graph, type Manifest } from '../../main/ts/graph.ts'
 import * as bunText from '../../main/ts/formats/bun-text.ts'
 import * as npm1 from '../../main/ts/formats/npm-1.ts'
 import * as npm2 from '../../main/ts/formats/npm-2.ts'

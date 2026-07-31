@@ -374,7 +374,7 @@ describe('yarn-classic — orphan descriptors survive graph.mutate (C-KEYDROP au
       m.replacePeerContext('pc@1.0.0', ['peer@1.0.0'])
     })
     expect(result.applied).toEqual([
-      { kind: 'peer-context-replaced', subject: 'pc@1.0.0(peer@1.0.0)', oldSubject: 'pc@1.0.0' },
+      { kind: 'peer-context-replaced', subject: 'pc@1.0.0(peer@1.0.0)', previous: 'pc@1.0.0' },
     ])
     expect(result.graph.getNode('pc@1.0.0(peer@1.0.0)')).toBeDefined()
 

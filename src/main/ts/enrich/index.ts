@@ -10,7 +10,6 @@ export type {
   ArtifactCacheSpecifier,
   ArtifactSourceList,
   ArtifactSourcesInput,
-  RemoteArtifactSource,
 } from './artifact-sources.ts'
 export {
   artifactStore,

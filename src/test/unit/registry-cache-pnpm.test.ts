@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { pnpmCache } from '../../main/ts/index.ts'
+import { pnpmCache } from '../../main/ts/registry/cache-pnpm.ts'
 
 const dirs: string[] = []
 afterEach(() => {

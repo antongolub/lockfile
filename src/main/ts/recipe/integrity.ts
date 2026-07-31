@@ -30,13 +30,13 @@ export type HashOrigin =
   | 'recomputed'   // recomputed from tarball bytes (Phase 2). Tarball digest.
 
 export interface Hash {
-  algorithm: string      // 'sha1' | 'sha256' | 'sha384' | 'sha512' | forward-compatible others
-  digest:    string      // lowercase hex of the raw digest bytes
-  origin:    HashOrigin
+  readonly algorithm: string      // 'sha1' | 'sha256' | 'sha384' | 'sha512' | forward-compatible others
+  readonly digest:    string      // lowercase hex of the raw digest bytes
+  readonly origin:    HashOrigin
 }
 
 export interface Integrity {
-  hashes: Hash[]         // verbatim multiset, source order preserved
+  readonly hashes: readonly Hash[] // verbatim multiset, source order preserved
 }
 
 // Known SRI algorithm → raw digest byte length. Unknown algorithms are accepted

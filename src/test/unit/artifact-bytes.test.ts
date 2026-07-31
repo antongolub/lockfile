@@ -11,17 +11,18 @@ import { resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  artifactStore,
   enrich,
-  liveRegistry,
+  lockgraphStore,
   parse,
 } from '../../main/ts/index.ts'
+import { liveRegistry } from '../../main/ts/registry/live.ts'
 import * as enrichDiagnostics from '../../main/ts/enrich/diagnostics.ts'
 import { computeBerryChecksum } from '../../main/ts/recipe/berry-checksum.ts'
 import type {
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  RemoteArtifactRegistry,
 } from '../../main/ts/registry/types.ts'
 
 function tarballOf(text = 'module.exports = 1\n'): Uint8Array {
@@ -89,7 +90,7 @@ interface RouteOptions {
   route?: boolean
 }
 
-function remote(options: RouteOptions = {}) {
+function remote(options: RouteOptions = {}): RemoteArtifactRegistry {
   const registryUrl = options.registryUrl ?? 'https://registry.test/npm'
   const attestedName = options.attestedName ?? 'pkg'
   const attestedUrl = options.attestedUrl
@@ -104,7 +105,7 @@ function remote(options: RouteOptions = {}) {
     distTags: {},
     versions: { '1.0.0': version },
   }
-  const registry: RegistryAdapter & Record<string, unknown> = {
+  const registry: RemoteArtifactRegistry = {
     packument: vi.fn(async () => packument),
     resolve: vi.fn(async () => version),
     artifactRoute: vi.fn((name: string) => options.route === false
@@ -122,12 +123,13 @@ function remote(options: RouteOptions = {}) {
 
 async function run(
   graph: ReturnType<typeof npmGraph>,
-  registries: readonly RegistryAdapter[],
+  registries: readonly RemoteArtifactRegistry[],
   artifactResources?: unknown,
 ) {
   return enrich(graph, {
+    store: false,
     sources: {
-      artifacts: registries.map(registry => ({ registry })) as never,
+      artifacts: registries,
     },
     target: 'yarn-berry-v8',
     contract: 'snapshot',
@@ -142,6 +144,7 @@ async function runLocal(
   artifactResources?: unknown,
 ) {
   return enrich(graph, {
+    store: false,
     sources: {
       artifacts: {
         npmTarballs: { async tarball() { return bytes } },
@@ -482,12 +485,12 @@ describe('remote artifact bytes — central verification', () => {
               : sri(bytes),
           })
       const result = await enrich(graph, {
+        store: lockgraphStore(root),
         sources: {
           artifacts: [
-            artifactStore({ path: root }),
-            { registry: remote({
+            remote({
               fetch: vi.fn(async () => new Response(bytes)) as unknown as typeof fetch,
-            }) },
+            }),
           ],
         },
         target: 'yarn-berry-v8',
@@ -496,7 +499,7 @@ describe('remote artifact bytes — central verification', () => {
         ...(kind === 'envelope'
           ? { artifactResources: { defaults: { maxCompressedBytes: 1 } } }
           : {}),
-      } as never)
+      })
       expect(result.diagnostics.map(item => item.code)).toContain(code)
       expect(filesBelow(resolve(root, 'objects'))).toEqual([])
     } finally {
@@ -763,7 +766,7 @@ describe('live registry — dynamic artifact routing compatibility', () => {
       cwd: string,
       options: Record<string, unknown>,
     ) => RegistryAdapter & Record<string, unknown>)('/no/files', {
-      ecosystem: 'npm',
+      config: 'npm',
       env: { npm_config_registry: 'https://registry.test/npm' },
       home: '/no/home',
       fetch: vi.fn(),

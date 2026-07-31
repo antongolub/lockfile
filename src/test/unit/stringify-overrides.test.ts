@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { overridesOf, parse, stringify } from '../../main/ts/index.ts'
+import { parse, stringify } from '../../main/ts/index.ts'
+import { overridesOf } from '../../main/ts/api/format-api.ts'
 import type { Diagnostic, OverrideConstraint } from '../../main/ts/graph.ts'
 import { fixture } from '../helpers/lockfile-test-utils.ts'
 

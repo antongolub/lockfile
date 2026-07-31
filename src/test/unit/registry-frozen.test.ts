@@ -6,11 +6,11 @@ import { newBuilder, serializeNodeId, type Builder } from '../../main/ts/graph.t
 import {
   frozenRegistry,
   parse,
-  type CacheAdapter,
   type Packument,
   type PackumentVersion,
   type RegistryAdapter,
 } from '../../main/ts/index.ts'
+import type { CacheAdapter } from '../../main/ts/registry/types.ts'
 import type { Integrity } from '../../main/ts/recipe/integrity.ts'
 import { sri } from '../_integrity-fixtures.ts'
 

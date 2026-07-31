@@ -25,23 +25,39 @@
 import semver from 'semver'
 import { fetch as nodeFetchNative } from 'node-fetch-native'
 import { parseSri, isEmptyIntegrity, mergeIntegrity, emptyIntegrity } from '../recipe/integrity.ts'
-import { resolveRegistry, DEFAULT_REGISTRY, type ResolveRegistryOptions } from './config.ts'
+import {
+  resolveRegistry,
+  DEFAULT_REGISTRY,
+  type RegistryConfig,
+  type ResolveRegistryOptions,
+} from './config.ts'
 import type {
   Limiter,
+  MutablePackumentVersion,
   Packument,
   PackumentVersion,
   RemoteArtifactRegistry,
 } from './types.ts'
 
-export interface LiveRegistryOptions {
+interface RegistryTransportOptions {
+  /** Fetch implementation override for proxies, custom CAs, and tests. */
+  readonly fetch?: typeof fetch
+  /** Scheduling policy shared by metadata and artifact byte requests. */
+  readonly limit?: Limiter
+}
+
+export interface LiveRegistryDirectOptions extends RegistryTransportOptions {
   /** Registry URL. Default: 'https://registry.npmjs.org'. */
-  url?:   string
-  /** Bearer token for private registries (sent as `Authorization: Bearer <token>`). */
-  auth?:  string
+  readonly url?: string
   /** Full `Authorization` header value (`Bearer …` / `Basic …`), used verbatim —
    *  takes precedence over `auth`. Supplied by `fromConfig` (`authHeaderFor`) so
    *  Basic-auth registries get the right scheme. */
-  authHeader?: string
+  readonly authHeader?: string
+  readonly cwd?: never
+  readonly config?: never
+  readonly registry?: never
+  readonly env?: never
+  readonly home?: never
   /**
    * Fetch implementation. Default: node-fetch-native (native `fetch` on Node
    * 18+, polyfill on 14–17). Pass to mock in tests, or to supply a
@@ -52,24 +68,51 @@ export interface LiveRegistryOptions {
    * (frozen-clean). The POST audit is retry-safe for availability only; NEVER
    * cache it (advisories are time-varying — a stale cache under-remediates).
    */
-  fetch?: typeof fetch
   /**
    * Scheduling policy for EVERY registry call (packument / manifest / audit) —
    * a concurrency pool / rate limiter / debouncer. The library ships none; wrap
    * with your own (e.g. `p-limit`). Also surfaced on the adapter as `.limit` so
    * a custom completion constraint can share the same quota. Unset ⇒ immediate.
    */
-  limit?: Limiter
+}
+
+export interface LiveRegistryDiscoveryOptions
+  extends ResolveRegistryOptions, RegistryTransportOptions {
+  readonly cwd: string
+  readonly url?: never
+  readonly authHeader?: never
+}
+
+export interface LiveRegistryConfigOptions extends RegistryTransportOptions {
+  readonly config: RegistryConfig
+  readonly cwd?: never
+  readonly registry?: never
+  readonly env?: never
+  readonly home?: never
+  readonly url?: never
+  readonly authHeader?: never
+}
+
+export type LiveRegistryOptions =
+  | LiveRegistryDiscoveryOptions
+  | LiveRegistryConfigOptions
+  | LiveRegistryDirectOptions
+
+/** @internal pre-0.6 direct-constructor input. */
+interface LegacyLiveRegistryOptions extends RegistryTransportOptions {
+  readonly url?: string
+  readonly auth?: string
+  readonly authHeader?: string
 }
 
 /** A raw npm advisory object, passed through UNnormalized — audit semantics
  *  (severity, vulnerable ranges, fix selection) are the consumer's, not the
  *  lib's. Shape per the npm bulk-advisory endpoint. */
-export type RawAdvisory = Record<string, unknown>
+export type RawAdvisory = Readonly<Record<string, unknown>>
 
 export interface AuditOptions {
   /** Max packages per bulk request (the endpoint is size-limited). Default 250. */
-  chunkSize?: number
+  readonly chunkSize?: number
 }
 
 /** `liveRegistry`'s adapter — the read facade (`packument`/`resolve`) plus a
@@ -79,7 +122,10 @@ export interface LiveRegistryAdapter extends RemoteArtifactRegistry {
    *  `<registry>/-/npm/v1/security/advisories/bulk` (chunked by `chunkSize`),
    *  returning the RAW per-package advisories merged across chunks. No
    *  normalization — only packages WITH advisories appear in the result. */
-  audit(pkgs: Record<string, string[]>, opts?: AuditOptions): Promise<Record<string, RawAdvisory[]>>
+  audit(
+    packages: Readonly<Record<string, readonly string[]>>,
+    options?: AuditOptions,
+  ): Promise<Readonly<Record<string, readonly RawAdvisory[]>>>
 }
 
 const DEFAULT_URL    = DEFAULT_REGISTRY
@@ -87,7 +133,24 @@ const INSTALL_ACCEPT = 'application/vnd.npm.install-v1+json, application/json;q=
 
 // === API ====================================================================
 
-export function liveRegistry(opts: LiveRegistryOptions = {}): LiveRegistryAdapter {
+export function liveRegistry(opts?: LiveRegistryOptions): LiveRegistryAdapter
+/** @internal pre-0.6 overload. */
+export function liveRegistry(opts?: LegacyLiveRegistryOptions): LiveRegistryAdapter
+export function liveRegistry(
+  opts: LiveRegistryOptions | LegacyLiveRegistryOptions = {},
+): LiveRegistryAdapter {
+  if ('cwd' in opts && typeof opts.cwd === 'string') {
+    const { cwd, fetch, limit, config, registry, env, home } = opts
+    return liveRegistryFromConfig(resolveRegistry(cwd, {
+      config,
+      ...(registry === undefined ? {} : { registry }),
+      ...(env === undefined ? {} : { env }),
+      ...(home === undefined ? {} : { home }),
+    }), fetch, limit)
+  }
+  if ('config' in opts && typeof opts.config === 'object' && opts.config !== null) {
+    return liveRegistryFromConfig(opts.config, opts.fetch, opts.limit)
+  }
   const baseUrl  = stripTrailingSlash(opts.url ?? DEFAULT_URL)
   const fetchImpl = opts.fetch ?? (nodeFetchNative as typeof fetch)
   if (typeof fetchImpl !== 'function') {
@@ -97,7 +160,8 @@ export function liveRegistry(opts: LiveRegistryOptions = {}): LiveRegistryAdapte
   // debounce). Unset ⇒ identity (immediate). Also surfaced on the adapter below.
   const limit: Limiter = opts.limit ?? (task => task())
 
-  const authHeader = opts.authHeader ?? (opts.auth !== undefined ? `Bearer ${opts.auth}` : undefined)
+  const legacyAuth = 'auth' in opts ? opts.auth : undefined
+  const authHeader = opts.authHeader ?? (legacyAuth !== undefined ? `Bearer ${legacyAuth}` : undefined)
   // Never send a credential over a plaintext channel — matches resolveRegistry's
   // https-only `authHeaderFor`, and defends the raw `liveRegistry({ url, authHeader })`
   // path too (credential attachment invariant: "https only").
@@ -188,7 +252,7 @@ export function liveRegistry(opts: LiveRegistryOptions = {}): LiveRegistryAdapte
       const out: Record<string, RawAdvisory[]> = {}
       for (let i = 0; i < names.length; i += chunkSize) {
         const batch: Record<string, string[]> = {}
-        for (const name of names.slice(i, i + chunkSize)) batch[name] = pkgs[name]!
+        for (const name of names.slice(i, i + chunkSize)) batch[name] = [...pkgs[name]!]
         // `redirect: 'manual'` → a 3xx surfaces as a non-ok response and throws below,
         // rather than re-POSTing the package list to a redirect target (credential
         // attachment invariant: "advisory POST rejects on >=300").
@@ -260,7 +324,7 @@ function normalizePackument(name: string, body: any): Packument {
 
 function normalizeVersion(name: string, version: string, raw: any): PackumentVersion {
   const dist: any = raw?.dist ?? {}
-  const out: PackumentVersion = {
+  const out: MutablePackumentVersion = {
     name:    typeof raw?.name === 'string' ? raw.name : name,
     version: typeof raw?.version === 'string' ? raw.version : version,
   }
@@ -343,6 +407,69 @@ function isStringMap(value: unknown): value is Record<string, string> {
   return true
 }
 
+function liveRegistryFromConfig(
+  config: RegistryConfig,
+  fetchOverride?: typeof fetch,
+  limitOverride?: Limiter,
+): LiveRegistryAdapter {
+  const fetchImpl = fetchOverride ?? (nodeFetchNative as typeof fetch)
+  const limit: Limiter = limitOverride ?? (task => task())
+  const adapterFor = (name: string): LiveRegistryAdapter => {
+    const url = config.registryFor(name)
+    return liveRegistry({
+      url,
+      authHeader: config.authHeaderFor(url),
+      fetch: fetchImpl,
+      limit,
+    })
+  }
+
+  return {
+    packument(name) {
+      return adapterFor(name).packument(name)
+    },
+    resolve(name, range) {
+      return adapterFor(name).resolve(name, range)
+    },
+    manifest(name, version) {
+      return adapterFor(name).manifest!(name, version)
+    },
+    async audit(packages, auditOptions) {
+      const grouped = new Map<string, Record<string, string[]>>()
+      for (const [name, versions] of Object.entries(packages)) {
+        const route = config.registryFor(name)
+        const group = grouped.get(route) ?? {}
+        group[name] = [...versions]
+        grouped.set(route, group)
+      }
+      const output: Record<string, RawAdvisory[]> = {}
+      for (const [url, group] of grouped) {
+        const found = await liveRegistry({
+          url,
+          authHeader: config.authHeaderFor(url),
+          fetch: fetchImpl,
+          limit,
+        }).audit(group, auditOptions)
+        for (const [name, advisories] of Object.entries(found)) {
+          (output[name] ??= []).push(...advisories)
+        }
+      }
+      return output
+    },
+    artifactRoute(name) {
+      const registryUrl = config.registryFor(name)
+      return Object.freeze({
+        registryUrl,
+        fetch: fetchImpl,
+        authHeaderFor: config.authHeaderFor,
+        limit,
+      })
+    },
+    limit,
+  }
+}
+
+/** @internal Pre-0.6 named-constructor options. */
 export interface FromConfigOptions extends ResolveRegistryOptions {
   /** Fetch override (proxy / custom-CA / test spy), forwarded to `liveRegistry`. */
   fetch?: typeof fetch
@@ -356,6 +483,7 @@ export interface FromConfigOptions extends ResolveRegistryOptions {
 // The token is https-only by construction (`tokenFor` never returns one for a
 // plaintext URL), so it is never sent over an insecure channel.
 // eslint-disable-next-line @typescript-eslint/no-namespace
+/** @internal Pre-0.6 named constructor retained only for source compatibility. */
 export namespace liveRegistry {
   export function fromConfig(cwd: string, opts: FromConfigOptions): LiveRegistryAdapter
   /** @deprecated Pass only `(cwd, options)`; the returned adapter now routes
@@ -389,60 +517,6 @@ export namespace liveRegistry {
     }
     const opts = nameOrOptions
     const cfg = resolveRegistry(cwd, opts)
-    const fetchImpl = opts.fetch ?? (nodeFetchNative as typeof fetch)
-    const limit: Limiter = opts.limit ?? (task => task())
-    const adapterFor = (name: string): LiveRegistryAdapter => {
-      const url = cfg.registryFor(name)
-      return liveRegistry({
-        url,
-        authHeader: cfg.authHeaderFor(url),
-        fetch: fetchImpl,
-        limit,
-      })
-    }
-
-    return {
-      packument(name) {
-        return adapterFor(name).packument(name)
-      },
-      resolve(name, range) {
-        return adapterFor(name).resolve(name, range)
-      },
-      manifest(name, version) {
-        return adapterFor(name).manifest!(name, version)
-      },
-      async audit(pkgs, auditOptions) {
-        const grouped = new Map<string, Record<string, string[]>>()
-        for (const [name, versions] of Object.entries(pkgs)) {
-          const route = cfg.registryFor(name)
-          const group = grouped.get(route) ?? {}
-          group[name] = versions
-          grouped.set(route, group)
-        }
-        const out: Record<string, RawAdvisory[]> = {}
-        for (const [url, group] of grouped) {
-          const found = await liveRegistry({
-            url,
-            authHeader: cfg.authHeaderFor(url),
-            fetch: fetchImpl,
-            limit,
-          }).audit(group, auditOptions)
-          for (const [name, advisories] of Object.entries(found)) {
-            (out[name] ??= []).push(...advisories)
-          }
-        }
-        return out
-      },
-      artifactRoute(name) {
-        const registryUrl = cfg.registryFor(name)
-        return Object.freeze({
-          registryUrl,
-          fetch: fetchImpl,
-          authHeaderFor: cfg.authHeaderFor,
-          limit,
-        })
-      },
-      limit,
-    }
+    return liveRegistryFromConfig(cfg, opts.fetch, opts.limit)
   }
 }

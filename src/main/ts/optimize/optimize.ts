@@ -11,6 +11,7 @@
 // write target and is never re-examined for reachability mid-sweep.
 
 import { serializeNodeId, type Diagnostic, type Graph, type NodeId } from '../graph.ts'
+import type { ObserveOptions } from '../api/operation.ts'
 import { optimizeNodeRemoved, optimizeNoop, optimizeNoRoots } from './diagnostics.ts'
 
 export interface OptimizeOptions {
@@ -34,6 +35,16 @@ export interface OptimizeResult {
   removed:    NodeId[]
   /** All diagnostics this call emitted, in emission order. */
   unresolved: Diagnostic[]
+}
+
+export interface RemoveUnreachableOptions extends ObserveOptions {
+  readonly preserve?: ReadonlySet<NodeId>
+}
+
+export interface RemoveUnreachableResult {
+  readonly graph: Graph
+  readonly diagnostics: readonly Diagnostic[]
+  readonly removed: readonly NodeId[]
 }
 
 /**
@@ -207,6 +218,19 @@ export function optimize(graph: Graph, options: OptimizeOptions = {}): OptimizeR
   }
 
   return { graph: next, removed, unresolved }
+}
+
+/** Coherent 0.6 graph-cleanup facade. */
+export function removeUnreachable(
+  graph: Graph,
+  options: RemoveUnreachableOptions = {},
+): RemoveUnreachableResult {
+  const result = optimize(graph, options)
+  return Object.freeze({
+    graph: result.graph,
+    diagnostics: Object.freeze([...result.unresolved]),
+    removed: Object.freeze([...result.removed]),
+  })
 }
 
 const EMPTY_PRESERVE: ReadonlySet<NodeId> = new Set()

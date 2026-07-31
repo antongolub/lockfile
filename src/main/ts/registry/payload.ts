@@ -60,7 +60,7 @@ export function setMintedTarball(
 
 function canonicalMetadataValue(
   field: PackageMetadataField,
-  value: TarballPayload[PackageMetadataField],
+  value: TarballPayload[PackageMetadataField] | PackumentVersion[PackageMetadataField],
 ): TarballPayload[PackageMetadataField] | undefined {
   if (value === undefined) return undefined
   if (field === 'hasInstallScript') return value === true ? true : undefined
@@ -70,7 +70,7 @@ function canonicalMetadataValue(
       .map(([name]) => [name, { optional: true }])
     return entries.length === 0 ? undefined : Object.fromEntries(entries)
   }
-  if (Array.isArray(value)) return value.length === 0 ? undefined : value
+  if (Array.isArray(value)) return value.length === 0 ? undefined : [...value]
   if (field !== 'funding' && typeof value === 'object' && value !== null) {
     return Object.keys(value).length === 0 ? undefined : value
   }
@@ -94,11 +94,13 @@ export function payloadOfPackumentVersion(pv: PackumentVersion): TarballPayload 
     engines:              pv.engines,
     funding:              pv.funding,
     license:              pv.license,
-    os:                   pv.os,
-    cpu:                  pv.cpu,
-    libc:                 pv.libc,
+    os:                   pv.os === undefined ? undefined : [...pv.os],
+    cpu:                  pv.cpu === undefined ? undefined : [...pv.cpu],
+    libc:                 pv.libc === undefined ? undefined : [...pv.libc],
     bin:                  pv.bin,
-    bundledDependencies:  pv.bundledDependencies,
+    bundledDependencies:  pv.bundledDependencies === undefined
+      ? undefined
+      : [...pv.bundledDependencies],
     deprecated:           pv.deprecated,
     hasInstallScript:     pv.hasInstallScript,
     peerDependencies:     pv.peerDependencies,
@@ -113,7 +115,7 @@ export function payloadOfPackumentVersion(pv: PackumentVersion): TarballPayload 
 }
 
 export function packageMetadataOfPayload(
-  payload: TarballPayload | undefined,
+  payload: TarballPayload | PackumentVersion | undefined,
 ): Readonly<PackageMetadataPayload> {
   if (payload === undefined) return Object.freeze({})
   const metadata: Partial<PackageMetadataPayload> = {}

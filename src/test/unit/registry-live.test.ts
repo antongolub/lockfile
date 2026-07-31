@@ -6,7 +6,7 @@
 // (exact / dist-tag / range / unresolved / unknown package).
 
 import { describe, expect, it, vi } from 'vitest'
-import { liveRegistry, type LiveRegistryOptions } from '../../main/ts/index.ts'
+import { liveRegistry, type LiveRegistryDirectOptions } from '../../main/ts/index.ts'
 import { canonicalDigest } from '../../main/ts/recipe/integrity.ts'
 
 const LODASH_BODY = {
@@ -61,7 +61,10 @@ function mockResponse({ status = 200, body = {}, jsonThrows = false }: MockRespo
   } as Response
 }
 
-function buildOpts(spy: typeof fetch, extras: Partial<LiveRegistryOptions> = {}): LiveRegistryOptions {
+function buildOpts(
+  spy: typeof fetch,
+  extras: Partial<LiveRegistryDirectOptions> = {},
+): LiveRegistryDirectOptions {
   return { fetch: spy, ...extras }
 }
 
@@ -113,9 +116,11 @@ describe('registry/live — packument()', () => {
     expect(url).not.toContain('@scope/pkg')
   })
 
-  it('sends Authorization: Bearer header when opts.auth is set', async () => {
+  it('sends the configured Authorization header', async () => {
     const spy = vi.fn(async () => mockResponse({ body: { name: 'private-pkg', 'dist-tags': {}, versions: {} } }))
-    const reg = liveRegistry(buildOpts(spy as unknown as typeof fetch, { auth: 'secret-token' }))
+    const reg = liveRegistry(buildOpts(spy as unknown as typeof fetch, {
+      authHeader: 'Bearer secret-token',
+    }))
 
     await reg.packument('private-pkg')
     const [, init] = (spy as any).mock.calls[0]

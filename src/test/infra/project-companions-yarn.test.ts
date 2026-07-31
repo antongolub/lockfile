@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  evidenceOf,
   parse,
-  projectCompanionsOf,
   stringify,
-  withEvidence,
 } from '../../main/ts/index.ts'
+import { projectCompanionsOf } from '../../main/ts/completeness/companions.ts'
+import { evidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
 
 const yarnClassicBin = resolve(process.cwd(), 'node_modules/pm-yarn-1/bin/yarn.js')
 const yarnBerryBin = resolve(process.cwd(), 'node_modules/pm-yarn-2/bin/yarn.js')

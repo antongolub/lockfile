@@ -14,7 +14,11 @@ describe('registry/liveRegistry.audit (raw bulk-advisory)', () => {
       return okJson({ lodash: [{ id: 1, severity: 'high' }] })
     }) as unknown as typeof fetch
 
-    const reg = liveRegistry({ url: 'https://reg.example.com', auth: 'TOK', fetch: fetchSpy })
+    const reg = liveRegistry({
+      url: 'https://reg.example.com',
+      authHeader: 'Bearer TOK',
+      fetch: fetchSpy,
+    })
     const res = await reg.audit({ lodash: ['4.17.20'], minimist: ['1.2.0'] })
 
     expect(calls[0]!.url).toBe('https://reg.example.com/-/npm/v1/security/advisories/bulk')

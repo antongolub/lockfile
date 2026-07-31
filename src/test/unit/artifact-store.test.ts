@@ -25,6 +25,7 @@ import {
   normalizeArtifactSources,
   type NormalizedArtifactSources,
 } from '../../main/ts/enrich/artifact-sources.ts'
+import { lockgraphStore } from '../../main/ts/enrich/artifact-store.ts'
 import { computeBerryChecksum } from '../../main/ts/recipe/berry-checksum.ts'
 import type {
   Diagnostic,
@@ -36,6 +37,7 @@ import type {
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  RemoteArtifactRegistry,
 } from '../../main/ts/registry/types.ts'
 import { enrich, parse, stringify } from '../../main/ts/index.ts'
 
@@ -44,6 +46,7 @@ const dirs: string[] = []
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -173,7 +176,7 @@ function remote(bytes: Uint8Array, fetchSpy = vi.fn(async () => new Response(byt
     distTags: {},
     versions: { '1.0.0': version },
   }
-  const registry: RegistryAdapter & Record<string, unknown> = {
+  const registry: RemoteArtifactRegistry = {
     packument: vi.fn(async () => packument),
     resolve: vi.fn(async () => version),
     artifactRoute: () => ({
@@ -285,38 +288,34 @@ function berryGraph(bytes: Uint8Array, cacheKey = '9'): Graph {
 }
 
 describe('artifact store — public source contract', () => {
-  it('exports the artifactStore factory rather than requiring a raw descriptor', () => {
-    expect((publicApi as Record<string, unknown>).artifactStore).toBeTypeOf('function')
+  it('exports only the opaque lockgraphStore operation factory', () => {
+    expect((publicApi as Record<string, unknown>).lockgraphStore).toBeTypeOf('function')
+    expect((publicApi as Record<string, unknown>).artifactStore).toBeUndefined()
   })
 
-  it('normalizes one store as its own ordered source lane', () => {
+  it('rejects persistence descriptors in the ordered artifact-source list', () => {
     const root = freshDir()
-    const value = normalizeArtifactSources([storeSource(root)] as never)
-    expect(value.entries).toEqual([storeEntry(root)])
-    expect(value.caches).toEqual([])
-    expect(value.remotes).toEqual([])
+    expect(() => normalizeArtifactSources([storeSource(root)] as never))
+      .toThrowError(expect.objectContaining({ code: 'INVALID_INPUT' }))
   })
 
-  it('preserves cache/store/remote interleaving without probing disk', () => {
+  it('normalizes a separate store without inserting it among external sources', () => {
     const root = resolve(freshDir(), 'not-created')
     const registry = remote(tarballOf()).registry
     const value = normalizeArtifactSources([
       'npm:/cache',
-      storeSource(root),
-      { registry },
-    ] as never)
+      registry,
+    ], { store: storeSource(root) })
     expect(value.entries.map(entry => entry.kind))
-      .toEqual(['cache', 'store', 'remote'])
+      .toEqual(['cache', 'remote'])
+    expect(value.store).toEqual(storeSource(root))
     expect(existsSync(root)).toBe(false)
   })
 
-  it('rejects a second store as an ambiguous sink', () => {
-    const first = freshDir()
-    const second = freshDir()
-    expect(() => normalizeArtifactSources([
-      storeSource(first),
-      storeSource(second),
-    ] as never)).toThrowError(/one artifact store|duplicate artifact store/i)
+  it('rejects a malformed separately supplied store before filesystem access', () => {
+    expect(() => normalizeArtifactSources([], {
+      store: { kind: 'lockgraph-artifact-store', path: 'relative', maxBytes: 1 },
+    } as never)).toThrowError(/artifact store|store path/i)
   })
 })
 
@@ -751,30 +750,141 @@ describe('artifact store — mandatory deterministic capacity', () => {
 })
 
 describe('artifact store — transparent enrichment result', () => {
+  it('uses the omitted global store and reports its resolved path exactly once', async () => {
+    const xdg = freshDir('lockgraph-artifact-store-xdg-')
+    vi.stubEnv('XDG_CACHE_HOME', xdg)
+    const root = resolve(xdg, 'lockgraph')
+    const bytes = tarballOf()
+    const route = remote(bytes)
+    const result = await enrich(npmGraph(bytes, { integrity: sri(bytes) }), {
+      sources: { artifacts: [route.registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    expect(result.diagnostics.filter(diagnostic =>
+      diagnostic.code === 'STORE_PATH_RESOLVED'))
+      .toEqual([expect.objectContaining({
+        data: expect.objectContaining({ path: root }),
+      })])
+    expect(existsSync(root)).toBe(true)
+  })
+
+  it('substitutes a custom-store hit when ordinary sources are absent', async () => {
+    const root = resolve(freshDir(), 'store')
+    const store = lockgraphStore(root)
+    const bytes = tarballOf()
+    const graph = npmGraph(bytes, { integrity: sri(bytes) })
+    const fetched = await enrich(graph, {
+      store,
+      sources: { artifacts: [remote(bytes).registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    const hit = await enrich(graph, {
+      store,
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    expect(hit.diagnostics).toEqual(fetched.diagnostics)
+    expect(stringify('yarn-berry-v8', hit.graph, { strict: false }))
+      .toBe(stringify('yarn-berry-v8', fetched.graph, { strict: false }))
+  })
+
+  it('reads a populated custom store before a later cold remote source', async () => {
+    const root = resolve(freshDir(), 'store')
+    const store = lockgraphStore(root)
+    const bytes = tarballOf()
+    const graph = npmGraph(bytes, { integrity: sri(bytes) })
+    await enrich(graph, {
+      store,
+      sources: { artifacts: [remote(bytes).registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    const cold = remote(bytes, vi.fn(async () => {
+      throw new Error('store must win before this source')
+    }))
+    await enrich(graph, {
+      store,
+      sources: { artifacts: [cold.registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    expect(cold.fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('store:false performs no read, write, or path notification', async () => {
+    const xdg = freshDir('lockgraph-artifact-store-disabled-')
+    vi.stubEnv('XDG_CACHE_HOME', xdg)
+    const bytes = tarballOf()
+    const result = await enrich(npmGraph(bytes, { integrity: sri(bytes) }), {
+      store: false,
+      sources: { artifacts: [remote(bytes).registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    expect(existsSync(resolve(xdg, 'lockgraph'))).toBe(false)
+    expect(result.diagnostics.map(diagnostic => diagnostic.code))
+      .not.toContain('STORE_PATH_RESOLVED')
+  })
+
+  it('reacquires identical output and diagnostics after whole-store deletion', async () => {
+    const root = resolve(freshDir(), 'store')
+    const store = lockgraphStore(root)
+    const bytes = tarballOf()
+    const graph = npmGraph(bytes, { integrity: sri(bytes) })
+    const first = await enrich(graph, {
+      store,
+      sources: { artifacts: [remote(bytes).registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    rmSync(root, { recursive: true, force: true })
+    const second = await enrich(graph, {
+      store,
+      sources: { artifacts: [remote(bytes).registry] },
+      target: 'yarn-berry-v8',
+      contract: 'snapshot',
+      cacheKey: '10c0',
+    })
+    expect(second.diagnostics).toEqual(first.diagnostics)
+    expect(stringify('yarn-berry-v8', second.graph, { strict: false }))
+      .toBe(stringify('yarn-berry-v8', first.graph, { strict: false }))
+  })
+
   it('produces identical graph, diagnostics, and emitted lock bytes on fetch and hit', async () => {
     const root = freshDir()
     const bytes = tarballOf()
     const graph = npmGraph(bytes, { integrity: sri(bytes) })
     const route = remote(bytes)
     const fetched = await enrich(graph, {
+      store: lockgraphStore(root),
       sources: {
-        artifacts: [storeSource(root), { registry: route.registry }],
+        artifacts: [route.registry],
       },
       target: 'yarn-berry-v8',
       contract: 'snapshot',
       cacheKey: '10c0',
-    } as never)
+    })
     const offline = remote(bytes, vi.fn(async () => {
       throw new Error('store hit must not fetch')
     }))
     const hit = await enrich(graph, {
+      store: lockgraphStore(root),
       sources: {
-        artifacts: [storeSource(root), { registry: offline.registry }],
+        artifacts: [offline.registry],
       },
       target: 'yarn-berry-v8',
       contract: 'snapshot',
       cacheKey: '10c0',
-    } as never)
+    })
     expect(hit.graph.diff(fetched.graph)).toEqual({
       addedNodes: [],
       removedNodes: [],

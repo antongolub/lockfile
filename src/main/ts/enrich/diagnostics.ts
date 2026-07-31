@@ -14,6 +14,7 @@ import type {
 } from '../recipe/artifact-envelope.ts'
 
 export type EnrichDiagnosticCode =
+  | 'STORE_PATH_RESOLVED'
   | 'ENRICH_FIELD_FILLED'
   | 'ENRICH_CHECKSUM_DEFERRED'
   | 'ENRICH_NOOP'
@@ -36,6 +37,7 @@ export type EnrichDiagnosticCode =
   | 'ENRICH_ARTIFACT_TAR_CONTENT_LIMIT'
   | 'ENRICH_ARTIFACT_REPACKED_LIMIT'
   | 'ENRICH_ARTIFACT_LIVE_LIMIT'
+  | 'ENRICH_ARTIFACT_TRAFFIC_LIMIT'
   | 'ENRICH_ARTIFACT_STORE_CORRUPT'
   | 'ENRICH_ARTIFACT_STORE_READ_FAILED'
   | 'ENRICH_ARTIFACT_STORE_WRITE_FAILED'
@@ -143,5 +145,20 @@ export function enrichArtifactLimit(
       ? `reached the caller-provided ${representation} ceiling of ${limitBytes} bytes`
       : `exceeded the default ${representation} safety ceiling of ${limitBytes} bytes; override the resource policy for this accepted package-manager artifact`,
     { representation, limitBytes, origin },
+  )
+}
+
+export function enrichArtifactTrafficLimit(
+  subject: string,
+  limitBytes: number,
+  origin: ArtifactLimitOrigin,
+): EnrichDiagnostic {
+  return enrichArtifactDiagnostic(
+    'ENRICH_ARTIFACT_TRAFFIC_LIMIT',
+    subject,
+    origin === 'default'
+      ? `exceeded the default cumulative network-traffic ceiling of ${limitBytes} bytes`
+      : `reached the caller-provided cumulative network-traffic ceiling of ${limitBytes} bytes`,
+    { representation: 'network-traffic', limitBytes, origin },
   )
 }

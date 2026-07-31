@@ -17,9 +17,9 @@ import {
   parse,
   stringify,
   type ArtifactSourceList,
-  type Diagnostic,
   type FormatId,
 } from '../../main/ts/index.ts'
+import type { Diagnostic } from '../../main/ts/graph.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixture = (scenario: string, file: string): string =>
@@ -143,8 +143,9 @@ describe('public surface — convert', () => {
     const registry = {
       async packument() { return undefined },
       async resolve() { return undefined },
+      artifactRoute() { return undefined },
     }
-    const artifacts: ArtifactSourceList = ['npm', 'yarn-berry:.yarn/cache', { registry }]
+    const artifacts: ArtifactSourceList = ['npm', 'yarn-berry:.yarn/cache', registry]
     const input = parse(fixture('simple', 'npm-3.lock'), 'npm-3')
 
     const result = await enrich(input, {

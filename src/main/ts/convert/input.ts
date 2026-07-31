@@ -1,7 +1,8 @@
 import path from 'node:path'
 import { LockfileError } from '../api/errors.ts'
 import { readYaml } from '../formats/_pnpm-yaml.ts'
-import type { Diagnostic, Manifest, OverrideConstraint, OverridePM } from '../graph.ts'
+import type { Diagnostic, Graph, Manifest, OverrideConstraint, OverridePM } from '../graph.ts'
+import { evidenceOf, internalEvidenceOf } from '../completeness/evidence.ts'
 import { captureOverrides } from '../recipe/overrides.ts'
 import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
 import { expandBraces, matchesGlobSet } from './glob.ts'
@@ -12,6 +13,8 @@ import type {
   ProjectInput,
   ProjectPathInput,
 } from './types.ts'
+import type { FileSource } from '../api/operation.ts'
+import type { ManifestCoverage } from '../completeness/types.ts'
 
 // === CONSTANTS ==============================================================
 
@@ -40,10 +43,18 @@ interface NormalizedFile {
 
 export interface PreparedConvertInput {
   readonly lockfile: string
+  readonly graph?: Graph
   readonly source: FormatId
   readonly manifests?: Readonly<Record<string, Manifest>>
+  readonly manifestCoverage?: ManifestCoverage
   readonly diagnostics: readonly Diagnostic[]
-  readonly mode: 'content' | 'project' | 'path'
+  readonly mode: 'content' | 'graph' | 'project' | 'path'
+}
+
+export interface PreparedManifestSource {
+  readonly manifests: Readonly<Record<string, Manifest>>
+  readonly coverage: ManifestCoverage
+  readonly diagnostics: readonly Diagnostic[]
 }
 
 interface PrepareOptions {
@@ -413,6 +424,78 @@ function missingWorkspaceDiagnostics(manifests: Readonly<Record<string, Manifest
   return diagnostics
 }
 
+function prepareManifestFiles(
+  files: Readonly<Record<string, string | Uint8Array>>,
+  source: FormatId,
+): PreparedManifestSource {
+  const manifests: Record<string, Manifest> = {}
+  const denoManifests: Record<string, Manifest> = {}
+  for (const file of normalizedFiles(files)) {
+    const role = classify(file.path)
+    const directory = path.posix.dirname(file.path)
+    const key = directory === '.' ? '' : directory
+    if (role.kind === 'manifest') {
+      manifests[key] = parseProjectManifest(
+        decodeText(file.content, file.path),
+        file.path,
+        source,
+      )
+      continue
+    }
+    if (role.kind === 'config' && isDenoFormat(source)) {
+      const basename = path.posix.basename(file.path)
+      if (basename === 'deno.json' || basename === 'deno.jsonc') {
+        denoManifests[key] = parseDenoProjectManifest(
+          decodeText(file.content, file.path),
+          file.path,
+        )
+      }
+    }
+  }
+  for (const [key, denoManifest] of Object.entries(denoManifests)) {
+    manifests[key] = mergeDenoManifestEvidence(manifests[key], denoManifest)
+  }
+  const diagnostics = missingWorkspaceDiagnostics(manifests)
+  return {
+    manifests,
+    coverage: diagnostics.length === 0 ? 'complete' : 'partial',
+    diagnostics,
+  }
+}
+
+/** Resolves the common FileSource manifest authority without selecting a lock. */
+export async function prepareManifestSource(
+  source: FileSource,
+  format: FormatId,
+  cwd = process.cwd(),
+  fileSystem?: ConvertFileSystem,
+): Promise<PreparedManifestSource> {
+  if (!Array.isArray(source)) {
+    return prepareManifestFiles(
+      source as Readonly<Record<string, string | Uint8Array>>,
+      format,
+    )
+  }
+  if (source.length === 0 || source.some(pattern => typeof pattern !== 'string')) {
+    throw invalid('manifest FileSource paths must be a non-empty string array')
+  }
+  const patterns = source.map(normalizePattern)
+  const fs = fileSystem ?? (await import('./node-fs.ts')).nodeFileSystem
+  const root = await fs.realpath(cwd)
+  const matches = [...await fs.glob(patterns, {
+    cwd: root,
+    onlyFiles: true,
+    followSymbolicLinks: false,
+  })].sort()
+  const files: Record<string, string | Uint8Array> = {}
+  for (const match of matches) {
+    const absolute = path.isAbsolute(match) ? match : path.resolve(root, match)
+    const resolved = await containedRealpath(fs, root, absolute)
+    files[relativePortable(root, resolved)] = await fs.readFile(resolved)
+  }
+  return prepareManifestFiles(files, format)
+}
+
 function validateSource(
   filename: string | undefined,
   content: string,
@@ -499,6 +582,9 @@ function prepareProjectFiles(
     lockfile,
     source,
     ...(Object.keys(manifests).length === 0 ? {} : { manifests }),
+    ...(Object.keys(manifests).length === 0 ? {} : {
+      manifestCoverage: diagnostics.length === 0 ? 'complete' : 'partial',
+    }),
     diagnostics,
     mode,
   }
@@ -506,6 +592,15 @@ function prepareProjectFiles(
 
 function isProjectInput(input: ConvertInput): input is ProjectInput {
   return typeof input === 'object' && input !== null && 'files' in input
+}
+
+function isGraph(input: ConvertInput): input is Graph {
+  return typeof input === 'object'
+    && input !== null
+    && 'nodes' in input
+    && typeof input.nodes === 'function'
+    && 'mutate' in input
+    && typeof input.mutate === 'function'
 }
 
 function isProjectPathInput(input: ConvertInput): input is ProjectPathInput {
@@ -623,6 +718,15 @@ export async function prepareConvertInput(
       source: validateSource(undefined, input, options.from, runtime.detect),
       diagnostics: [],
       mode: 'content',
+    }
+  }
+  if (isGraph(input)) {
+    return {
+      lockfile: '',
+      graph: input,
+      source: internalEvidenceOf(evidenceOf(input)).source?.format ?? 'lockgraph',
+      diagnostics: [],
+      mode: 'graph',
     }
   }
   if (isProjectInput(input)) return prepareProjectFiles(input.files, options, runtime, 'project')

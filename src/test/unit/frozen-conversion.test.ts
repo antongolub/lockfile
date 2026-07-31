@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest'
 import {
   certifyFrozen,
   prepareFrozen,
-  type FrozenCandidate,
-  type FrozenVerificationReceipt,
-} from '../../main/ts/index.ts'
+} from '../../main/ts/convert/orchestrator.ts'
+import type {
+  FrozenCandidate,
+  FrozenVerificationReceipt,
+} from '../../main/ts/completeness/types.ts'
 import type { Manifest } from '../../main/ts/graph.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -219,9 +221,11 @@ describe('frozen conversion certification', () => {
   it('emits the real best-effort Berry candidate and leaves only checksum/oracle verification pending', async () => {
     const prepared = await prepareFrozen(fixture('npm-3.lock'), {
       from: 'npm-3',
-      to: 'yarn-berry-v4',
-      targetVersion: '2.4.3',
-      cacheKey: '4',
+      target: {
+        format: 'yarn-berry-v4',
+        managerVersion: '2.4.3',
+        cacheKey: '4',
+      },
       manifestCoverage: 'complete',
       manifests: repositoryManifests,
       evidenceInputs: [packageManifests],
@@ -235,7 +239,10 @@ describe('frozen conversion certification', () => {
     expect(prepared.candidate!.lockfile).not.toContain('checksum:')
 
     const certified = certifyFrozen(prepared.candidate!, receipt(prepared.candidate!))
-    expect(certified.assessment.status).toBe('satisfied')
+    expect(
+      certified.assessment.status,
+      JSON.stringify(certified.assessment.diagnostics, null, 2),
+    ).toBe('satisfied')
     expect(certified.lockfile).toBe(prepared.candidate!.lockfile)
     expect(certified.assessment.requirements).toContainEqual(expect.objectContaining({
       key: 'target:projection:berry-checksum',

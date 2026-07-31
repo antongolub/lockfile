@@ -34,7 +34,7 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 
-import { convertAssessed, enrich, parse, stringify } from '../../../dist/index.js'
+import { convert, enrich, parse, stringify } from '../../../dist/index.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const DIST = join(ROOT, 'dist')
@@ -203,20 +203,27 @@ async function fixtureResult(fixture) {
     graphDigest: graphSummary(roundTripped.graph).digest,
   }
 
-  const converted = convertAssessed(fixture.input, {
-    from: fixture.format,
-    to: fixture.targetFormat,
-    contract: 'snapshot',
-  })
-  const convertedOutput = converted.output === undefined
-    ? undefined
-    : normalizeNonIdentityMeta(converted.output)
-  const conversionPayload = { assessment: converted.assessment, output: convertedOutput }
+  // `convertAssessed` left the shipped surface in 0.6; the public `convert` reports
+  // through `onDiagnostic` instead. Both the emitted bytes and what gets reported are
+  // fingerprinted — a build that silently changes its diagnostics has changed too.
+  const conversionDiagnostics = []
+  let convertedOutput
+  try {
+    convertedOutput = normalizeNonIdentityMeta(await convert(fixture.input, {
+      sourceFormat: fixture.format,
+      target: fixture.targetFormat,
+      contract: 'snapshot',
+      store: false,
+      onDiagnostic: (diagnostic) => conversionDiagnostics.push(diagnostic),
+    }))
+  } catch (error) {
+    conversionDiagnostics.push({ thrown: error?.code ?? String(error) })
+  }
+  const conversionPayload = { diagnostics: conversionDiagnostics, output: convertedOutput }
   const conversionResult = {
     digest: sha256(stableJson(conversionPayload)),
-    assessmentDigest: sha256(stableJson(converted.assessment)),
-    status: converted.assessment.status,
-    diagnostics: converted.assessment.diagnostics.length,
+    diagnosticsDigest: sha256(stableJson(conversionDiagnostics)),
+    diagnostics: conversionDiagnostics.length,
     outputDigest: convertedOutput === undefined ? null : sha256(convertedOutput),
     outputBytes: convertedOutput === undefined ? 0 : bytesOf(convertedOutput),
   }
@@ -500,11 +507,12 @@ async function volatileTimings(fixtures, warmups, samples) {
       parse: () => parse(fixture.format, fixture.input),
       stringify: () => stringify(fixture.format, graph, { strict: false }),
       sameFormatRoundTrip: () => roundTrip(fixture),
-      crossFormatAssessment: () => convertAssessed(fixture.input, {
-        from: fixture.format,
-        to: fixture.targetFormat,
+      crossFormatConversion: () => convert(fixture.input, {
+        sourceFormat: fixture.format,
+        target: fixture.targetFormat,
         contract: 'snapshot',
-      }),
+        store: false,
+      }).catch(() => undefined),
       graphMutation: () => replaceFirstNode(graph),
       enrichment: () => enrich(graph, {}, {
         target: { format: fixture.targetFormat },

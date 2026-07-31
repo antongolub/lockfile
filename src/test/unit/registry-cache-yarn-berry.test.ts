@@ -10,7 +10,8 @@ import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { yarnBerryCache, type YarnBerryChecksumSource } from '../../main/ts/index.ts'
+import { yarnBerryCache } from '../../main/ts/registry/cache-yarn-berry.ts'
+import type { YarnBerryChecksumSource } from '../../main/ts/registry/types.ts'
 
 function fixtureCache(setup: (cacheDir: string) => void): string {
   const cacheDir = mkdtempSync(resolve(tmpdir(), 'lockfile-fscache-'))

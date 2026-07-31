@@ -345,7 +345,15 @@ function sourceGraph(adapter: BerryAdapter, profile: CompatOracleCase): Graph {
   )
   builder.setTarball(
     { name: profile.name, version: profile.version },
-    profile.manifest,
+    {
+      ...profile.manifest,
+      cpu: profile.manifest.cpu === undefined ? undefined : [...profile.manifest.cpu],
+      os: profile.manifest.os === undefined ? undefined : [...profile.manifest.os],
+      libc: profile.manifest.libc === undefined ? undefined : [...profile.manifest.libc],
+      bundledDependencies: profile.manifest.bundledDependencies === undefined
+        ? undefined
+        : [...profile.manifest.bundledDependencies],
+    },
   )
   const lockfile = adapter.stringify(builder.seal()).replace(
     /^(__metadata:\n  version: \d+\n)/m,
@@ -447,6 +455,7 @@ describe.sequential('infra: Yarn Berry builtin-compat family oracle', () => {
             },
           },
         }, {
+          store: false,
           target: {
             format: adapter.native.format,
             managerVersion: adapter.native.version,

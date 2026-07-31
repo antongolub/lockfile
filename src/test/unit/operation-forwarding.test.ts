@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -14,14 +15,16 @@ import {
   enrich,
   parse,
   stringify,
-  type Diagnostic,
 } from '../../main/ts/index.ts'
+import type { Diagnostic } from '../../main/ts/graph.ts'
 import type {
   Packument,
   PackumentVersion,
   RegistryAdapter,
+  RemoteArtifactRegistry,
 } from '../../main/ts/registry/types.ts'
 import type { ArtifactSourceList } from '../../main/ts/enrich/artifact-sources.ts'
+import { lockgraphStore } from '../../main/ts/enrich/artifact-store.ts'
 
 const roots: string[] = []
 
@@ -96,8 +99,14 @@ function yarnWorkspace(zip: Uint8Array): Readonly<{
   return { root, cache }
 }
 
+function freshRoot(prefix: string): string {
+  const root = mkdtempSync(resolve(tmpdir(), prefix))
+  roots.push(root)
+  return root
+}
+
 function remote(bytes: Uint8Array): Readonly<{
-  registry: RegistryAdapter
+  registry: RemoteArtifactRegistry
   fetch: ReturnType<typeof vi.fn>
 }> {
   const tarball = 'https://registry.test/npm/pkg/-/pkg-1.0.0.tgz'
@@ -112,7 +121,7 @@ function remote(bytes: Uint8Array): Readonly<{
     versions: { '1.0.0': version },
   }
   const fetchSpy = vi.fn(async () => new Response(bytes))
-  const registry: RegistryAdapter & Record<string, unknown> = {
+  const registry: RemoteArtifactRegistry = {
     async packument() { return packument },
     async resolve() { return version },
     artifactRoute(name: string) {
@@ -138,6 +147,7 @@ async function direct(
   workspaceRoot?: string,
 ) {
   return enrich(parse('npm-3', lockfile), {
+    store: false,
     sources: { artifacts },
     target: 'yarn-berry-v8',
     contract: 'snapshot',
@@ -147,6 +157,50 @@ async function direct(
 }
 
 describe('operation option forwarding', () => {
+  it('convert forwards a custom store and reproduces source-absent bytes', async () => {
+    const root = resolve(freshRoot('lockgraph-operation-store-'), 'store')
+    const store = lockgraphStore(root)
+    const bytes = tarballOf()
+    const route = remote(bytes)
+    const freshDiagnostics: Diagnostic[] = []
+    const hitDiagnostics: Diagnostic[] = []
+    const fresh = await convert(npmLock(bytes), {
+      store,
+      target: 'yarn-berry-v8',
+      strict: false,
+      cacheKey: '10c0',
+      sources: { artifacts: [route.registry] },
+      onDiagnostic: (diagnostic: Diagnostic) => freshDiagnostics.push(diagnostic),
+    })
+    const hit = await convert(npmLock(bytes), {
+      store,
+      target: 'yarn-berry-v8',
+      strict: false,
+      cacheKey: '10c0',
+      onDiagnostic: (diagnostic: Diagnostic) => hitDiagnostics.push(diagnostic),
+    })
+    expect(hit).toBe(fresh)
+    expect(hitDiagnostics).toEqual(freshDiagnostics)
+  })
+
+  it('convert forwards store:false without persistence or path notification', async () => {
+    const xdg = freshRoot('lockgraph-operation-store-disabled-')
+    vi.stubEnv('XDG_CACHE_HOME', xdg)
+    const bytes = tarballOf()
+    const diagnostics: Diagnostic[] = []
+    await convert(npmLock(bytes), {
+      store: false,
+      target: 'yarn-berry-v8',
+      strict: false,
+      cacheKey: '10c0',
+      sources: { artifacts: [remote(bytes).registry] },
+      onDiagnostic: (diagnostic: Diagnostic) => diagnostics.push(diagnostic),
+    })
+    expect(diagnostics.map(diagnostic => diagnostic.code))
+      .not.toContain('STORE_PATH_RESOLVED')
+    expect(existsSync(resolve(xdg, 'lockgraph'))).toBe(false)
+  })
+
   it('direct enrich resolves bare yarn-berry from workspaceRoot', async () => {
     vi.stubEnv('YARN_CACHE_FOLDER', '')
     const bytes = tarballOf()
@@ -179,7 +233,7 @@ describe('operation option forwarding', () => {
 
     await direct(
       npmLock(bytes),
-      ['yarn-berry', { registry: cold.registry }],
+      ['yarn-berry', cold.registry],
       workspace.root,
     )
 
@@ -193,15 +247,17 @@ describe('operation option forwarding', () => {
     const cold = remote(bytes)
     const lockfile = npmLock(bytes)
     const bare = await convert(lockfile, {
+      store: false,
       target: 'yarn-berry-v8',
       strict: false,
       workspaceRoot: workspace.root,
       cacheKey: '10c0',
       sources: {
-        artifacts: ['yarn-berry', { registry: cold.registry }],
+        artifacts: ['yarn-berry', cold.registry],
       },
     })
     const explicit = await convert(lockfile, {
+      store: false,
       target: 'yarn-berry-v8',
       strict: false,
       cacheKey: '10c0',
@@ -215,17 +271,15 @@ describe('operation option forwarding', () => {
   it('convert forwards the global artifact resource ceiling', async () => {
     const bytes = tarballOf()
     const diagnostics: Diagnostic[] = []
+    const route = remote(bytes)
 
     await convert(npmLock(bytes), {
-      target: 'yarn-berry-v8',
+      store: false,
+      target: { format: 'yarn-berry-v8', cacheKey: '10c0' },
       strict: false,
-      cacheKey: '10c0',
-      sources: {
-        artifacts: {
-          npmTarballs: { async tarball() { return bytes } },
-        },
-      },
-      artifactResources: { defaults: { maxCompressedBytes: 1 } },
+      contract: 'project',
+      sources: { artifacts: [route.registry] },
+      guards: [{ artifactCompressed: '1 B' }],
       onDiagnostic: (diagnostic: Diagnostic) => diagnostics.push(diagnostic),
     })
 
@@ -236,27 +290,23 @@ describe('operation option forwarding', () => {
   it('convert forwards an exact-artifact resource override', async () => {
     const bytes = tarballOf()
     const diagnostics: Diagnostic[] = []
-    const lockfile = npmLock(
-      bytes,
-      'https://registry.npmjs.org/pkg/-/pkg-1.0.0.tgz',
-    )
+    const lockfile = npmLock(bytes)
     const keys = [...parse('npm-3', lockfile).tarballs()].map(([key]) => key)
-    expect(keys).toEqual(['pkg@1.0.0'])
+    // non-default registry, so the key carries its `+src=` source discriminator
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).toMatch(/^pkg@1\.0\.0(\+src=[0-9a-f]{16})?$/)
     const key = keys[0]!
 
     await convert(lockfile, {
-      target: 'yarn-berry-v8',
+      store: false,
+      target: { format: 'yarn-berry-v8', cacheKey: '10c0' },
       strict: false,
-      cacheKey: '10c0',
-      sources: {
-        artifacts: {
-          npmTarballs: { async tarball() { return bytes } },
-        },
-      },
-      artifactResources: {
-        defaults: { maxCompressedBytes: bytes.byteLength + 1 },
-        overrides: { [key]: { maxCompressedBytes: 1 } },
-      },
+      contract: 'project',
+      sources: { artifacts: [remote(bytes).registry] },
+      guards: [
+        { patterns: [key], artifactCompressed: '1 B' },
+        { artifactCompressed: `${bytes.byteLength + 1} B` },
+      ],
       onDiagnostic: (diagnostic: Diagnostic) => diagnostics.push(diagnostic),
     })
 

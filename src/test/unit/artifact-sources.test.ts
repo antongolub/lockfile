@@ -12,7 +12,7 @@ import {
   type ArtifactSourceList,
 } from '../../main/ts/enrich/artifact-sources.ts'
 import type { RefurbishSources, TarballSource } from '../../main/ts/enrich/refurbish.ts'
-import type { RegistryAdapter } from '../../main/ts/registry/types.ts'
+import type { RegistryAdapter, RemoteArtifactRegistry } from '../../main/ts/registry/types.ts'
 
 const dirs: string[] = []
 
@@ -145,13 +145,13 @@ describe('enrich/artifact-sources — three accepted shapes', () => {
     expect(normalized.caches).toHaveLength(1)
   })
 
-  it('accepts every default family specifier without probing during normalization', () => {
-    const normalized = normalizeArtifactSources(['npm', 'yarn-berry', 'pnpm'])
+  it('accepts every byte-capable default family without probing during normalization', () => {
+    const normalized = normalizeArtifactSources(['npm', 'yarn-berry'])
 
     expect(normalized.entries.map(entry =>
       entry.kind === 'cache' ? entry.family : entry.kind))
-      .toEqual(['npm', 'yarn-berry', 'pnpm'])
-    expect(normalized.caches).toHaveLength(3)
+      .toEqual(['npm', 'yarn-berry'])
+    expect(normalized.caches).toHaveLength(2)
   })
 
   it('routes yarn-berry:path checksum evidence without inventing npm bytes', async () => {
@@ -166,14 +166,10 @@ describe('enrich/artifact-sources — three accepted shapes', () => {
       .toBeUndefined()
   })
 
-  it('retains pnpm cache metadata without exposing an archive capability', async () => {
+  it('rejects pnpm because it supplies neither retained tgz nor lock-carried checksum', () => {
     const storeDir = freshDir('lockgraph-artifact-pnpm-')
-    const normalized = normalizeArtifactSources([`pnpm:${storeDir}`])
-
-    expect(normalized.caches).toHaveLength(1)
-    expect(normalized.refurbish.yarnBerryChecksums).toBeUndefined()
-    expect(await normalized.refurbish.npmTarballs.tarball('pkg', '1.0.0'))
-      .toBeUndefined()
+    expect(() => normalizeArtifactSources([`pnpm:${storeDir}`]))
+      .toThrow(/retained registry tarball.*lock-carried archive checksum/i)
   })
 
   it('queries same-capability caches in declared order and stops on the first hit', async () => {
@@ -191,22 +187,24 @@ describe('enrich/artifact-sources — three accepted shapes', () => {
       .toEqual(wanted)
   })
 
-  it('retains ordered remote registry descriptors without calling them', () => {
-    const first: RegistryAdapter = {
+  it('retains ordered remote registry adapters without calling them', () => {
+    const first: RemoteArtifactRegistry = {
       packument: vi.fn(async () => undefined),
       resolve: vi.fn(async () => undefined),
+      artifactRoute: vi.fn(() => undefined),
     }
-    const second: RegistryAdapter = {
+    const second: RemoteArtifactRegistry = {
       packument: vi.fn(async () => undefined),
       resolve: vi.fn(async () => undefined),
+      artifactRoute: vi.fn(() => undefined),
     }
     const cacheDir = freshDir('lockgraph-artifact-remote-order-')
     const list: ArtifactSourceList = [
       `npm:${cacheDir}`,
-      { registry: first },
+      first,
       `yarn-berry:${cacheDir}`,
-      { registry: second },
-    ]
+      second,
+    ] as never
 
     const normalized = normalizeArtifactSources(list)
 
@@ -223,6 +221,10 @@ describe('enrich/artifact-sources — three accepted shapes', () => {
     [['nmp']],
     [['npm:']],
     [[{ registry: {} }]],
+    [[{
+      packument: async () => undefined,
+      resolve: async () => undefined,
+    }]],
     [[42]],
   ])('fails closed on malformed list %j', (value) => {
     expect(() => normalizeArtifactSources(value as never))

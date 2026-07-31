@@ -4,9 +4,9 @@ import {
   LockfileError,
   parse,
   stringify,
-  type Diagnostic,
   type FormatId,
 } from '../../main/ts/index.ts'
+import type { Diagnostic } from '../../main/ts/graph.ts'
 import { fixture } from '../helpers/lockfile-test-utils.ts'
 
 const UNKNOWN_KEY = 'zzzUnknownVendor'

@@ -3,7 +3,8 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse, stringify } from '../../../main/ts/index.ts'
-import type { Diagnostic, FormatId } from '../../../main/ts/index.ts'
+import type { FormatId } from '../../../main/ts/index.ts'
+import type { Diagnostic } from '../../../main/ts/graph.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const realWorld = resolve(here, '../../resources/fixtures/real-world')

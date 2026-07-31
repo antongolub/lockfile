@@ -34,7 +34,12 @@
 
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
-import type { CacheAdapter, Packument, PackumentVersion } from './types.ts'
+import type {
+  CacheAdapter,
+  MutablePackumentVersion,
+  Packument,
+  PackumentVersion,
+} from './types.ts'
 
 export interface PnpmCacheOptions {
   /**
@@ -203,7 +208,7 @@ async function ingestIndexFile(indexPath: string, accum: CacheIndex): Promise<vo
 
 function materialise(entry: IndexedEntry): PackumentVersion {
   const meta = entry.meta
-  const out: PackumentVersion = {
+  const out: MutablePackumentVersion = {
     name:    entry.name,
     version: entry.version,
   }

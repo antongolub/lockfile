@@ -44,11 +44,13 @@ export interface LockfileErrorInit {
   code:     LockfileErrorCode
   message?: string
   cause?:   unknown
+  diagnostics?: readonly Diagnostic[]
   losses?:  readonly ProjectionLoss[]
 }
 
 export class LockfileError extends Error {
   readonly code: LockfileErrorCode
+  readonly diagnostics: readonly Diagnostic[]
   /**
    * Classified projection losses. An `IRREDUCIBLE_LOSS` without this property
    * is a structural emitter failure such as an on-disk identity collision.
@@ -59,6 +61,7 @@ export class LockfileError extends Error {
     super(init.message ?? init.code, init.cause !== undefined ? { cause: init.cause } : undefined)
     this.name = 'LockfileError'
     this.code = init.code
+    this.diagnostics = Object.freeze([...(init.diagnostics ?? [])])
     if (init.losses !== undefined) this.losses = Object.freeze([...init.losses])
   }
 }

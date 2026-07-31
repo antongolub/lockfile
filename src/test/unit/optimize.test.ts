@@ -16,10 +16,25 @@
 
 import { describe, expect, it } from 'vitest'
 import { removeDependency } from '../../main/ts/modify/remove-dependency.ts'
-import { optimize } from '../../main/ts/optimize/optimize.ts'
+import { optimize, removeUnreachable } from '../../main/ts/optimize/optimize.ts'
 import { addEdge, addPackage, graphOf } from './_modify-test-utils.ts'
 
 describe('optimize/mark-and-sweep', () => {
+  it('exposes the coherent result vocabulary through removeUnreachable', () => {
+    const graph = graphOf(builder => {
+      addPackage(builder, { name: 'app', version: '0.0.0', workspacePath: '.' })
+      addPackage(builder, { name: 'orphan', version: '1.0.0' })
+    })
+    const observed: string[] = []
+    const result = removeUnreachable(graph, {
+      onDiagnostic: diagnostic => observed.push(diagnostic.code),
+    })
+
+    expect(result.removed).toEqual(['orphan@1.0.0'])
+    expect(result.diagnostics.map(diagnostic => diagnostic.code)).toEqual(observed)
+    expect(Object.isFrozen(result)).toBe(true)
+  })
+
   // ────────────────────────────────────────────────────────────────
   // Gate 1 — Noop roundtrip
   // ────────────────────────────────────────────────────────────────

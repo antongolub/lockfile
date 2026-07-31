@@ -1516,7 +1516,7 @@ describe('yarn-berry-v9 — modify', () => {
 
     expectEmptyGraphDiff(result.graph.diff(reparsed))
     expect(result.applied).toEqual([
-      { kind: 'node-replaced', subject: 'ms@2.1.4', oldSubject: 'ms@2.1.3' },
+      { kind: 'node-replaced', subject: 'ms@2.1.4', previous: 'ms@2.1.3' },
     ])
   })
 
@@ -1571,7 +1571,7 @@ describe('yarn-berry-v9 — modify', () => {
     expect(peerVirtFlat?.message).toContain('["react@18.2.0"]')
     expect(peerVirtFlat?.message).toContain('react-dom@npm:18.2.0')
     expect(result.applied).toEqual([
-      { kind: 'peer-context-replaced', subject: 'react-dom@18.2.0(react@18.2.0)', oldSubject: 'react-dom@18.2.0' },
+      { kind: 'peer-context-replaced', subject: 'react-dom@18.2.0(react@18.2.0)', previous: 'react-dom@18.2.0' },
     ])
   })
 
@@ -1664,7 +1664,7 @@ describe('yarn-berry-v9 — modify', () => {
       })
     })
     expect(result.applied).toEqual([
-      { kind: 'node-replaced', subject: 'react-dom@18.3.0', oldSubject: 'react-dom@18.2.0' },
+      { kind: 'node-replaced', subject: 'react-dom@18.3.0', previous: 'react-dom@18.2.0' },
     ])
     expect(result.graph.getNode('react-dom@18.3.0')).toBeDefined()
 

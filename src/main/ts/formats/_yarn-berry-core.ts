@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import semver from 'semver'
 import {
+  accessGraphGoverningOverride,
+  accessGraphOverrides,
+  accessGraphRegistryPackages,
   newBuilder,
   GraphError,
   type Graph,
@@ -1136,7 +1139,8 @@ function sealYarnBerryParseContext(
 function withSidecarPropagation(graph: Graph, sidecar: YarnBerryFamilySidecar): Graph {
   // Thin delegation proxy — only `mutate` is overridden; everything else
   // forwards to the underlying graph so the object is still a true Graph.
-  const proxy: Graph = {
+  let proxy: Graph
+  proxy = {
     getNode:      (...args) => graph.getNode(...args),
     nodes:        ()        => graph.nodes(),
     byName:       (...args) => graph.byName(...args),
@@ -1150,6 +1154,9 @@ function withSidecarPropagation(graph: Graph, sidecar: YarnBerryFamilySidecar): 
     tarball:      (...args) => graph.tarball(...args),
     tarballOf:    (...args) => graph.tarballOf(...args),
     tarballs:     ()        => graph.tarballs(),
+    overrides:    ()        => accessGraphOverrides(proxy),
+    governingOverride: (...args) => accessGraphGoverningOverride(proxy, ...args),
+    registryPackages: () => accessGraphRegistryPackages(proxy),
     diagnostics:  ()        => graph.diagnostics(),
     layoutHints:  ()        => graph.layoutHints(),
     mutate: transaction => mutateWithSidecar(graph, sidecar, transaction),
@@ -1184,7 +1191,7 @@ function identityPreservingRenames(result: MutateResult): Map<string, Node> {
   const nextNodes = new Map<string, Node>()
   for (const record of result.applied) {
     if (record.kind !== 'node-replaced' && record.kind !== 'peer-context-replaced') continue
-    const oldId = record.oldSubject
+    const oldId = record.previous
     if (oldId === undefined) continue
     if (stripPeerContextFromNodeId(oldId) !== stripPeerContextFromNodeId(record.subject)) continue
     const node = result.graph.getNode(record.subject)

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { detect, overridesOf, parse, stringify } from '../../../main/ts/index.ts'
+import { detect, parse, stringify } from '../../../main/ts/index.ts'
+import { overridesOf } from '../../../main/ts/api/format-api.ts'
 import type { Manifest } from '../../../main/ts/graph.ts'
 
 // Real-world overrides canary (ADR-0025 A1/A2). Exercises overridesOf on

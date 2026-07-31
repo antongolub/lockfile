@@ -36,7 +36,12 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { parseSri, isEmptyIntegrity } from '../recipe/integrity.ts'
 import path from 'node:path'
-import type { NpmCacheAdapter, Packument, PackumentVersion } from './types.ts'
+import type {
+  MutablePackumentVersion,
+  NpmCacheAdapter,
+  Packument,
+  PackumentVersion,
+} from './types.ts'
 
 export interface NpmCacheOptions {
   /**
@@ -82,7 +87,7 @@ export function npmCache(opts: NpmCacheOptions = {}): NpmCacheAdapter {
 
       const versions: Record<string, PackumentVersion> = {}
       for (const [version, entry] of byVersion) {
-        const out: PackumentVersion = {
+        const out: MutablePackumentVersion = {
           name:    entry.name,
           version: entry.version,
         }

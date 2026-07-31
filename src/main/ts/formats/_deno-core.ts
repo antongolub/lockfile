@@ -7,6 +7,9 @@
 
 import { createHash } from 'node:crypto'
 import {
+  accessGraphGoverningOverride,
+  accessGraphOverrides,
+  accessGraphRegistryPackages,
   GraphError,
   newBuilder,
   serializeNodeId,
@@ -1373,7 +1376,8 @@ function sealDenoGraph(context: DenoParseContext, input: string): Graph {
 }
 
 function withSidecarPropagation(graph: Graph, sidecar: DenoSidecar): Graph {
-  const proxy: Graph = {
+  let proxy: Graph
+  proxy = {
     getNode: (...args) => graph.getNode(...args),
     nodes: () => graph.nodes(),
     byName: (...args) => graph.byName(...args),
@@ -1387,6 +1391,9 @@ function withSidecarPropagation(graph: Graph, sidecar: DenoSidecar): Graph {
     tarball: (...args) => graph.tarball(...args),
     tarballOf: (...args) => graph.tarballOf(...args),
     tarballs: () => graph.tarballs(),
+    overrides: () => accessGraphOverrides(proxy),
+    governingOverride: (...args) => accessGraphGoverningOverride(proxy, ...args),
+    registryPackages: () => accessGraphRegistryPackages(proxy),
     diagnostics: () => graph.diagnostics(),
     layoutHints: () => graph.layoutHints(),
     mutate(transaction: (mutator: Mutator) => void): MutateResult {
@@ -1403,8 +1410,8 @@ function withSidecarPropagation(graph: Graph, sidecar: DenoSidecar): Graph {
 function remapSidecarAfterMutation(sidecar: DenoSidecar, result: MutateResult): DenoSidecar {
   const replacementByOld = new Map<string, string>()
   for (const record of result.applied) {
-    if ((record.kind === 'node-replaced' || record.kind === 'peer-context-replaced') && record.oldSubject !== undefined) {
-      replacementByOld.set(record.oldSubject, record.subject)
+    if ((record.kind === 'node-replaced' || record.kind === 'peer-context-replaced') && record.previous !== undefined) {
+      replacementByOld.set(record.previous, record.subject)
     }
   }
 

@@ -10,12 +10,14 @@ import {
   resolvePnpmWorkspacePeerProjection,
   stringifyFamily,
 } from '../../main/ts/formats/_pnpm-flat-core.ts'
-import { internalEvidenceOf } from '../../main/ts/completeness/evidence.ts'
 import {
   evidenceOf,
-  parse,
-  stringifyAssessed,
+  internalEvidenceOf,
   withEvidence,
+} from '../../main/ts/completeness/evidence.ts'
+import { stringifyAssessed } from '../../main/ts/convert/orchestrator.ts'
+import {
+  parse,
 } from '../../main/ts/index.ts'
 
 // A workspace package satisfying a peer requirement is a `peer` edge into the workspace

@@ -15,7 +15,7 @@ import type { PackumentVersion } from '../registry/types.ts'
 import type {
   CompletenessDimension,
   EvidenceContext,
-  EvidenceInput,
+  InternalEvidenceInput,
   EvidenceLedger,
   EvidenceRef,
   ManifestKnowledge,
@@ -229,7 +229,7 @@ export function evidenceOf(graph: Graph): EvidenceContext {
   return contextByGraph.get(graph) ?? emptyContext
 }
 
-export function withEvidence(base: EvidenceContext, input: EvidenceInput | readonly EvidenceInput[]): EvidenceContext {
+export function withEvidence(base: EvidenceContext, input: InternalEvidenceInput | readonly InternalEvidenceInput[]): EvidenceContext {
   const baseState = stateOf(base)
   const inputs = Array.isArray(input) ? input : [input]
   let repositoryManifests = baseState.repositoryManifests
@@ -734,7 +734,7 @@ function isGraph(value: unknown): value is Graph {
     .every(key => typeof candidate[key as keyof Graph] === 'function')
 }
 
-function assertEvidenceInput(input: EvidenceInput): void {
+function assertEvidenceInput(input: InternalEvidenceInput): void {
   assertRecord(input, 'evidence input')
   switch (input.kind) {
     case 'repository-manifests':
@@ -770,11 +770,17 @@ function assertEvidenceInput(input: EvidenceInput): void {
         'projectionDigest',
       ], 'target oracle evidence')
       assertRecord(input.target, 'target oracle target')
-      assertKnownKeys(input.target, ['format', 'managerVersion'], 'target oracle target')
+      assertKnownKeys(input.target, ['format', 'managerVersion', 'cacheKey'], 'target oracle target')
+      const targetFormat = input.target.format as FormatId
+      const cacheKey = 'cacheKey' in input.target ? input.target.cacheKey : undefined
       if (!isGraph(input.graph)
-        || !formats.has(input.target.format as FormatId)
+        || (!formats.has(targetFormat) && !isDenoFormat(targetFormat))
         || typeof input.target.managerVersion !== 'string'
         || !exactVersion.test(input.target.managerVersion)
+        || (cacheKey !== undefined
+          && (!targetFormat.startsWith('yarn-berry-')
+            || typeof cacheKey !== 'string'
+            || cacheKey.length === 0))
         || !['target-parse-accepted', 'mutable-stable', 'frozen-verified'].includes(input.verification)
         || typeof input.platform !== 'string' || input.platform.length === 0
         || typeof input.configDigest !== 'string' || input.configDigest.length === 0
@@ -1093,7 +1099,7 @@ function compareRepositorySubjects(
   }
 }
 
-function refsFor(input: EvidenceInput): EvidenceRef[] {
+function refsFor(input: InternalEvidenceInput): EvidenceRef[] {
   switch (input.kind) {
     case 'repository-manifests':
       return Object.keys(input.manifests).sort().map(subject => ({

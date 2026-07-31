@@ -3,7 +3,9 @@
 // (pnpm frozen-acceptance). Gap 1 (completion) is in overrides-completion below.
 
 import { describe, expect, it } from 'vitest'
-import { governingOverrideFor, overridesOf, stringify } from '../../main/ts/index.ts'
+import { stringify } from '../../main/ts/index.ts'
+import { overridesOf } from '../../main/ts/api/format-api.ts'
+import { governingOverrideFor } from '../../main/ts/recipe/descriptor-resolve.ts'
 import { captureOverrides } from '../../main/ts/recipe/overrides.ts'
 import { completeTransitives } from '../../main/ts/complete/tree-complete.ts'
 import { frozenRegistry } from '../../main/ts/registry/frozen.ts'

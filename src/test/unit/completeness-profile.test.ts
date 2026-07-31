@@ -3,12 +3,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  completenessOf,
-  evidenceOf,
   parse,
-  withEvidence,
 } from '../../main/ts/index.ts'
-import { internalEvidenceOf } from '../../main/ts/completeness/evidence.ts'
+import { evidenceOf, internalEvidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
+import { completenessOf } from '../../main/ts/completeness/profile.ts'
 import { getBunOverridesCanonical } from '../../main/ts/formats/bun-text.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))

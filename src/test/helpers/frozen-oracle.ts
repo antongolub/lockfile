@@ -14,11 +14,13 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, posix, resolve, sep } from 'node:path'
 import type {
-  CompanionSetOperation,
   FormatId,
-  FrozenVerificationSubject,
-  FrozenVerificationReceipt,
 } from '../../main/ts/index.ts'
+import type {
+  CompanionSetOperation,
+  FrozenVerificationReceipt,
+  FrozenVerificationSubject,
+} from '../../main/ts/completeness/types.ts'
 
 export type FrozenOracleFamily = 'npm' | 'yarn-classic' | 'yarn-berry' | 'pnpm' | 'bun'
 

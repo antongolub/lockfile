@@ -5,12 +5,11 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  evidenceOf,
   parse,
-  projectCompanionsOf,
-  stringifyAssessed,
-  withEvidence,
 } from '../../main/ts/index.ts'
+import { projectCompanionsOf } from '../../main/ts/completeness/companions.ts'
+import { evidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
+import { stringifyAssessed } from '../../main/ts/convert/orchestrator.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixture = (file: string): string =>

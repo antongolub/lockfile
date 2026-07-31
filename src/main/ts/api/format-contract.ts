@@ -4,6 +4,7 @@ import type {
   Manifest,
   OverrideConstraint,
 } from '../graph.ts'
+import type { ObserveOptions, OperationSources } from './operation.ts'
 
 export type FormatId =
   | 'yarn-berry-v4'
@@ -29,6 +30,7 @@ export type FormatId =
   | 'lockgraph'
 
 export type DenoFormatId = Extract<FormatId, `deno-v${string}`>
+export type YarnBerryFormatId = Extract<FormatId, `yarn-berry-v${string}`>
 
 export function isDenoFormat(format: string): format is DenoFormatId {
   return format === 'deno-v2'
@@ -37,7 +39,11 @@ export function isDenoFormat(format: string): format is DenoFormatId {
     || format === 'deno-v5'
 }
 
-export interface ParseOptions {
+export interface ParseOptions extends ObserveOptions {
+  /** Discovery start for project-relative lock semantics. */
+  cwd?: string
+  /** Structured policy authority; manifests belong to graph operations. */
+  sources?: Pick<OperationSources, 'policy'>
   /**
    * Filesystem root for adapter parse hooks that read out-of-lockfile
    * sources (yarn-berry / pnpm v6 / pnpm v9 / npm-4 patch byte hashing per
@@ -59,9 +65,10 @@ export interface ParseOptions {
   onDiagnostic?: (diagnostic: Diagnostic) => void
 }
 
-export interface StringifyOptions {
+export interface StringifyOptions extends ObserveOptions {
   strict?: boolean
   lineEnding?: 'lf' | 'crlf'
+  sources?: Pick<OperationSources, 'policy'>
   cacheKey?: string
   /**
    * Caller-supplied canonical override constraints (ADR-0025). Each adapter

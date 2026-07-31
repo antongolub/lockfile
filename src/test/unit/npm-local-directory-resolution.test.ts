@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 import {
   parse,
   stringify,
-  type Diagnostic,
   type FormatId,
 } from '../../main/ts/index.ts'
+import type { Diagnostic } from '../../main/ts/graph.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const realWorldFixture = (name: string): string =>

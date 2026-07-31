@@ -271,16 +271,25 @@ function parseResolved(
   options: ParseOptions = {},
 ): Graph {
   const format = requireFormat(requested, 'parse')
+  if (options.sources?.policy !== undefined && options.overrides !== undefined) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'parse: sources.policy cannot be combined with legacy overrides',
+    })
+  }
+  const declaredOverrides = options.sources?.policy === undefined
+    ? options.overrides
+    : [...options.sources.policy.overrides]
   // Capture manifest override authority before parse because yarn edge binding
   // needs the canonical override map while resolving descriptors.
   const manifestOverrides = options.manifests !== undefined
     ? captureManifestOverrides(format, options.manifests, options.onDiagnostic)
     : undefined
   const overrides = manifestOverrides === undefined
-    ? options.overrides
-    : mergeOverrides(options.overrides ?? [], manifestOverrides)
+    ? declaredOverrides
+    : mergeOverrides(declaredOverrides ?? [], manifestOverrides)
   let graph = parseFormat(format, input, {
-    workspaceRoot: options.workspaceRoot,
+    workspaceRoot: options.cwd ?? options.workspaceRoot,
     overrides,
     manifests: options.manifests,
   })
@@ -431,7 +440,18 @@ function stringifyResolved(
   options: StringifyOptions = {},
 ): string {
   const format = requireFormat(requested, 'stringify')
-  const projected = stringifyProjected(format, graph, options)
+  if (options.sources?.policy !== undefined && options.overrides !== undefined) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'stringify: sources.policy cannot be combined with legacy overrides',
+    })
+  }
+  const projected = stringifyProjected(format, graph, {
+    ...options,
+    overrides: options.sources?.policy === undefined
+      ? options.overrides
+      : [...options.sources.policy.overrides],
+  })
   const blocking = blockingProjectionLosses(projected.losses)
   if ((options.strict ?? true) && blocking.length > 0) {
     throw new LockfileError(projectionError(blocking))

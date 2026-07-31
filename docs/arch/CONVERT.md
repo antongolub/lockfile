@@ -496,7 +496,7 @@ omission is not an immutable-install guarantee: assessed project conversion and
 the strict raw gate keep the output withheld until the required hash is proven or
 recomputed from a caller-supplied artifact source.
 
-The registry is an **opt-in** adapter (`liveRegistry`, `lockgraph/registry`)
+The registry is an **opt-in** adapter (`liveRegistry` from `lockgraph`)
 used by current and staged refinement paths:
 
 | Path | What it fetches | Why |
@@ -506,15 +506,16 @@ used by current and staged refinement paths:
 | **`audit(registryPackages(graph))`** | raw npm bulk advisories | Security audit of the graph's registry packages (severity and fix-selection stay the caller's). |
 
 Artifact evidence is a separate ordered channel. `sources.artifacts` accepts
-cache specifiers (`npm`, `yarn-berry`, or `pnpm`) and their `family:path`
-variants, plus retained `{ registry }` remote descriptors. Normalization happens
+cache specifiers (`npm` or `yarn-berry`) and their `family:path`
+variants, plus retained remote registry adapters. Normalization happens
 once at `enrich` entry, even for a target that needs no artifact bytes, so an
 unknown family or malformed descriptor fails with `INVALID_INPUT` rather than
 remaining latent until another conversion.
 
 Each cache keeps its actual byte capability: npm exposes the original tgz, Yarn
-Berry exposes the checksum of its own repacked zip, and pnpm exposes no archive
-because its store is decomposed. Sources of the same capability are queried in
+Berry exposes the checksum of its own repacked zip. `pnpm` and `pnpm:*` fail
+closed because the decomposed pnpm store supplies neither a retained registry
+tarball nor a lock-carried archive checksum. Sources of the same capability are queried in
 declared order until the first hit. Across capabilities, a manager-owned Yarn
 checksum is preferred to recomputing one from an npm tgz. Cache adapter identity
 is retained but its partial packuments are not promoted into the singular
@@ -559,14 +560,15 @@ records whether the implementation default or a caller-provided ceiling was
 reached. The live meter may govern large-artifact throughput; adding workers is
 not a remedy for that bound.
 
-An explicit `artifactStore()` entry adds a lockgraph-owned CAS for original,
-centrally verified npm tgz bytes. Its default root is
+Every convert/enrich operation uses a lockgraph-owned CAS for original,
+centrally verified npm tgz bytes unless `store: false` disables it. Its default root is
 `$XDG_CACHE_HOME/lockgraph` when XDG supplies an absolute root, otherwise
-`~/.cache/lockgraph`; `path` is the project override. The default 5 GiB
-capacity is mandatory and `maxBytes` overrides it. Exactly one store is legal.
-Its list position controls read priority, but it is always the single
-post-verification sink after another source succeeds, irrespective of position.
-Omitting the entry proves that lockgraph performs no artifact persistence.
+`~/.cache/lockgraph`; `store: lockgraphStore(path, { maxBytes })` replaces the
+global store. The default 5 GiB capacity is mandatory. Persistence is not an
+artifact source: the store is always checked before the ordered external source
+list and is the single post-verification sink after another source succeeds.
+`STORE_PATH_RESOLVED` reports the resolved path exactly once before the
+operation's first store filesystem mutation.
 
 Canonical objects use computed SHA-512 addressing. Supported lock SRI, Yarn
 Classic fragments, and Berry source-domain checksums may create digest-only

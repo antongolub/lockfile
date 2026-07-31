@@ -3,12 +3,11 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { serializeNodeId, type Graph } from '../../main/ts/graph.ts'
+import { serializeNodeId, type Diagnostic, type Graph } from '../../main/ts/graph.ts'
 import {
   check as checkPublic,
   parse as parsePublic,
   stringify as stringifyPublic,
-  type Diagnostic,
   type FormatId,
 } from '../../main/ts/index.ts'
 import { sourceVersionOf, type DenoVersion } from '../../main/ts/formats/_deno-core.ts'

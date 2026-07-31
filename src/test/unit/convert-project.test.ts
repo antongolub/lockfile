@@ -3,14 +3,17 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  convertProject,
-  evidenceOf,
   parse,
-  stringifyAssessed,
-  withEvidence,
-  type ConvertProjectOptions,
-  type TargetOracleEvidence,
 } from '../../main/ts/index.ts'
+import type {
+  ConvertProjectOptions,
+  TargetOracleEvidence,
+} from '../../main/ts/completeness/types.ts'
+import { evidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
+import {
+  convertProject,
+  stringifyAssessed,
+} from '../../main/ts/convert/orchestrator.ts'
 import type { Manifest } from '../../main/ts/graph.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))

@@ -10,6 +10,13 @@ import {
   type TarballKey,
 } from '../graph.ts'
 import type { FormatId } from '../api/format-contract.ts'
+import { LockfileError } from '../api/errors.ts'
+import {
+  normalizeGuardProfiles,
+  type FileSource,
+  type OperationSources,
+  type ProjectionOptions,
+} from '../api/operation.ts'
 import { rebindFormatAdapterState } from '../api/format-registry.ts'
 import { completeTransitives } from '../complete/tree-complete.ts'
 import {
@@ -34,7 +41,6 @@ import type {
   EvidenceRef,
   PackageManifestEvidence,
   PmConfigEvidence,
-  TargetInput,
 } from '../completeness/types.ts'
 import type { Packument, PackumentVersion, RegistryAdapter } from '../registry/types.ts'
 import {
@@ -77,33 +83,62 @@ import {
 } from './artifact-sources.ts'
 import { artifactTarballSource } from './artifact-bytes.ts'
 import {
+  operationArtifactStore,
+} from './artifact-store.ts'
+import {
   materializeYarnBerryPluginCompat,
   yarnBerryPluginCompatRegistry,
 } from './yarn-berry-plugin-compat.ts'
 import { projectYarnBerryDerivedDependencies } from './yarn-berry-derived-dependencies.ts'
+import {
+  prepareManifestSource,
+  type PreparedManifestSource,
+} from '../convert/input.ts'
 
 // === ENRICHMENT CONTRACT ====================================================
 
-export interface EnrichSources {
-  readonly manifests?: Readonly<Record<string, Manifest>>
+export interface EnrichSources extends Omit<OperationSources, 'artifacts' | 'manifests'> {
+  readonly manifests?: FileSource | Readonly<Record<string, Manifest>>
+  /** @deprecated Use packuments. */
   readonly registry?: RegistryAdapter
   readonly artifacts?: ArtifactSourcesInput
+  /** @deprecated Use policy. */
   readonly config?: PmConfigEvidence
 }
 
-export interface EnrichOptions {
+export type EnrichOptions = Omit<ProjectionOptions, 'sources'> & Readonly<{
   readonly sources?: EnrichSources
-  readonly target: TargetInput
-  readonly contract: ConversionContract
+  readonly contract?: ConversionContract
   readonly cacheKey?: string
   readonly workspaceRoot?: string
   /** Mandatory-on artifact safety envelope. Callers may tune the implementation
    * ceilings globally or for an exact TarballKey; verification/accounting cannot
    * be disabled. */
   readonly artifactResources?: ArtifactResourcePolicy
-}
+}>
 
 export interface EnrichResult extends GraphResult {}
+
+function isFileSource(
+  source: FileSource | Readonly<Record<string, Manifest>>,
+): source is FileSource {
+  return Array.isArray(source) || Object.values(source).every(value =>
+    typeof value === 'string' || value instanceof Uint8Array)
+}
+
+async function operationManifests(
+  source: EnrichSources['manifests'],
+  format: FormatId,
+  cwd: string,
+): Promise<PreparedManifestSource | undefined> {
+  if (source === undefined) return undefined
+  if (isFileSource(source)) return prepareManifestSource(source, format, cwd)
+  return {
+    manifests: source,
+    coverage: 'partial',
+    diagnostics: [],
+  }
+}
 
 interface SourceAdapterContext {
   readonly manifests: Record<string, DependencyManifest> | undefined
@@ -123,6 +158,38 @@ interface MemoizedRegistry {
   readonly resolutionNames: ReadonlySet<string>
   manifest(name: string, version: string): Promise<PackumentVersion | undefined>
   hasManifest(): boolean
+}
+
+function orderedRegistry(
+  sources: EnrichSources,
+): RegistryAdapter | undefined {
+  if (sources.packuments !== undefined && sources.registry !== undefined) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'sources.packuments cannot be combined with legacy sources.registry',
+    })
+  }
+  const registries = sources.packuments
+    ?? (sources.registry === undefined ? [] : [sources.registry])
+  if (registries.length === 0) return undefined
+  if (registries.length === 1) return registries[0]
+
+  const first = async <Value>(
+    read: (registry: RegistryAdapter) => Promise<Value | undefined>,
+  ): Promise<Value | undefined> => {
+    for (const registry of registries) {
+      const value = await read(registry)
+      if (value !== undefined) return value
+    }
+    return undefined
+  }
+  const ordered: RegistryAdapter = {
+    packument: (name: string) => first(registry => registry.packument(name)),
+    resolve: (name: string, range: string) => first(registry => registry.resolve(name, range)),
+    manifest: (name: string, version: string) => first(registry =>
+      registry.manifest?.(name, version) ?? Promise.resolve(undefined)),
+  }
+  return Object.freeze(ordered)
 }
 
 // === REGISTRY MEMOIZATION ===================================================
@@ -504,41 +571,64 @@ export async function enrich(
   const sources = legacy
     ? sourcesOrOptions as EnrichSources
     : (sourcesOrOptions as EnrichOptions).sources ?? {}
-  const artifacts = sources.artifacts === undefined
+  const contract = options.contract ?? 'snapshot'
+  const normalizedGuards = normalizeGuardProfiles(options.guards)
+  const artifactResources = options.guards === undefined
+    ? options.artifactResources
+    : normalizedGuards.artifactResources
+  const workspaceRoot = options.cwd ?? options.workspaceRoot ?? process.cwd()
+  const store = operationArtifactStore(options.store)
+  const artifacts = sources.artifacts === undefined && store === undefined
     ? undefined
-    : normalizeArtifactSources(sources.artifacts, {
-        ...(options.workspaceRoot === undefined
-          ? {}
-          : { workspaceRoot: options.workspaceRoot }),
+    : normalizeArtifactSources(sources.artifacts ?? [], {
+        workspaceRoot,
+        ...(store === undefined ? {} : { store }),
       })
   const targetRequest = targetRequestOf(options.target)
+  const requestedCacheKey = 'cacheKey' in targetRequest
+    ? targetRequest.cacheKey
+    : undefined
   const target = targetProfileOf(targetRequest)
   const diagnostics: Diagnostic[] = []
   const evidenceDiagnostics: Diagnostic[] = []
   const phases: EnrichmentDerivationPhase[] = []
   const refs: EvidenceRef[] = []
   const baseEvidence = evidenceOf(graph)
+  const sourceFormat = internalEvidenceOf(baseEvidence).source?.format
+  const manifestSource = await operationManifests(
+    sources.manifests,
+    sourceFormat ?? targetRequest.format,
+    workspaceRoot,
+  )
+  if (manifestSource !== undefined) diagnostics.push(...manifestSource.diagnostics)
   let context = baseEvidence
 
-  if (sources.manifests !== undefined) {
+  if (manifestSource !== undefined) {
     const before = context
     context = withEvidence(context, {
       kind: 'repository-manifests',
-      manifests: sources.manifests,
-      coverage: 'partial',
+      manifests: manifestSource.manifests,
+      coverage: manifestSource.coverage,
     })
     appendEvidenceDiagnostics(diagnostics, before, context)
   }
-  if (sources.config !== undefined) {
+  if (sources.policy !== undefined && sources.config !== undefined) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'sources.policy cannot be combined with legacy sources.config',
+    })
+  }
+  const policyEvidence = sources.policy ?? sources.config
+  if (policyEvidence !== undefined) {
     const before = context
-    context = withEvidence(context, sources.config)
+    context = withEvidence(context, policyEvidence)
     appendEvidenceDiagnostics(diagnostics, before, context)
   }
 
-  const sourceFormat = internalEvidenceOf(context).source?.format
   const policy = completionPolicyAuthorityOf(internalEvidenceOf(context))
-  const manifests = mutableManifests(sources.manifests)
-  const needsPolicy = sources.registry !== undefined
+  const manifests = mutableManifests(manifestSource?.manifests)
+  const registryAuthority = orderedRegistry(sources)
+  const needsPolicy = registryAuthority !== undefined
     || (sourceFormat === 'yarn-classic' && manifests !== undefined)
   const policyDiagnostic = policy.status === 'known' || !needsPolicy
     ? undefined
@@ -581,9 +671,9 @@ export async function enrich(
   }
   if (policyDiagnostic !== undefined) working = landDiagnostics(working, [policyDiagnostic])
 
-  const registry = sources.registry === undefined
+  const registry = registryAuthority === undefined
     ? undefined
-    : yarnBerryPluginCompatRegistry(sources.registry, targetRequest)
+    : yarnBerryPluginCompatRegistry(registryAuthority, targetRequest)
   const memoized = registry === undefined ? undefined : memoizeRegistry(registry)
   let completionAccepted = false
   let completionDiagnostics: readonly Diagnostic[] = []
@@ -628,7 +718,7 @@ export async function enrich(
     }
   }
 
-  if (memoized !== undefined && (options.contract === 'project' || options.contract === 'frozen')) {
+  if (memoized !== undefined && (contract === 'project' || contract === 'frozen')) {
     const observed = await registryManifestEvidence(
       working,
       memoized,
@@ -676,7 +766,7 @@ export async function enrich(
   }
 
   if (!hasPackageConflict(internalEvidenceOf(context))
-    && (options.contract === 'project' || options.contract === 'frozen'
+    && (contract === 'project' || contract === 'frozen'
       || internalEvidenceOf(context).packageManifests.size > 0)) {
     for (const authority of packageEvidenceBatches(internalEvidenceOf(context))) {
       const before = working
@@ -697,7 +787,7 @@ export async function enrich(
   if (target.capabilities.integrity === 'berry-zip'
     && artifacts !== undefined) {
     const before = working
-    const artifactCacheKey = options.cacheKey ?? berryCacheKeyFor(
+    const artifactCacheKey = requestedCacheKey ?? options.cacheKey ?? berryCacheKeyFor(
       before,
       targetRequest.format,
       'observed-only',
@@ -705,8 +795,12 @@ export async function enrich(
     if (hasBerryChecksumGap(before, artifactCacheKey)) {
       const npmTarballs = artifactTarballSource(
         artifacts,
-        options.artifactResources,
+        artifactResources,
         diagnostic => diagnostics.push(diagnostic),
+        {
+          maxBytes: normalizedGuards.maxNetworkTrafficBytes,
+          origin: normalizedGuards.networkTrafficOrigin,
+        },
       )
       const refurbished = await refurbish(before, targetRequest.format, {
         ...artifacts.refurbish,
@@ -714,7 +808,7 @@ export async function enrich(
       }, {
         ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
         cacheKeyInference: 'observed-only',
-        artifactResources: options.artifactResources,
+        artifactResources,
       })
       diagnostics.push(...refurbished.unresolved)
       phases.push({
@@ -725,7 +819,8 @@ export async function enrich(
       })
       working = refurbished.graph
       artifactEnriched = refurbished.enriched
-      if (options.cacheKey === undefined && artifactCacheKey !== undefined
+      if (requestedCacheKey === undefined && options.cacheKey === undefined
+        && artifactCacheKey !== undefined
         && artifactEnriched.length > 0) inferredArtifactCacheKey = artifactCacheKey
     }
   }
@@ -757,8 +852,10 @@ export async function enrich(
   if (changed) {
     deriveEnrichedEvidence(graph, working, context, phases, refs, evidenceDiagnostics)
   }
-  return Object.freeze({
+  const result = Object.freeze({
     graph: working,
     diagnostics: Object.freeze([...diagnostics]),
   })
+  for (const diagnostic of result.diagnostics) options.onDiagnostic?.(diagnostic)
+  return result
 }

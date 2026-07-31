@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { overridesOf, parse, stringify } from '../../main/ts/index.ts'
+import { parse, stringify } from '../../main/ts/index.ts'
 import { mergeOverrides } from '../../main/ts/recipe/override-carrier.ts'
 import type { Diagnostic, Manifest, OverrideConstraint } from '../../main/ts/graph.ts'
 import { fixture } from '../helpers/lockfile-test-utils.ts'
@@ -47,7 +47,7 @@ snapshots:
 describe('overridesOf — lock-borne sources (ADR-0025 §6, A2)', () => {
   it('surfaces npm packages[""].overrides as canonical', () => {
     const g = parse('npm-3', NPM3_WITH_OVERRIDES)
-    expect(overridesOf(g)).toEqual([
+    expect(g.overrides()).toEqual([
       { package: 'foo', parentPath: ['bar'], to: '1.0.0' },
       { package: 'lodash', to: '4.17.21' },
     ])
@@ -55,7 +55,7 @@ describe('overridesOf — lock-borne sources (ADR-0025 §6, A2)', () => {
 
   it('surfaces pnpm overrides: as canonical (>-selectors → parentPath)', () => {
     const g = parse('pnpm-v9', PNPM9_WITH_OVERRIDES)
-    expect(overridesOf(g)).toEqual([
+    expect(g.overrides()).toEqual([
       { package: 'foo', parentPath: ['bar'], to: '1.0.0' },
       { package: 'lodash', to: '4.17.21' },
     ])
@@ -63,7 +63,7 @@ describe('overridesOf — lock-borne sources (ADR-0025 §6, A2)', () => {
 
   it('returns [] for a graph with no overrides from any source', () => {
     const g = parse('npm-3', fixture('simple/npm-3.lock'))
-    expect(overridesOf(g)).toEqual([])
+    expect(g.overrides()).toEqual([])
   })
 })
 
@@ -73,7 +73,7 @@ describe('overridesOf — manifest-F6 capture (ParseOptions.manifests)', () => {
       '.': { native: { yarnResolutions: { lodash: '4.17.21', 'bar/foo': '1.0.0' } } },
     }
     const g = parse('yarn-berry-v9', fixture('simple/yarn-berry-v9.lock'), { manifests })
-    expect(overridesOf(g)).toEqual([
+    expect(g.overrides()).toEqual([
       { package: 'foo', parentPath: ['bar'], to: '1.0.0' },
       { package: 'lodash', to: '4.17.21' },
     ])
@@ -84,12 +84,12 @@ describe('overridesOf — manifest-F6 capture (ParseOptions.manifests)', () => {
       '.': { overrides: [{ package: 'left-pad', to: '1.3.0' }] },
     }
     const g = parse('yarn-berry-v9', fixture('simple/yarn-berry-v9.lock'), { manifests })
-    expect(overridesOf(g)).toEqual([{ package: 'left-pad', to: '1.3.0' }])
+    expect(g.overrides()).toEqual([{ package: 'left-pad', to: '1.3.0' }])
   })
 
   it('no manifests supplied → only lock-borne (here: none) → []', () => {
     const g = parse('yarn-berry-v9', fixture('simple/yarn-berry-v9.lock'))
-    expect(overridesOf(g)).toEqual([])
+    expect(g.overrides()).toEqual([])
   })
 })
 
@@ -99,7 +99,7 @@ describe('overridesOf — precedence (manifest-F6 wins over lock-borne)', () => 
       '.': { native: { npmOverrides: { lodash: '9.9.9' } } }, // collides with lock's lodash 4.17.21
     }
     const g = parse('npm-3', NPM3_WITH_OVERRIDES, { manifests })
-    const ov = overridesOf(g)
+    const ov = g.overrides()
     expect(ov).toContainEqual({ package: 'lodash', to: '9.9.9' }) // manifest wins
     expect(ov).not.toContainEqual({ package: 'lodash', to: '4.17.21' })
     expect(ov).toContainEqual({ package: 'foo', parentPath: ['bar'], to: '1.0.0' }) // lock-only survives
@@ -113,11 +113,11 @@ describe('overridesOf — cross-PM carry (parse yarn+resolutions → npm)', () =
     }
     const g = parse('yarn-berry-v9', fixture('simple/yarn-berry-v9.lock'), { manifests })
     // the policy is captured + queryable...
-    expect(overridesOf(g)).toContainEqual({ package: 'lodash', to: '4.17.21' })
+    expect(g.overrides()).toContainEqual({ package: 'lodash', to: '4.17.21' })
     // ...but npm reads overrides from package.json, not the lock: dropped + diagnosed.
     const diags: Diagnostic[] = []
     const out = JSON.parse(stringify('npm-3', g, {
-      overrides: overridesOf(g),
+      overrides: [...g.overrides()],
       strict: false,
       onDiagnostic: d => diags.push(d),
     }))

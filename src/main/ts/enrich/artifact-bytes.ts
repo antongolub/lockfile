@@ -9,6 +9,9 @@ import {
 import {
   ArtifactEnvelopeError,
   ArtifactLiveMeter,
+  ArtifactTrafficError,
+  ArtifactTrafficMeter,
+  DEFAULT_ARTIFACT_MAX_NETWORK_TRAFFIC_BYTES,
   artifactResourceLimits,
   assertArtifactRepresentation,
   inflateArtifact,
@@ -37,6 +40,7 @@ import type {
 import {
   enrichArtifactDiagnostic,
   enrichArtifactLimit,
+  enrichArtifactTrafficLimit,
   type EnrichArtifactDiagnosticCode,
 } from './diagnostics.ts'
 import {
@@ -44,6 +48,7 @@ import {
   writeArtifactStore,
   type ArtifactStoreAlias,
   type ArtifactStoreEvidence,
+  type ArtifactStoreSource,
 } from './artifact-store.ts'
 
 export interface ArtifactTarballRequest {
@@ -230,6 +235,7 @@ async function readResponseBytes(
   key: TarballKey,
   limits: EffectiveArtifactResourceLimits,
   liveMeter: ArtifactLiveMeter,
+  trafficMeter: ArtifactTrafficMeter,
 ): Promise<{ bytes: Uint8Array; release: () => void }> {
   const rawLength = response.headers.get('content-length')
   const expected = rawLength === null ? undefined : Number(rawLength)
@@ -243,6 +249,7 @@ async function readResponseBytes(
   }
   if (expected !== undefined) {
     assertArtifactRepresentation('compressed', expected, limits)
+    trafficMeter.assertCanConsume(expected)
   }
 
   const chunks: Uint8Array[] = []
@@ -257,6 +264,7 @@ async function readResponseBytes(
         if (value === undefined) continue
         received += value.byteLength
         assertArtifactRepresentation('compressed', received, limits)
+        trafficMeter.consume(value.byteLength)
         releases.push(liveMeter.acquire(value.byteLength))
         chunks.push(value)
       }
@@ -294,6 +302,7 @@ async function fetchArtifact(
   key: TarballKey,
   limits: EffectiveArtifactResourceLimits,
   liveMeter: ArtifactLiveMeter,
+  trafficMeter: ArtifactTrafficMeter,
 ): Promise<{ bytes: Uint8Array; release: () => void }> {
   let url = initialUrl
   for (let hop = 0; hop <= 5; hop++) {
@@ -346,7 +355,7 @@ async function fetchArtifact(
         { url, status: response.status },
       )
     }
-    return readResponseBytes(response, key, limits, liveMeter)
+    return readResponseBytes(response, key, limits, liveMeter, trafficMeter)
   }
   fail('ENRICH_ARTIFACT_REDIRECT_REJECTED', key, 'exceeded the redirect bound')
 }
@@ -393,6 +402,13 @@ function translateEnvelopeError(key: TarballKey, error: unknown): never {
     throw new ArtifactByteFailure(enrichArtifactLimit(
       key,
       error.representation,
+      error.limitBytes,
+      error.origin,
+    ))
+  }
+  if (error instanceof ArtifactTrafficError) {
+    throw new ArtifactByteFailure(enrichArtifactTrafficLimit(
+      key,
       error.limitBytes,
       error.origin,
     ))
@@ -608,8 +624,10 @@ async function writeBack(
   request: ArtifactTarballRequest,
   bytes: Uint8Array,
   onDiagnostic: (diagnostic: Diagnostic) => void,
+  beforeMutation: () => void,
 ): Promise<void> {
   if (artifacts.store === undefined) return
+  if (bytes.byteLength <= artifacts.store.maxBytes) beforeMutation()
   await writeArtifactStore(
     artifacts.store,
     artifactStoreEvidence(request),
@@ -620,19 +638,22 @@ async function writeBack(
 }
 
 async function checkedStoreHit(
-  entry: Extract<NormalizedArtifactSource, { kind: 'store' }>,
+  store: ArtifactStoreSource,
   request: ArtifactTarballRequest,
   policy: ArtifactResourcePolicy | undefined,
   liveMeter: ArtifactLiveMeter,
   onDiagnostic: (diagnostic: Diagnostic) => void,
+  beforeMutation: () => void,
 ): Promise<{ bytes: Uint8Array; release: () => void } | undefined> {
   const key = toTarballKey(request.node)
   const limits = artifactResourceLimits(policy, key)
   const evidence = artifactStoreEvidence(request)
+  if (evidence.aliases.length === 0) return undefined
+  beforeMutation()
   let hit
   while (true) {
     hit = await readArtifactStore(
-      entry.store,
+      store,
       evidence,
       key,
       onDiagnostic,
@@ -705,9 +726,28 @@ export function artifactTarballSource(
   artifacts: NormalizedArtifactSources,
   policy: ArtifactResourcePolicy | undefined,
   onDiagnostic: (diagnostic: Diagnostic) => void = () => {},
+  traffic: Readonly<{
+    maxBytes: number
+    origin: 'default' | 'global'
+  }> = {
+    maxBytes: DEFAULT_ARTIFACT_MAX_NETWORK_TRAFFIC_BYTES,
+    origin: 'default',
+  },
 ): RequestNpmTarballSource {
   const fallback = artifacts.refurbish.npmTarballs
   const liveMeter = new ArtifactLiveMeter(policy)
+  const trafficMeter = new ArtifactTrafficMeter(traffic.maxBytes, traffic.origin)
+  let storePathReported = false
+  const beforeStoreMutation = (): void => {
+    if (storePathReported || artifacts.store === undefined) return
+    storePathReported = true
+    onDiagnostic({
+      code: 'STORE_PATH_RESOLVED',
+      severity: 'info',
+      message: `store: resolved persistence path ${artifacts.store.path}`,
+      data: { path: artifacts.store.path },
+    })
+  }
   const leases = new WeakMap<Uint8Array, Array<() => void>>()
   const retain = (leased: { bytes: Uint8Array; release: () => void }): Uint8Array => {
     const pending = leases.get(leased.bytes) ?? []
@@ -728,32 +768,45 @@ export function artifactTarballSource(
     },
     async tarballFor(request: ArtifactTarballRequest) {
       const key = toTarballKey(request.node)
+      if (artifacts.store !== undefined) {
+        const leased = await checkedStoreHit(
+          artifacts.store,
+          request,
+          policy,
+          liveMeter,
+          onDiagnostic,
+          beforeStoreMutation,
+        )
+        if (leased !== undefined) return retain(leased)
+      }
       if (artifacts.entries.length === 0) {
         const bytes = await fallback.tarball(request.node.name, request.node.version)
-        return bytes === undefined
-          ? undefined
-          : retain(await checked(bytes, request, policy, liveMeter))
+        if (bytes === undefined) return undefined
+        const leased = await checked(bytes, request, policy, liveMeter)
+        await writeBack(
+          artifacts,
+          request,
+          leased.bytes,
+          onDiagnostic,
+          beforeStoreMutation,
+        )
+        return retain(leased)
       }
 
       let remotesVisited = false
       for (const entry of artifacts.entries) {
-        if (entry.kind === 'store') {
-          const leased = await checkedStoreHit(
-            entry,
-            request,
-            policy,
-            liveMeter,
-            onDiagnostic,
-          )
-          if (leased !== undefined) return retain(leased)
-          continue
-        }
         const cache = npmTarballCapability(entry)
         if (cache !== undefined) {
           const bytes = await cache.tarball(request.node.name, request.node.version)
           if (bytes !== undefined) {
             const leased = await checked(bytes, request, policy, liveMeter)
-            await writeBack(artifacts, request, leased.bytes, onDiagnostic)
+            await writeBack(
+              artifacts,
+              request,
+              leased.bytes,
+              onDiagnostic,
+              beforeStoreMutation,
+            )
             return retain(leased)
           }
           continue
@@ -765,12 +818,25 @@ export function artifactTarballSource(
         const limits = artifactResourceLimits(policy, key)
         let leased: { bytes: Uint8Array; release: () => void }
         try {
-          leased = await fetchArtifact(claim, url, key, limits, liveMeter)
+          leased = await fetchArtifact(
+            claim,
+            url,
+            key,
+            limits,
+            liveMeter,
+            trafficMeter,
+          )
         } catch (error) {
           translateEnvelopeError(key, error)
         }
         const checkedBytes = await checked(leased, request, policy, liveMeter)
-        await writeBack(artifacts, request, checkedBytes.bytes, onDiagnostic)
+        await writeBack(
+          artifacts,
+          request,
+          checkedBytes.bytes,
+          onDiagnostic,
+          beforeStoreMutation,
+        )
         return retain(checkedBytes)
       }
       return undefined

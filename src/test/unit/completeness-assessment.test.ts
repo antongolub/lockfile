@@ -3,13 +3,11 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  convertAssessed,
-  evidenceOf,
   parse,
   stringify,
-  stringifyAssessed,
-  withEvidence,
 } from '../../main/ts/index.ts'
+import { evidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
+import { convertAssessed, stringifyAssessed } from '../../main/ts/convert/orchestrator.ts'
 import { newBuilder, type Edge, type Graph, type Node, type TarballPayload } from '../../main/ts/graph.ts'
 import { assessConversion } from '../../main/ts/completeness/assessment.ts'
 import { detectGraphFeatures } from '../../main/ts/completeness/features.ts'

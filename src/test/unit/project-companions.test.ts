@@ -3,14 +3,13 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  evidenceOf,
   parse,
-  projectCompanionsOf,
   stringify,
-  stringifyAssessed,
-  withEvidence,
-  type EvidenceContext,
 } from '../../main/ts/index.ts'
+import type { EvidenceContext } from '../../main/ts/completeness/types.ts'
+import { projectCompanionsOf } from '../../main/ts/completeness/companions.ts'
+import { evidenceOf, withEvidence } from '../../main/ts/completeness/evidence.ts'
+import { stringifyAssessed } from '../../main/ts/convert/orchestrator.ts'
 import type { Graph, OverrideConstraint } from '../../main/ts/graph.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))

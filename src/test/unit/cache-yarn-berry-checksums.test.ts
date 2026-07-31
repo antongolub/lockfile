@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { refurbish, type TarballSource } from '../../main/ts/enrich/refurbish.ts'
-import { withYarnCacheChecksums } from '../../main/ts/registry/index.ts'
+import { withYarnCacheChecksums } from '../../main/ts/registry/cache-yarn-berry.ts'
 import { emitBerryChecksum } from '../../main/ts/recipe/integrity.ts'
 import { graphOf, addPackage } from './_modify-test-utils.ts'
 

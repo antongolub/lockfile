@@ -7,7 +7,7 @@ import type {
   PackageMetadataField,
   TarballKey,
 } from '../graph.ts'
-import type { FormatId } from '../api/format-contract.ts'
+import type { FormatId, YarnBerryFormatId } from '../api/format-contract.ts'
 import type { ConvertCommonOptions, ConvertInput } from '../convert/types.ts'
 import type { PackumentVersion } from '../registry/types.ts'
 
@@ -144,16 +144,22 @@ export interface PackageManifestEvidence {
   readonly manifests: Readonly<Record<TarballKey, PackumentVersion>>
 }
 
-export interface TargetRequest {
-  readonly format: FormatId
-  readonly managerVersion?: string
-}
+export type TargetRequest =
+  | Readonly<{
+      format: YarnBerryFormatId
+      managerVersion?: string
+      cacheKey?: string
+    }>
+  | Readonly<{
+      format: Exclude<FormatId, YarnBerryFormatId>
+      managerVersion?: string
+    }>
 
 export type TargetInput = FormatId | TargetRequest
 
-export interface PinnedTargetRequest extends TargetRequest {
-  readonly managerVersion: string
-}
+export type PinnedTargetRequest = TargetRequest & Readonly<{
+  managerVersion: string
+}>
 
 export type OracleVerification = Exclude<Verification, 'unverified' | 'graph-validated'>
 
@@ -178,11 +184,17 @@ export type TargetOracleEvidence = TargetOracleEvidenceBase & (
     }>
 )
 
-export type EvidenceInput =
-  | RepositoryManifestEvidence
-  | PmConfigEvidence
-  | PackageManifestEvidence
-  | TargetOracleEvidence
+/** Publicly extensible evidence-kind registry for already-attested proof. */
+export interface EvidenceInputMap {
+  readonly 'pm-config': PmConfigEvidence
+  readonly 'package-manifests': PackageManifestEvidence
+  readonly 'target-oracle': TargetOracleEvidence
+}
+
+export type EvidenceInput = EvidenceInputMap[keyof EvidenceInputMap]
+
+/** @internal Pre-0.6 manifest evidence retained only by the legacy proof engine. */
+export type InternalEvidenceInput = EvidenceInput | RepositoryManifestEvidence
 
 export interface CompletenessContext {
   readonly evidence?: EvidenceContext
@@ -295,13 +307,15 @@ export interface ConvertAssessedOptions {
   readonly manifestCoverage?: ManifestCoverage
 }
 
-export type ProjectEvidenceInput =
+export type ProjectEvidenceInput = Exclude<EvidenceInput, TargetOracleEvidence>
+
+/** @internal Pre-0.6 project proof input retained by legacy conversion helpers. */
+export type InternalProjectEvidenceInput =
+  | ProjectEvidenceInput
   | RepositoryManifestEvidence
-  | PmConfigEvidence
-  | PackageManifestEvidence
 
 export interface ConvertProjectOptions extends Omit<ConvertAssessedOptions, 'contract'> {
-  readonly evidenceInputs?: readonly ProjectEvidenceInput[]
+  readonly evidenceInputs?: readonly InternalProjectEvidenceInput[]
 }
 
 export interface AssessedOutput {
@@ -359,7 +373,7 @@ export interface FrozenConversionResult {
 interface FrozenPreparationCommonOptions extends Omit<ConvertCommonOptions, 'strict'> {
   readonly sourceVersion?: string
   readonly manifestCoverage?: ManifestCoverage
-  readonly evidenceInputs?: readonly ProjectEvidenceInput[]
+  readonly evidenceInputs?: readonly InternalProjectEvidenceInput[]
 }
 
 interface FrozenPreparationTargetOptions {
@@ -382,6 +396,32 @@ export type FrozenPreparationOptions = FrozenPreparationCommonOptions & (
 )
 
 export type FrozenInput = ConvertInput
+
+/** Public frozen preparation options; exact target version is mandatory. */
+export interface FrozenOptions
+  extends Omit<import('../api/operation.ts').ProjectionOptions, 'target' | 'strict'> {
+  readonly target: PinnedTargetRequest
+  readonly sourceFormat?: FormatId
+  readonly fs?: import('../convert/types.ts').ConvertFileSystem
+  readonly lineEnding?: 'lf' | 'crlf'
+  readonly evidence?: readonly ProjectEvidenceInput[]
+}
+
+export type ProjectFrozenOptions =
+  Omit<FrozenOptions, 'sources'>
+  & Readonly<{
+    readonly sources?: Omit<import('../api/operation.ts').OperationSources, 'manifests'>
+  }>
+
+/** Facts measured by the caller's native frozen-manager run. */
+export interface FrozenCertificationOptions {
+  readonly files: import('../api/operation.ts').FileSource
+  readonly cwd?: string
+  readonly fs?: import('../convert/types.ts').ConvertFileSystem
+  readonly manager: Exclude<import('../api/operation.ts').PackageManager, 'lockgraph'>
+  readonly version: string
+  readonly platform?: string
+}
 
 export interface ProjectCompanionOptions {
   readonly target: TargetRequest

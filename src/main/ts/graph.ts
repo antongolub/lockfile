@@ -3,9 +3,19 @@
 
 import { LockfileError } from './api/errors.ts'
 import { inheritMutationLineage } from './api/mutation-lineage.ts'
-import type { Integrity } from './recipe/integrity.ts'
+import type { Hash, Integrity } from './recipe/integrity.ts'
 import type { ResolutionCanonical } from './recipe/resolution.ts'
 import type { WorkspaceRange } from './recipe/workspace.ts'
+
+export type {
+  HashOrigin,
+  Integrity,
+} from './recipe/integrity.ts'
+export type { HostingProvider } from './recipe/resolution.ts'
+export type { WorkspaceRange } from './recipe/workspace.ts'
+
+/** Public name for one member of the graph's multi-hash integrity carrier. */
+export type IntegrityHash = Hash
 
 // === TYPES ==================================================================
 
@@ -18,7 +28,7 @@ export type Patch = string
  *  the F3-canonical source string), or `undefined` for the bare default-registry
  *  / directory majority. Derived by `recipe/resolution.sourceDiscriminatorOf`. */
 export type SourceDiscriminator = string
-export interface TarballKeyInputs {
+export interface TarballKeyInput {
   name:    string
   version: string
   patch?:  Patch
@@ -28,6 +38,9 @@ export interface TarballKeyInputs {
   // (zero registry blast radius).
   source?: SourceDiscriminator
 }
+
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type TarballKeyInputs = TarballKeyInput
 
 export type EdgeKind = 'dep' | 'dev' | 'optional' | 'peer' | 'bundled'
 
@@ -116,7 +129,7 @@ export type PackageMetadataField =
   | 'peerDependencies'
   | 'peerDependenciesMeta'
 
-export type EdgeAttrs = {
+export interface EdgeAttributes {
   range?:          string
   // The override-FORCED descriptor range for this edge (ADR-0025), set by
   // completion/replace when a project override/resolution redirected this edge's
@@ -148,11 +161,14 @@ export type EdgeAttrs = {
   workspaceRange?: WorkspaceRange
 }
 
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type EdgeAttrs = EdgeAttributes
+
 export interface Edge {
   src:    NodeId
   dst:    NodeId
   kind:   EdgeKind
-  attrs?: EdgeAttrs
+  attrs?: EdgeAttributes
 }
 
 export type EdgeTriple = { src: NodeId; dst: NodeId; kind: EdgeKind }
@@ -197,14 +213,17 @@ export interface OverrideConstraint {
   /** Source PM grammar (stamped at capture). Drives the PM-faithful override
    *  tie-break: npm/bun = first-match in declaration order, yarn/pnpm =
    *  most-specific. */
-  origin?: OverridePM
+  origin?: OverrideManager
   /** Declaration order within its capture (0-based) — carries npm's
    *  first-match ordering through `mergeOverrides`' key-sort. */
   captureIndex?: number
 }
 
 /** Package-manager grammar an override was declared in (ADR-0025). */
-export type OverridePM = 'npm' | 'yarn' | 'pnpm'
+export type OverrideManager = 'npm' | 'yarn' | 'pnpm'
+
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type OverridePM = OverrideManager
 
 /**
  * L1 Manifest — declared constraints from a `package.json` (ADR-0001 §L1,
@@ -231,28 +250,31 @@ export interface Manifest {
   }
 }
 
-export interface WalkOpts {
+export interface GraphWalkOptions {
   direction?: 'out' | 'in'
-  kinds?:     EdgeKind[]
+  kinds?:     readonly EdgeKind[]
   maxDepth?:  number
 }
 
-export type ChangeRecord =
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type WalkOpts = GraphWalkOptions
+
+export type GraphChange =
   | { kind: 'node-added';            subject: NodeId }
   | { kind: 'node-removed';          subject: NodeId }
-  // `subject` is the NEW id; `oldSubject` is the id that was re-keyed away
+  // `subject` is the NEW id; `previous` is the id that was re-keyed away
   // (present iff the op changed the id — `newNode.id !== id`). Re-keying drops
   // the old id from the graph, so a per-NodeId sidecar (yarn entry-key
   // descriptors, berry conditions / meta) cannot membership-survive on the new
   // id without this old→new pair. Absent when the replace kept the same id
   // (`newNode.id === id`), since no remap is then needed (#114).
-  | { kind: 'node-replaced';         subject: NodeId; oldSubject?: NodeId }
+  | { kind: 'node-replaced';         subject: NodeId; previous?: NodeId }
   | { kind: 'edge-added';            subject: EdgeTriple }
   | { kind: 'edge-removed';          subject: EdgeTriple }
-  // `oldSubject` is the pre-rekey id when the peerContext change shifted the id
+  // `previous` is the pre-rekey id when the peerContext change shifted the id
   // (`newId !== id`); absent when the context change left the id unchanged. Same
   // role as on `node-replaced` — lets a per-NodeId sidecar follow the rename (#114).
-  | { kind: 'peer-context-replaced'; subject: NodeId; oldSubject?: NodeId }
+  | { kind: 'peer-context-replaced'; subject: NodeId; previous?: NodeId }
   | { kind: 'tarball-set';           subject: TarballKey }
   | { kind: 'tarball-removed';       subject: TarballKey }
 
@@ -264,11 +286,17 @@ export interface GraphDiff {
   removedEdges: EdgeTriple[]
 }
 
-export interface MutateResult {
-  graph:      Graph
-  applied:    ChangeRecord[]
-  unresolved: Diagnostic[]
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type ChangeRecord = GraphChange
+
+export interface GraphMutationResult extends GraphResult {
+  readonly applied: readonly GraphChange[]
+  /** @internal legacy warning-only projection. */
+  readonly unresolved: readonly Diagnostic[]
 }
+
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type MutateResult = GraphMutationResult
 
 /**
  * Result of a graph-transforming operation.
@@ -291,22 +319,27 @@ export type DependencyManifest = Pick<
   | 'peerDependencies'
 >
 
-export interface Mutator {
+export interface GraphMutation {
   replaceNode(id: NodeId, newNode: Node):                                   void
   addNode(node: Node):                                                      void
   removeNode(id: NodeId):                                                   void
-  addEdge(src: NodeId, dst: NodeId, kind: EdgeKind, attrs?: EdgeAttrs):     void
+  addEdge(src: NodeId, dst: NodeId, kind: EdgeKind, attrs?: EdgeAttributes): void
   removeEdge(src: NodeId, dst: NodeId, kind: EdgeKind):                     void
   replacePeerContext(id: NodeId, peers: NodeId[]):                          void
-  setTarball(inputs: TarballKeyInputs, payload: TarballPayload):            void
-  removeTarball(inputs: TarballKeyInputs):                                  void
+  setTarball(inputs: TarballKeyInput, payload: TarballPayload):             void
+  removeTarball(inputs: TarballKeyInput):                                   void
   // ADR-0023 §8.6 — write-side diagnostic surface. Appends the supplied
   // Diagnostic to the resulting Graph's diagnostic list; visible via
   // Graph.diagnostics() once the surrounding mutate() call settles.
   // Mirrors Builder.diagnostic so parse-time and modify-time emit paths
   // share one implementation.
-  diagnostic(d: Diagnostic):                                                void
+  addDiagnostic(diagnostic: Diagnostic):                                    void
+  /** @internal pre-0.6 spelling. */
+  diagnostic(diagnostic: Diagnostic):                                       void
 }
+
+/** @internal pre-0.6 name retained for internal algorithm source compatibility. */
+export type Mutator = GraphMutation
 
 export interface Graph {
   getNode(id: NodeId):                                  Node | undefined
@@ -315,16 +348,23 @@ export interface Graph {
   roots():                                              ReadonlySet<NodeId>
   out(id: NodeId, kind?: EdgeKind):                     readonly Edge[]
   in(id: NodeId, kind?: EdgeKind):                      readonly Edge[]
-  walk(seeds: NodeId | NodeId[], opts?: WalkOpts):      IterableIterator<NodeId>
+  walk(seeds: NodeId | readonly NodeId[], opts?: GraphWalkOptions): IterableIterator<NodeId>
   topoSort():                                           readonly (readonly NodeId[])[]
-  subgraph(seeds: NodeId | NodeId[], opts?: WalkOpts):  Graph
+  subgraph(seeds: NodeId | readonly NodeId[], opts?: GraphWalkOptions): Graph
   diff(other: Graph):                                   GraphDiff
-  tarball(inputs: TarballKeyInputs):                    TarballPayload | undefined
+  tarball(inputs: TarballKeyInput):                     TarballPayload | undefined
   tarballOf(nodeId: NodeId):                            TarballPayload | undefined
   tarballs():                                           IterableIterator<[TarballKey, TarballPayload]>
+  overrides():                                          readonly OverrideConstraint[]
+  governingOverride(
+    name: string,
+    consumerPath: readonly string[],
+    declaredRange?: string,
+  ): OverrideConstraint | undefined
+  registryPackages():                                   Readonly<Record<string, readonly string[]>>
   diagnostics():                                        readonly Diagnostic[]
   layoutHints():                                        LayoutHints | undefined
-  mutate(transaction: (m: Mutator) => void):            MutateResult
+  mutate(transaction: (mutation: GraphMutation) => void): GraphMutationResult
 }
 
 export interface Builder {
@@ -844,7 +884,7 @@ function reindex(s: State): void {
 
 type WalkItem = { id: NodeId; depth: number }
 
-function walkStack(seeds: NodeId | NodeId[]): WalkItem[] {
+function walkStack(seeds: NodeId | readonly NodeId[]): WalkItem[] {
   const initial = Array.isArray(seeds) ? seeds : [seeds]
   const stack: WalkItem[] = []
   for (let i = initial.length - 1; i >= 0; i--) {
@@ -854,7 +894,7 @@ function walkStack(seeds: NodeId | NodeId[]): WalkItem[] {
   return stack
 }
 
-function walkEdges(s: State, id: NodeId, direction: 'out' | 'in', kinds?: EdgeKind[]): readonly Edge[] {
+function walkEdges(s: State, id: NodeId, direction: 'out' | 'in', kinds?: readonly EdgeKind[]): readonly Edge[] {
   const edges = (direction === 'out' ? s.outgoing : s.incoming).get(id) ?? []
   return kinds ? edges.filter(e => kinds.includes(e.kind)) : edges
 }
@@ -874,7 +914,7 @@ function pushWalkSuccessors(
   }
 }
 
-function *walkGraph(s: State, seeds: NodeId | NodeId[], opts?: WalkOpts): IterableIterator<NodeId> {
+function *walkGraph(s: State, seeds: NodeId | readonly NodeId[], opts?: WalkOpts): IterableIterator<NodeId> {
   const direction = opts?.direction ?? 'out'
   const kinds     = opts?.kinds
   const maxDepth  = opts?.maxDepth ?? Infinity
@@ -1098,7 +1138,7 @@ function mutatorReplaceNode(next: State, applied: ChangeRecord[], id: NodeId, ne
   }
   applied.push(newNode.id === id
     ? { kind: 'node-replaced', subject: newNode.id }
-    : { kind: 'node-replaced', subject: newNode.id, oldSubject: id })
+    : { kind: 'node-replaced', subject: newNode.id, previous: id })
 }
 
 function mutatorAddEdge(
@@ -1212,7 +1252,7 @@ function mutatorReplacePeerContext(
 
   applied.push(newId === id
     ? { kind: 'peer-context-replaced', subject: newId }
-    : { kind: 'peer-context-replaced', subject: newId, oldSubject: id })
+    : { kind: 'peer-context-replaced', subject: newId, previous: id })
 }
 
 function mutatorSetTarball(
@@ -1235,7 +1275,10 @@ function mutatorRemoveTarball(next: State, applied: ChangeRecord[], inputs: Tarb
   applied.push({ kind: 'tarball-removed', subject: key })
 }
 
-function createMutator(next: State, applied: ChangeRecord[]): Mutator {
+function createMutator(next: State, applied: GraphChange[]): GraphMutation {
+  const addDiagnostic = (diagnostic: Diagnostic): void => {
+    next.diagnostics.push(diagnostic)
+  }
   return {
     addNode:            node => mutatorAddNode(next, applied, node),
     removeNode:         id => mutatorRemoveNode(next, applied, id),
@@ -1248,11 +1291,56 @@ function createMutator(next: State, applied: ChangeRecord[]): Mutator {
     // ADR-0023 §8.6 — write-side diagnostic emit. Append to the staged
     // diagnostics list; the resulting Graph.diagnostics() surfaces it
     // once mutate() settles. Same append semantics as Builder.diagnostic.
-    diagnostic:         d => next.diagnostics.push(d),
+    addDiagnostic,
+    diagnostic: addDiagnostic,
   }
 }
 
 // === Graph implementation ===================================================
+
+interface GraphAccessorImplementations {
+  readonly overrides: (graph: Graph) => readonly OverrideConstraint[]
+  readonly governingOverride: (
+    graph: Graph,
+    name: string,
+    consumerPath: readonly string[],
+    declaredRange?: string,
+  ) => OverrideConstraint | undefined
+  readonly registryPackages: (
+    graph: Graph,
+  ) => Readonly<Record<string, readonly string[]>>
+}
+
+let graphAccessors: GraphAccessorImplementations = {
+  overrides: () => [],
+  governingOverride: () => undefined,
+  registryPackages: () => Object.freeze(Object.create(null) as Record<string, readonly string[]>),
+}
+
+/** @internal Installs root-facade accessors without coupling graph storage to adapters. */
+export function configureGraphAccessors(
+  implementations: GraphAccessorImplementations,
+): void {
+  graphAccessors = implementations
+}
+
+/** @internal Invokes the configured accessor for proxy Graph implementations. */
+export const accessGraphOverrides = (graph: Graph): readonly OverrideConstraint[] =>
+  graphAccessors.overrides(graph)
+
+/** @internal Invokes the configured accessor for proxy Graph implementations. */
+export const accessGraphGoverningOverride = (
+  graph: Graph,
+  name: string,
+  consumerPath: readonly string[],
+  declaredRange?: string,
+): OverrideConstraint | undefined =>
+  graphAccessors.governingOverride(graph, name, consumerPath, declaredRange)
+
+/** @internal Invokes the configured accessor for proxy Graph implementations. */
+export const accessGraphRegistryPackages = (
+  graph: Graph,
+): Readonly<Record<string, readonly string[]>> => graphAccessors.registryPackages(graph)
 
 class GraphImpl implements Graph {
   constructor(private readonly s: State) {}
@@ -1304,7 +1392,23 @@ class GraphImpl implements Graph {
     }
   }
 
-  *walk(seeds: NodeId | NodeId[], opts?: WalkOpts): IterableIterator<NodeId> {
+  overrides(): readonly OverrideConstraint[] {
+    return accessGraphOverrides(this)
+  }
+
+  governingOverride(
+    name: string,
+    consumerPath: readonly string[],
+    declaredRange?: string,
+  ): OverrideConstraint | undefined {
+    return accessGraphGoverningOverride(this, name, consumerPath, declaredRange)
+  }
+
+  registryPackages(): Readonly<Record<string, readonly string[]>> {
+    return accessGraphRegistryPackages(this)
+  }
+
+  *walk(seeds: NodeId | readonly NodeId[], opts?: WalkOpts): IterableIterator<NodeId> {
     yield* walkGraph(this.s, seeds, opts)
   }
 
@@ -1313,7 +1417,7 @@ class GraphImpl implements Graph {
     return topologicalComponents(this.s)
   }
 
-  subgraph(seeds: NodeId | NodeId[], opts?: WalkOpts): Graph {
+  subgraph(seeds: NodeId | readonly NodeId[], opts?: WalkOpts): Graph {
     const reachable = new Set<NodeId>(this.walk(seeds, opts))
 
     const b = newBuilder()
@@ -1358,9 +1462,10 @@ class GraphImpl implements Graph {
     return this.s.layoutHints
   }
 
-  mutate(transaction: (m: Mutator) => void): MutateResult {
+  mutate(transaction: (mutation: GraphMutation) => void): GraphMutationResult {
     const next = shallowClone(this.s)
-    const applied: ChangeRecord[] = []
+    const applied: GraphChange[] = []
+    const diagnosticStart = next.diagnostics.length
 
     const m = createMutator(next, applied)
 
@@ -1374,6 +1479,7 @@ class GraphImpl implements Graph {
     return {
       graph:      nextGraph,
       applied,
+      diagnostics: next.diagnostics.slice(diagnosticStart),
       unresolved: next.diagnostics.filter(d => d.severity === 'warning'),
     }
   }
