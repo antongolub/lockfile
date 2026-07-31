@@ -32,6 +32,8 @@ jobs:
 
       - run: npm run build:dist
 
+      - run: npm run test:readme
+
       - run: npm run test:size
 
       # One instrumented run = the test gate + coverage (unit + integration +

@@ -67,6 +67,7 @@
     "test:types": "tsc --noEmit",
     "test:unit": "vitest run src/test/unit",
     "test:integration": "vitest run src/test/interop src/test/infra",
+    "test:readme": "node scripts/readme-examples.mjs",
     "test:frozen:bookend": "vitest run src/test/infra/frozen-conversion-oracle.test.ts",
     "test:frozen:pnpm-6": "vitest run src/test/infra/frozen-conversion-oracle.test.ts -t pm-pnpm-6",
     "test:coverage": "vitest run --coverage",
@@ -75,7 +76,7 @@
     "test:size": "size-limit",
     "measure": "npm run build:dist && node scripts/measure.mjs",
     "measure:verify": "npm run build:dist && node scripts/measure.mjs --deterministic-only --verify-determinism",
-    "_prepublishOnly": "npm run build:dist"
+    "_prepublishOnly": "npm run build:dist && npm run test:readme"
   },
   "dependencies": {
     "node-fetch-native": "^1.6.7",

@@ -18,6 +18,7 @@ pinning, license filtering — is the primary one.
 
 ## tl;dr
 
+<!-- readme-example id="tldr-pnpm-to-npm" mode="fixture:simple-pnpm-v9-to-npm3" -->
 ```ts
 import { readFile, writeFile } from 'node:fs/promises'
 import { parse, stringify } from 'lockgraph'
@@ -110,9 +111,12 @@ Node ≥ 14.18, ESM only. CommonJS consumers use `await import('lockgraph')`.
 
 ## Use
 
+<!-- readme-example id="convert-and-enrich" mode="typecheck" -->
 ```ts
+import { readFile } from 'node:fs/promises'
 import { convert, enrich, parse, stringify } from 'lockgraph'
 
+const raw = await readFile('yarn.lock', 'utf8')
 const graph = parse(raw, 'yarn-berry-v8')   // or parse(raw) and let it detect
 
 stringify(graph, 'yarn-berry-v10')
@@ -149,13 +153,13 @@ pair alone cannot get there: `ENRICH_REQUIRED` names the entry and what it lacks
 That is why it is async and why it takes evidence. `modify` and `enrich` are async
 for the same reason.
 
-```ts
-detect(input): FormatId | undefined
-check(input, format): boolean
-parse(input, format?, opts?): Graph          // format may also ride opts.format
-stringify(graph, format, opts?): string      // likewise
-convert(input, opts): Promise<string>
-```
+| API | Signature |
+|---|---|
+| `detect` | `(input) => FormatId \| undefined` |
+| `check` | `(input, format) => boolean` |
+| `parse` | `(input, format?, options?) => Graph`; format may also ride `options.format` |
+| `stringify` | `(graph, format, options?) => string`; format may also ride `options.format` |
+| `convert` | `(input, options) => Promise<string>` |
 
 Round-tripping is a choice the caller makes, never a default.
 
@@ -178,13 +182,13 @@ A modification leaves holes: a bumped package brings transitive dependencies the
 lockfile has never seen, and the target format may require fields the source never
 carried. Two entry points fill them.
 
-```ts
-enrich(graph, options): Promise<{ graph, diagnostics }>
-//     options: { sources?, target, contract, cacheKey? }
-//     sources: { manifests?, registry?, artifacts?, config? }
-//     target: FormatId | { format, managerVersion? }
-//     contract: 'snapshot' | 'policy' | 'project' | 'frozen'
-```
+| `enrich` option | Meaning |
+|---|---|
+| return | `Promise<{ graph, diagnostics }>` |
+| `sources` | `{ manifests?, registry?, artifacts?, config? }` |
+| `target` | `FormatId \| { format, managerVersion? }` |
+| `contract` | `'snapshot' \| 'policy' \| 'project' \| 'frozen'` |
+| `cacheKey` | optional target checksum cache-key override |
 
 **`enrich`** is the one to call. It is the target-aware facade: it completes the
 graph *and* materialises what the target manager expects, including overlays whose
@@ -201,16 +205,36 @@ deprecation. Likewise, `convert` still accepts deprecated `to` and
 Artifact cache entries are an ordered list. A family name uses that manager's
 default cache; `family:path` selects an explicit location:
 
+<!-- readme-example id="artifact-sources" mode="typecheck" -->
 ```ts
-sources: {
-  artifacts: [
-    'yarn-berry:./.yarn/cache',
-    'npm:./.cache/npm/_cacache',
-    'pnpm:./.cache/pnpm/v3',
-    artifactStore(), // verified tgz CAS; omit for no lockgraph persistence
-    { registry }, // explicit network consent, after the ordered local sources
-  ],
-}
+import { readFile, writeFile } from 'node:fs/promises'
+import {
+  artifactStore,
+  enrich,
+  liveRegistry,
+  parse,
+  stringify,
+  type ArtifactSourceList,
+} from 'lockgraph'
+
+const target = 'yarn-berry-v10'
+const graph = parse(await readFile('yarn.lock', 'utf8'))
+const registry = liveRegistry.fromConfig(process.cwd(), {
+  ecosystem: 'yarn-berry',
+})
+const artifacts = [
+  'yarn-berry:./.yarn/cache',
+  'npm:./.cache/npm/_cacache',
+  'pnpm:./.cache/pnpm/v3',
+  artifactStore(), // verified tgz CAS; omit for no lockgraph persistence
+  { registry }, // explicit network consent, after the ordered local sources
+] satisfies ArtifactSourceList
+const ready = await enrich(graph, {
+  sources: { artifacts },
+  target,
+  contract: 'project',
+})
+await writeFile('yarn.lock', stringify(ready.graph, target))
 ```
 
 The recognized families are `npm`, `yarn-berry`, and `pnpm`. npm can supply the
@@ -285,6 +309,7 @@ rather than emitting a lock Yarn would reject.
 Re-resolution, checksum refill and advisory audit need a registry URL and its
 credentials — resolved from the package-manager config, never guessed.
 
+<!-- readme-example id="registry-imports" mode="typecheck" -->
 ```ts
 import {
   defaultFetch,
@@ -316,6 +341,7 @@ remaining fifteen without wrappers:
 Downstream code may therefore migrate imports without changing invocation or
 implementation shapes:
 
+<!-- readme-example id="root-facade-imports" mode="typecheck" -->
 ```ts
 import {
   completeTransitives,
