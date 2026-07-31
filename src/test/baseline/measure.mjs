@@ -1,5 +1,31 @@
 #!/usr/bin/env node
 
+// Fingerprints the whole observable surface of a build, so "did this refactor change
+// anything?" becomes one number you can diff between two commits.
+//
+// For each of eight real locks (npm / pnpm / berry / lockgraph, small and large) it runs
+// parse, stringify, a same-format round trip, a cross-format conversion, a graph mutation
+// and an enrichment, and records a sha256 of each result — plus per-module emitted bytes,
+// the `npm pack` byte count, and TypeScript's instantiation count. Everything folds into a
+// single `reportDigest`, which moves if and only if some observable output moved; the
+// per-fixture digests then say which operation moved it.
+//
+// That is the value, and it is not what the test suite gives you. Tests assert the
+// expectations someone thought to write down. This asserts nothing and notices everything:
+// a conversion that starts emitting one different byte, a graph identity silently no longer
+// preserved, a tree-shaking regression, a type-level explosion. Run it before a refactor,
+// run it after, diff the two reports.
+//
+//   npm run measure           full report, including timings
+//   npm run measure:verify    deterministic fields only, run twice and compared —
+//                             use it to prove an output does not vary between runs
+//
+// What it is NOT: a gate. Nothing here fails a build. `RATIFIED_BASELINE` below is copied
+// into the report for reference and is compared against nothing, so it drifts silently —
+// as of 2026-07-31 its two size numbers are 23% and 27% away from what the build actually
+// produces. CI does not run this script at all. It pays off only when a human runs it on
+// both sides of a change and reads the difference.
+
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { access, readFile, readdir, stat } from 'node:fs/promises'
@@ -8,9 +34,9 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 
-import { convertAssessed, enrich, parse, stringify } from '../dist/index.js'
+import { convertAssessed, enrich, parse, stringify } from '../../../dist/index.js'
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const DIST = join(ROOT, 'dist')
 const PINNED_GENERATED_AT = '2000-01-01T00:00:00Z'
 

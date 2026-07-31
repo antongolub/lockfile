@@ -176,6 +176,33 @@ care which manager produced the input.
   still-referenced dev, optional or peer dependency.
 - **`overridesOf(graph)`** reads the canonical overrides back out.
 
+Both sweeps are synchronous, deterministic and idempotent, and both answer a
+different question — so they are alternatives, not a pipeline:
+
+<!-- readme-example id="graph-sweeps" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { optimize, parse, pruneOrphans, stringify } from 'lockgraph'
+
+const graph = parse(await readFile('pnpm-lock.yaml', 'utf8'))
+
+// Reachability — retires whatever the workspaces can no longer reach.
+const swept = optimize(graph)
+console.log(swept.removed)      // content-sorted NodeIds
+console.log(swept.unresolved)   // OPTIMIZE_* diagnostics, in emission order
+
+// Reference counting — retires only what lost its last incoming edge. Seed it
+// with the nodes your change touched and the sweep stays bounded to that delta.
+const pruned = pruneOrphans(graph, { seed: new Set(['lodash@4.17.20']) })
+console.log(pruned.removed.length)
+
+await writeFile('pnpm-lock.yaml', stringify(swept.graph, 'pnpm-v9'))
+```
+
+Leave `seed` off and `pruneOrphans` sweeps the whole graph, which over-collects
+nodes whose only incoming edge failed to resolve at parse; it refuses to run at all
+on a lock with no workspace anchor rather than cascade-wiping it.
+
 ### Completing what a change introduced
 
 A modification leaves holes: a bumped package brings transitive dependencies the
