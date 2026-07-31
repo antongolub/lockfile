@@ -37,9 +37,10 @@ await writeFile('package-lock.json', stringify(graph, 'npm-3'))
 
 All of them detect, parse and stringify. Conversion is defined for every ordered
 pair; where a pair is unsupported, the contract states which evidence is missing
-rather than only failing. [SCHEMAS.md](./docs/arch/SCHEMAS.md) maps each id to the
-manager versions that emit it; [CONVERT.md](./docs/arch/CONVERT.md) holds the pair
-matrix and its loss table.
+rather than only failing. [API.md](./docs/arch/API.md) is the full
+contract; [SCHEMAS.md](./docs/arch/SCHEMAS.md) maps each id to the manager versions
+that emit it; [CONVERT.md](./docs/arch/CONVERT.md) holds the pair matrix and its
+loss table.
 
 ## Concept
 
@@ -111,296 +112,390 @@ Node ≥ 14.18, ESM only. CommonJS consumers use `await import('lockgraph')`.
 
 ## Use
 
-<!-- readme-example id="convert-and-enrich" mode="typecheck" -->
+### Convert a lockfile
+
+<!-- readme-example id="convert" mode="fixture:pnpm-v9-to-npm3" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
+
+const lock = await convert(await readFile('pnpm-lock.yaml', 'utf8'), { target: 'npm-3' })
+await writeFile('package-lock.json', lock)
+```
+
+It converts, so it returns the bytes. This pair needs nothing but the lock; most need
+more, and say which rather than guessing. An unmet target throws `LockfileError`
+carrying the whole diagnostic record, so only non-fatal findings are worth observing:
+
+<!-- readme-example id="convert-diagnostics" mode="fixture:yarn-berry-v9-in-place" -->
 ```ts
 import { readFile } from 'node:fs/promises'
-import { convert, enrich, parse, stringify } from 'lockgraph'
+import { convert } from 'lockgraph'
 
-const raw = await readFile('yarn.lock', 'utf8')
-const graph = parse(raw, 'yarn-berry-v8')   // or parse(raw) and let it detect
-
-stringify(graph, 'yarn-berry-v10')
-// LockfileError ENRICH_REQUIRED — v10 keys its cache differently, so
-// @napi-rs/nice-android-arm-eabi@1.0.1 would emit without a checksum
-
-const artifacts = [                                   // ordered byte sources:
-  'yarn-berry:.yarn/cache',                           // Yarn's own cached zip hash
-  'npm',                                              // original tgz fallback
-]
-const ready = await enrich(graph, {
-  sources: { artifacts },
-  target: 'yarn-berry-v10',
-  contract: 'install',
-})
-const out = stringify(ready.graph, 'yarn-berry-v10')
-
-const same = await convert(raw, {
-  target: 'yarn-berry-v10',
-  sources: { artifacts },
+await convert(await readFile('yarn.lock', 'utf8'), {
+  target: 'npm-3',
+  strict: false,                                   // best effort instead of throwing
+  onDiagnostic: (d) => console.warn(d.code, d.subject),
 })
 ```
 
-The subject comes first and the format after it, as in `JSON.parse`. Omit the
-format and `parse` detects it; `stringify` needs it, since a graph does not imply a
-target. The older format-first order still works, so existing code keeps running.
+### Look before you leap
 
-`parse` and `stringify` are synchronous and see only the bytes: what the source
-carries, projected. They are enough whenever the target asks for nothing new. A
-Berry v10 checksum is not the v8 one and has to be recomputed from the cache, so the
-pair alone cannot get there: `ENRICH_REQUIRED` names the entry and what it lacks.
+<!-- readme-example id="inspect" mode="fixture:pnpm-v9-in-place" -->
+```ts
+import { readFile } from 'node:fs/promises'
+import { detect, parse } from 'lockgraph'
 
-`convert` is the last three steps in one call: parse, complete for the target, emit.
-That is why it is async and why it takes evidence. `modify` and `enrich` are async
-for the same reason.
+const raw = await readFile('pnpm-lock.yaml', 'utf8')
+detect(raw)                       // 'pnpm-v9'
 
-| API | Signature |
-|---|---|
-| `detect` | `(input) => FormatId \| undefined` |
-| `check` | `(input, format) => boolean` |
-| `parse` | `(input, format?, options?) => Graph`; format may also ride `options.format` |
-| `stringify` | `(graph, format, options?) => string`; format may also ride `options.format` |
-| `convert` | `(input, options) => Promise<string>` |
+const graph = parse(raw)          // format detected
+graph.roots()                     // the workspaces
+graph.byName('lodash')            // every lodash node id
+graph.overrides()                 // what the lock pins
+graph.diagnostics()               // what parsing found
+```
 
-Round-tripping is a choice the caller makes, never a default.
+Subject first, format after, as in `JSON.parse`. `stringify` needs the format, since a
+graph does not imply a target.
 
-### Operating on the graph
+Both are synchronous and never touch the network — but they read more than the bytes:
+parsing needs workspace and override material, emitting needs policy and strictness.
+Those go in the trailing options bag.
 
-The graph is where the value is. Both operations are format-agnostic — they do not
-care which manager produced the input.
+### The three steps, apart
 
-- **`modify`** applies primitives: `replaceVersion`, `pinOverride`, `addDependency`,
-  `removeDependency`, `applyPatch`, `filterLicense`. These are the building blocks
-  of audit-fix, override pinning and license filtering.
-- **`optimize`** sweeps unreachable nodes; **`pruneOrphans`** retires only nodes that
-  lost their last incoming edge — post-bump cleanup that never over-collects a
-  still-referenced dev, optional or peer dependency.
-- **`overridesOf(graph)`** reads the canonical overrides back out.
+`convert` is `parse` + `enrich` + `stringify`. Take them apart when you want the graph
+in between: to inspect it, to modify it, or to emit one graph to two targets without
+paying for evidence twice.
 
-The public sweep is synchronous, deterministic and idempotent. It keeps every
-workspace-reachable node and reports the removed identities:
+<!-- readme-example id="convert-and-enrich" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { enrich, parse, stringify } from 'lockgraph'
 
-<!-- readme-example id="graph-sweeps" mode="typecheck" -->
+const graph = parse(await readFile('yarn.lock', 'utf8'))
+
+const { graph: ready } = await enrich(graph, {
+  target: 'yarn-berry-v10',
+  cwd: process.cwd(),
+  sources: { artifacts: ['yarn-berry:.yarn/cache', 'npm'] },
+})
+
+await writeFile('yarn.lock', stringify(ready, 'yarn-berry-v10'))
+await writeFile('yarn-v8.lock', stringify(ready, 'yarn-berry-v8'))
+```
+
+`contract` governs what the result *claims*, not how hard enrichment works: at the
+default `'snapshot'` it still fills whatever the target format requires.
+
+### When bytes are not enough
+
+Berry v10 checksums are not the v8 ones. They have to be recomputed from the
+archives, so `parse` and `stringify` cannot reach that target — and the pair says so
+with `ENRICH_REQUIRED` instead of emitting a lock Yarn would rewrite.
+
+<!-- readme-example id="convert-with-caches" mode="typecheck" -->
+```ts
+import { readFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
+
+await convert(await readFile('yarn.lock', 'utf8'), {
+  target: 'yarn-berry-v10',
+  cwd: process.cwd(),
+  sources: { artifacts: ['yarn-berry:.yarn/cache', 'npm'] },
+})
+```
+
+Order is your preference, left to right. You say where your caches are; which of them
+supplies bytes and which supplies checksums is ours to work out.
+
+### Where the bytes come from
+
+<!-- readme-example id="artifact-sources" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { enrich, liveRegistry, parse, stringify } from 'lockgraph'
+
+const target = 'yarn-berry-v10'
+const graph = parse(await readFile('yarn.lock', 'utf8'))
+
+const artifacts = [
+  'yarn-berry:./.yarn/cache',       // families: npm and yarn-berry only —
+  'npm:./.cache/npm/_cacache',      // pnpm's decomposed store keeps no archive,
+                                    // so it fails closed instead of contributing nothing
+  liveRegistry({                    // the only byte-capable source; omit it and
+    cwd: process.cwd(),             // the operation is visibly offline
+    config: 'yarn-berry',           // which config grammar to read, not the target
+  }),                               // last: local caches are tried before the network
+]
+
+const ready = await enrich(graph, {
+  sources: { artifacts },
+  target,
+  contract: 'install',              // 'snapshot' — project the bytes as they are
+                                    // 'policy'   — and satisfy declared policy
+                                    // 'install'  — and be installable by the target
+})
+await writeFile('yarn.lock', stringify(ready.graph, target))
+```
+
+Bytes are checked against lock-recorded integrity before any checksum is recomputed,
+wherever they came from. That check is not overridable. Resource ceilings are:
+
+#### Guards, when you need them
+
+<!-- readme-example id="guards" mode="typecheck" -->
+```ts
+import { readFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
+
+await convert(await readFile('package-lock.json', 'utf8'), {
+  target: 'pnpm-v9',
+  guards: [
+    { patterns: ['typescript@5.9.2'], artifactCompressed: '512 MiB' },
+    { artifactCompressed: '128 MiB', artifactInflated: '1 GiB', networkTraffic: '2 GiB' },
+  ],
+})
+```
+
+A ceiling can abort an operation; it can never weaken verification. Tripping one
+ends that acquisition with a named diagnostic rather than returning bytes nobody
+checked.
+
+#### A cold machine
+
+<!-- readme-example id="store" mode="typecheck" -->
+```ts
+import { readFile } from 'node:fs/promises'
+import { convert, lockgraphStore } from 'lockgraph'
+
+const lockfile = await readFile('package-lock.json', 'utf8')
+const target = { format: 'yarn-berry-v8', cacheKey: '10c0' } as const
+
+// Default: the global store is consulted first, then the ordered sources.
+// It lives under $XDG_CACHE_HOME/lockgraph, holds 5 GiB, evicts deterministically.
+await convert(lockfile, { target, sources: { artifacts: ['npm'] } })
+
+// `false` disables reads and writes alike — a build that touches no shared cache.
+await convert(lockfile, { target, store: false, sources: { artifacts: ['npm'] } })
+
+// A store this operation owns — a CI cache directory, capped.
+await convert(lockfile, {
+  target,
+  store: lockgraphStore('./.cache/lockgraph', { maxBytes: '2 GiB' }),
+  sources: { artifacts: ['npm'] },
+})
+```
+
+A hit is never trusted for being a hit: it is re-verified against the current
+lockfile's digests before use, so deleting the store changes how long an operation
+takes and nothing about what it produces. Layout, permissions, pinning and eviction
+are in [API.md](./docs/arch/API.md).
+
+### Settling the graph after a change
+
+<!-- readme-example id="audit-fix" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { complete, modify, parse, stringify } from 'lockgraph'
+
+const target = 'npm-3'
+const graph = parse(await readFile('package-lock.json', 'utf8'))
+
+const bumped = await modify(graph, [
+  { kind: 'replaceVersion', selector: { name: 'lodash' }, to: '4.17.21' },
+  { kind: 'pinOverride', name: 'minimist', to: '1.2.8' },
+], { target })
+
+const settled = await complete(bumped.graph, {
+  target,
+  seed: bumped.frontier,   // what this change added and orphaned — nothing else
+  pruneOrphans: true,      // retire what it stranded
+})
+
+await writeFile('package-lock.json', stringify(settled.graph, target))
+```
+
+A bump is the same edit whichever manager produced the lock. The `frontier` is what
+keeps the second pass bounded to the change instead of re-deriving the whole graph.
+
+With no change to settle, sweep by reachability instead:
+
+<!-- readme-example id="graph-sweeps" mode="fixture:pnpm-v9-swept" -->
 ```ts
 import { readFile, writeFile } from 'node:fs/promises'
 import { parse, removeUnreachable, stringify } from 'lockgraph'
 
 const graph = parse(await readFile('pnpm-lock.yaml', 'utf8'))
 
-// Reachability — retires whatever the workspaces can no longer reach.
-const swept = removeUnreachable(graph)
-console.log(swept.removed)      // content-sorted NodeIds
-console.log(swept.diagnostics)  // operation diagnostics, in emission order
+const swept = removeUnreachable(graph)   // sync, deterministic, idempotent; refuses a
+console.log(swept.removed)               // graph with no workspace anchor rather than
+                                         // cascade-wiping it
 
-await writeFile('pnpm-lock.yaml', stringify(swept.graph, 'pnpm-v9'))
+// The sweep drops adapter state the emit is strict about, so the loss is declared.
+await writeFile('pnpm-lock.yaml', stringify(swept.graph, 'pnpm-v9', { strict: false }))
 ```
 
-The operation refuses a graph with no workspace anchor rather than
-cascade-wiping it. Delta-local orphan bookkeeping remains an internal part of
-ordered modification batches; it is not a second public graph-cleanup verb.
+### A whole project, not just its lockfile
 
-### Completing what a change introduced
-
-A modification leaves holes: a bumped package brings transitive dependencies the
-lockfile has never seen, and the target format may require fields the source never
-carried. Two entry points fill them.
-
-| `enrich` option | Meaning |
-|---|---|
-| return | `Promise<{ graph, diagnostics }>` |
-| `sources` | `{ manifests?, registry?, artifacts?, config? }` |
-| `target` | `FormatId \| { format, managerVersion? }` |
-| `contract` | `'snapshot' \| 'policy' \| 'project' \| 'frozen'` |
-| `cacheKey` | optional target checksum cache-key override |
-
-**`enrich`** is the one to call. It is the target-aware facade: it completes the
-graph *and* materialises what the target manager expects, including overlays whose
-order matters. **`completeTransitives`** is the primitive
-underneath — it wires the transitive closure from the registry, with optional
-node-local `engines` / `license` gates and declared overrides honoured so the
-result stays frozen-clean.
-
-The former `enrich(graph, sources, options)` form remains available under
-deprecation. Likewise, `convert` still accepts deprecated `to` and
-`targetVersion`; new code uses `target` and, when pinned,
-`target: { format, managerVersion }`.
-
-Artifact cache entries are an ordered list. A family name uses that manager's
-default cache; `family:path` selects an explicit location:
-
-<!-- readme-example id="artifact-sources" mode="typecheck" -->
+<!-- readme-example id="project" mode="typecheck" -->
 ```ts
-import { readFile, writeFile } from 'node:fs/promises'
-import {
-  enrich,
-  liveRegistry,
-  parse,
-  stringify,
-} from 'lockgraph'
+import { writeFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
 
-const target = 'yarn-berry-v10'
-const graph = parse(await readFile('yarn.lock', 'utf8'))
-const registry = liveRegistry({
+const { lockfile, companions } = await convert(
+  ['package.json', 'packages/*/package.json', 'pnpm-lock.yaml'],
+  //  ^ paths or globs; a { path: content } map instead operates on a synthetic
+  //    project and never touches the filesystem. Coverage is derived from the
+  //    root manifest — you cannot overstate it, and a gap is a diagnostic.
+  { target: 'yarn-berry-v8', contract: 'install' },
+)
+
+await writeFile('yarn.lock', lockfile)
+for (const file of companions) await writeFile(file.path, file.content)
+//   ^ the files that must change with the lock. Which ones depends on the pair,
+//     so the list is computed; skip them and the target manager rejects the lock.
+```
+
+### Reaching the network, or refusing to
+
+<!-- readme-example id="registry" mode="typecheck" -->
+```ts
+import { readFile } from 'node:fs/promises'
+import { defaultFetch, enrich, frozenRegistry, liveRegistry, parse } from 'lockgraph'
+import type { Limiter } from 'lockgraph'
+
+const graph = parse(await readFile('package-lock.json', 'utf8'))
+
+// Retries are a fetch wrapping the default one — nothing to register.
+const retrying: typeof fetch = async (input, init) => {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await defaultFetch(input, init)
+    if (attempt === 3) return response
+    if (response.status !== 429 && response.status < 500) return response
+    const after = Number(response.headers.get('retry-after')) * 1000
+    await new Promise((wake) => setTimeout(wake, after || 2 ** attempt * 100))
+  }
+}
+
+// A pool is any function that gates how many tasks run at once.
+const pool = (size: number): Limiter => {
+  const running = new Set<Promise<unknown>>()
+  return async (task) => {
+    while (running.size >= size) await Promise.race(running)
+    const started = task()
+    running.add(started)
+    return started.finally(() => running.delete(started))
+  }
+}
+
+const live = liveRegistry({
   cwd: process.cwd(),
-  config: 'yarn-berry',
+  config: 'npm',        // the resolution flow to walk, not the conversion target
+  fetch: retrying,      // your transport
+  limit: pool(8),       // your concurrency
 })
-const artifacts = [
-  'yarn-berry:./.yarn/cache',
-  'npm:./.cache/npm/_cacache',
-  registry, // explicit remote-byte authority, after the ordered local sources
-]
-const ready = await enrich(graph, {
-  sources: { artifacts },
-  target,
-  contract: 'install',
+
+const offline = frozenRegistry(graph)   // answers only from what the graph records
+
+await enrich(graph, {
+  target: 'pnpm-v9',
+  sources: { packuments: [offline, live], artifacts: [live] },
 })
-await writeFile('yarn.lock', stringify(ready.graph, target))
 ```
 
-The recognized families are `npm` and `yarn-berry`. npm can supply the original
-registry tgz and Yarn can supply its own repacked-zip checksum. `pnpm` and
-`pnpm:*` fail closed: the decomposed pnpm store supplies neither a retained
-registry tarball nor a lock-carried archive checksum. Those byte kinds are never
-relabelled. Existing callers may still pass either a split
-`RefurbishSources` object or the deprecated combined `TarballSource`; the direct
-`refurbish` primitive keeps its object contract.
+**`config` says whose configuration to read — not what to emit.** `'npm'` walks
+`.npmrc` from `cwd` upward, then the user and global files, then `NPM_CONFIG_*`, and
+from that knows, per package, which registry serves it — `@scope:registry` included —
+and which credential that host takes. `'pnpm'`, `'yarn-classic'` and `'yarn-berry'`
+walk their own.
 
-Only a `LiveRegistryAdapter` is byte-capable. Build a scope-aware one with
-`liveRegistry.fromConfig(cwd, options)` and place `registry` in the ordered
-artifact list; omitting it is visibly offline. A remote URL is requested only
-when it is inside that package's configured route or is attested by exact
-name-and-version metadata. Redirects are followed manually and re-authorized
-per hop, while credentials are attached only after route authorization. Returned
-tgz bytes are always checked against lock-recorded integrity before a target
-checksum is recomputed; absence, unsupported integrity, and mismatch are separate
-named deferrals.
+So an npm shop emitting a Yarn lock still writes `config: 'npm'`: that is where its
+tokens are. Two ways to answer:
 
-That central check also applies to local bytes. A hand-written legacy
-`TarballSource.tarball()` that returns bytes for a graph with no verifiable
-digest previously produced a checksum; it now defers with
-`ENRICH_ARTIFACT_INTEGRITY_MISSING`. Real npm-family locks carry tgz integrity,
-and Berry locks use the source-domain verification path described below.
-
-Artifact processing is fail-closed under mandatory safety ceilings for compressed
-input, inflated tar, cumulative tar content, repacked zip, and simultaneously
-live materializations. Defaults are intentionally generous (384 MiB compressed,
-3 GiB for each materialized expansion, 7 GiB live) and can be raised or lowered
-globally or per tarball through `artifactResources`; a limit diagnostic
-distinguishes the implementation default from a caller-provided ceiling. Large
-artifact throughput can therefore be bounded by the live-byte meter; increasing
-worker concurrency is not a remedy.
-
-Lockgraph persistence is enabled by default and is separate from the ordered
-artifact-source list. The operation first checks its lockgraph-owned,
-integrity-addressed tgz store, then traverses the configured external sources,
-and writes back only centrally verified bytes. Pass `store: false` to disable
-both reads and writes. `store: lockgraphStore(path, { maxBytes })` replaces the
-global store for that operation. The default store uses
-`$XDG_CACHE_HOME/lockgraph` when that variable is absolute and
-`~/.cache/lockgraph` otherwise. Capacity defaults to 5 GiB and is always
-enforced by deterministic least-recently-used eviction. Before the operation's
-first store filesystem mutation, `STORE_PATH_RESOLVED` reports the resolved
-path exactly once.
-
-Only bytes that have passed the same central envelope and current-lock
-integrity checks are written. A hit verifies its canonical SHA-512 object and
-then traverses those checks again. Digest aliases are lookup indexes, never
-remembered proof. Corrupt objects or aliases emit
-`ENRICH_ARTIFACT_STORE_CORRUPT`, are removed, and source traversal continues;
-the next verified fetch self-heals the object or index. Writes use private
-`0700` directories, `0600` files, same-filesystem temp-and-rename commits,
-cross-process pins, dead-owner recovery, and deterministic eviction that never
-removes an in-flight object. Stable paths and metadata contain no package name,
-URL, header, token, or raw diagnostic. A public tarball digest can itself be
-corpus-inverted, so the precise privacy claim is that the store adds no
-identifying material beyond what content addressing inherently implies.
-
-When moving between Berry cache keys, an existing checksum remains source-domain
-verification evidence: the tgz must first reproduce it before the one Yarn-
-emittable checksum is superseded with the target-domain digest. The pure-JS pako
-path is required because Berry lock syntax cannot carry npm tgz SRI evidence.
-It covers STORE plus mixed cache keys 7, 8, and 9. Mixed cache key 10 requires
-the optional `@yarnpkg/libzip`; when it is absent and actually required,
-`ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED` names that installation remedy.
-
-Calling the primitives directly is supported but incomplete: `completeTransitives`
-plus `refurbish` does not materialise Berry target-compatibility entries, and
-strict output says so with `COMPLETENESS_TARGET_COMPATIBILITY_OVERLAY_REQUIRED`
-rather than emitting a lock Yarn would reject.
-
-### Registry
-
-Re-resolution, checksum refill and advisory audit need a registry URL and its
-credentials — resolved from the package-manager config, never guessed.
-
-<!-- readme-example id="registry-imports" mode="typecheck" -->
+<!-- readme-example id="registry-config" mode="typecheck" -->
 ```ts
-import {
-  defaultFetch,
-  frozenRegistry,
-  liveRegistry,
-  resolveRegistry,
-} from 'lockgraph'
+import { liveRegistry } from 'lockgraph'
+
+const PRIVATE = 'https://npm.acme.dev/'
+const PUBLIC = 'https://registry.npmjs.org/'
+
+// Either — walk that package manager's own configuration flow from disk.
+const discovered = liveRegistry({ cwd: process.cwd(), config: 'npm' })
+
+// Or — answer them yourself. Nothing is read, nothing is discovered.
+const declared = liveRegistry({
+  config: {
+    registryFor: (name) => (name.startsWith('@acme/') ? PRIVATE : PUBLIC),
+    // Asked about a registry root, never an arbitrary URL.
+    authHeaderFor: (root) =>
+      root === PRIVATE ? `Bearer ${process.env.ACME_TOKEN}` : undefined,
+  },
+})
 ```
 
-`liveRegistry` talks to the network; `frozenRegistry` answers only from recorded
-evidence, so a build can be proven offline. `resolveRegistry` reads the scope, auth
-and host binding out of the ecosystem's own configuration. Transport and
-concurrency are seams: pass your own `fetch` for proxy or CA handling, and your own
-`limit` for rate control.
+The object form suits a container, a test, or a service holding its own credentials.
+Either way the adapter confines what it is given to that route and revalidates every
+request and redirect hop, so a token cannot leak to another origin — that binding is
+the library's job, not yours.
 
-Everything not listed here works offline against the lockfile bytes alone.
+Only re-resolution, checksum refill and advisory audit need a registry at all.
 
-### One public entry point
+### Proving it installs
 
-The package publishes one coherent facade: import every supported operation,
-constructor and extension type from `lockgraph`. Implementation modules and the
-former operation/registry subpaths are private, so callers never need to know how
-the library is laid out internally.
-
-<!-- readme-example id="root-facade-imports" mode="typecheck" -->
+<!-- readme-example id="frozen" mode="typecheck" -->
 ```ts
-import {
-  complete,
-  defaultFetch,
-  engines,
-  enrich,
-  liveRegistry,
-  modify,
-  removeUnreachable,
-  resolveRegistry,
-  selectConstrained,
-  type Condition,
-  type Limiter,
-  type RegistryConfig,
-} from 'lockgraph'
+import { execFile } from 'node:child_process'
+import { writeFile } from 'node:fs/promises'
+import { promisify } from 'node:util'
+import { certifyFrozen, prepareFrozen } from 'lockgraph'
+
+const run = promisify(execFile)
+const cwd = process.cwd()
+const { stdout } = await run('npm', ['--version'], { cwd })
+const version = stdout.trim()               // the oracle names its own version
+
+const { candidate, assessment } = await prepareFrozen(
+  ['package.json', 'package-lock.json'],
+  { target: { format: 'npm-3', managerVersion: version }, cwd },
+)
+if (assessment.status !== 'satisfied') throw new Error(assessment.status)
+
+await writeFile('package-lock.json', candidate.lockfile)
+for (const file of candidate.companions) await writeFile(file.path, file.content)
+
+await run('npm', ['ci', '--ignore-scripts'], { cwd })   // the manager decides
+
+// Fails closed unless npm left those exact bytes untouched.
+const certified = await certifyFrozen(candidate, {
+  files: ['package-lock.json'],
+  cwd,
+  manager: 'npm',
+  version,
+})
+console.log(certified.verification)
 ```
 
-Use root `check`, `detect`, `parse`, and `stringify` for every supported format.
-The root also exposes the registry and transport seams needed to implement
-offline or custom-network operation policies without importing private modules.
+The strongest claim available: *this exact manager version accepts this exact file
+unchanged*. A stale, copied or cross-target candidate fails closed.
 
-### Frozen certification
-
-For the strongest claim — *this exact manager version accepts this exact file
-unchanged* — `prepareFrozen` emits a challenge, you run the native command, and
-`certifyFrozen` binds the receipt to those exact bytes, target, platform and
-config digest. A stale, copied or cross-target candidate fails closed.
-
-Core never shells out. Those hashes provide **integrity**, not **authenticity**:
-they stop a receipt being reused for another projection, but cannot prove an
-untrusted party really ran the manager. See
-[CONVERT.md](./docs/arch/CONVERT.md#frozen-candidate-and-certification-lifecycle).
+The binding gives **integrity**, not **authenticity** — it stops a receipt being reused
+for another projection, but cannot prove an untrusted party really ran the manager.
+[CONVERT.md](./docs/arch/CONVERT.md#frozen-candidate-and-certification-lifecycle) has
+the lifecycle.
 
 ## Errors
 
 The library operates on a large set of deterministic, documented failure modes.
 Each code names its cause and, where a remedy exists, the action that resolves it.
-`LockfileError` carries format and conversion failures, `GraphError` covers
-invariant violations, and recoverable loss flows through the non-throwing
-`Diagnostic` channel and `onDiagnostic`.
+Everything thrown is a `LockfileError` carrying its code and its diagnostics;
+recoverable loss flows through the non-throwing `Diagnostic` channel and
+`onDiagnostic` instead.
 
 The full catalogue — codes, causes, remedies — is
-[ERRORS.md](./docs/arch/ERRORS.md).
+[ERRORS.md](./docs/arch/ERRORS.md). The full public contract is
+[API.md](./docs/arch/API.md).
 
 ## Specifications
 
