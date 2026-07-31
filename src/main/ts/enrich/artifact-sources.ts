@@ -127,7 +127,10 @@ interface CacheCapabilities {
   readonly yarnBerryChecksums?: YarnBerryChecksumSource
 }
 
-function cacheCapabilitiesOf(specifier: ParsedCacheSpecifier): CacheCapabilities {
+function cacheCapabilitiesOf(
+  specifier: ParsedCacheSpecifier,
+  context: Readonly<{ workspaceRoot?: string }>,
+): CacheCapabilities {
   if (specifier.family === 'npm') {
     const cache = npmCache(
       specifier.path === undefined ? {} : { cacheDir: specifier.path },
@@ -136,7 +139,11 @@ function cacheCapabilitiesOf(specifier: ParsedCacheSpecifier): CacheCapabilities
   }
   if (specifier.family === 'yarn-berry') {
     const cache = yarnBerryCache(
-      specifier.path === undefined ? {} : { cacheFolder: specifier.path },
+      specifier.path === undefined
+        ? context.workspaceRoot === undefined
+          ? {}
+          : { workspaceRoot: context.workspaceRoot }
+        : { cacheFolder: specifier.path },
     )
     return { cache, yarnBerryChecksums: cache }
   }
@@ -179,7 +186,10 @@ function firstYarnBerryChecksum(
   })
 }
 
-function normalizeList(list: ArtifactSourceList): NormalizedArtifactSources {
+function normalizeList(
+  list: ArtifactSourceList,
+  context: Readonly<{ workspaceRoot?: string }>,
+): NormalizedArtifactSources {
   const entries: NormalizedArtifactSource[] = []
   const caches: CacheAdapter[] = []
   const remotes: RegistryAdapter[] = []
@@ -191,7 +201,7 @@ function normalizeList(list: ArtifactSourceList): NormalizedArtifactSources {
     const item = list[index]
     if (typeof item === 'string') {
       const specifier = cacheSpecifierOf(item, index)
-      const capabilities = cacheCapabilitiesOf(specifier)
+      const capabilities = cacheCapabilitiesOf(specifier, context)
       caches.push(capabilities.cache)
       entries.push(Object.freeze({
         kind: 'cache',
@@ -275,8 +285,9 @@ function normalizeLegacy(source: TarballSource): NormalizedArtifactSources {
 
 export function normalizeArtifactSources(
   source: ArtifactSourcesInput,
+  context: Readonly<{ workspaceRoot?: string }> = {},
 ): NormalizedArtifactSources {
-  if (Array.isArray(source)) return normalizeList(source as ArtifactSourceList)
+  if (Array.isArray(source)) return normalizeList(source as ArtifactSourceList, context)
   if (source === null || typeof source !== 'object') {
     throw invalidArtifactSource('expected a source object or ordered list')
   }

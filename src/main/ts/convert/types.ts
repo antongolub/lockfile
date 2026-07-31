@@ -2,6 +2,7 @@ import type { Manifest } from '../graph.ts'
 import type { EnrichSources } from '../enrich/facade.ts'
 import type { FormatId } from '../api/format-contract.ts'
 import type { TargetInput } from '../completeness/types.ts'
+import type { ArtifactResourcePolicy } from '../recipe/artifact-envelope.ts'
 
 /** Supplies an in-memory project file map. */
 export interface ProjectInput {
@@ -43,6 +44,8 @@ export interface ConvertCommonOptions {
   readonly manifests?: Record<string, Manifest>
   readonly lineEnding?: 'lf' | 'crlf'
   readonly cacheKey?: string
+  /** Mandatory-on artifact safety envelope forwarded to enrichment. */
+  readonly artifactResources?: ArtifactResourcePolicy
   readonly onDiagnostic?: (diagnostic: import('../graph.ts').Diagnostic) => void
 }
 

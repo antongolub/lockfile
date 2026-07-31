@@ -96,6 +96,7 @@ export interface EnrichOptions {
   readonly target: TargetInput
   readonly contract: ConversionContract
   readonly cacheKey?: string
+  readonly workspaceRoot?: string
   /** Mandatory-on artifact safety envelope. Callers may tune the implementation
    * ceilings globally or for an exact TarballKey; verification/accounting cannot
    * be disabled. */
@@ -505,7 +506,11 @@ export async function enrich(
     : (sourcesOrOptions as EnrichOptions).sources ?? {}
   const artifacts = sources.artifacts === undefined
     ? undefined
-    : normalizeArtifactSources(sources.artifacts)
+    : normalizeArtifactSources(sources.artifacts, {
+        ...(options.workspaceRoot === undefined
+          ? {}
+          : { workspaceRoot: options.workspaceRoot }),
+      })
   const targetRequest = targetRequestOf(options.target)
   const target = targetProfileOf(targetRequest)
   const diagnostics: Diagnostic[] = []

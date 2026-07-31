@@ -413,6 +413,10 @@ async function prepareConversionRuntime(
     },
     contract,
     ...(options.cacheKey === undefined ? {} : { cacheKey: options.cacheKey }),
+    ...(options.workspaceRoot === undefined ? {} : { workspaceRoot: options.workspaceRoot }),
+    ...(options.artifactResources === undefined
+      ? {}
+      : { artifactResources: options.artifactResources }),
   })
   graph = enriched.graph
   for (const diagnostic of enriched.diagnostics) report(diagnostic)
