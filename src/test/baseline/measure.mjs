@@ -341,23 +341,15 @@ async function fileBytes(files) {
   return bytes
 }
 
+// Read out of package.json rather than restated here, because a restated copy drifts:
+// this list still expected a `registry/index` emit after that subpath became an alias of
+// the root, and still enumerated `./formats/*` subpaths that stopped being public — so
+// the script had not run since. What ships is what gets attributed.
 async function publicEntries() {
-  const output = [
-    ['.', 'index'],
-    ['./complete', 'complete/index'],
-    ['./enrich', 'enrich/index'],
-    ['./modify', 'modify/index'],
-    ['./optimize', 'optimize/index'],
-    ['./registry', 'registry/index'],
-  ]
-  const formatFiles = (await readdir(join(DIST, 'formats')))
-    .filter(name => name.endsWith('.js') && !name.startsWith('_'))
-    .sort(compareStrings)
-  for (const file of formatFiles) {
-    const name = file.slice(0, -3)
-    output.push([`./formats/${name}`, `formats/${name}`])
-  }
-  return output
+  const manifest = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
+  return Object.entries(manifest.exports)
+    .map(([subpath, target]) => [subpath, target.default.replace(/^\.\/dist\//, '').replace(/\.js$/, '')])
+    .sort(([left], [right]) => compareStrings(left, right))
 }
 
 async function emittedAttribution() {
