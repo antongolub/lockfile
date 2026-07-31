@@ -1,3 +1,8 @@
+## [0.6.1](https://github.com/lockgraph/lockgraph/compare/v0.6.0...v0.6.1) (2026-07-31)
+
+### Fixes & improvements
+* docs: split readme.md and api.md ([b3da8f3](https://github.com/lockgraph/lockgraph/commit/b3da8f3b43fbc91816bb64dd9b9394f2b1ad7740))
+
 ## [0.6.0](https://github.com/lockgraph/lockgraph/compare/v0.5.0...v0.6.0) (2026-07-31)
 
 ### Features
