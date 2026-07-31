@@ -1,3 +1,27 @@
+## [0.6.0](https://github.com/lockgraph/lockgraph/compare/v0.5.0...v0.6.0) (2026-07-31)
+
+### Features
+* feat(api): unify operations on one options spine and one public entry ([3de5a47](https://github.com/lockgraph/lockgraph/commit/3de5a47cb0573961a7886e2d0f5c0d5364e27b2a))
+* feat(api): promote downstream seams to the root facade ([698d81b](https://github.com/lockgraph/lockgraph/commit/698d81b65d503eb1acb1e55525e5f57bc95bc3a1))
+* feat(enrich): persist verified artifact bytes in a private CAS ([bd6b2a0](https://github.com/lockgraph/lockgraph/commit/bd6b2a06f14c20202b2625b702e717cd2cfb4171))
+* feat(enrich): fetch and verify artifact bytes from registries ([f012ff7](https://github.com/lockgraph/lockgraph/commit/f012ff75548517830204f6ef5388a508737f62f8))
+* feat(enrich): accept ordered artifact source lists ([7feafbe](https://github.com/lockgraph/lockgraph/commit/7feafbe5cbdd82d7cb9300efeebe23c737e7dcc8))
+* feat(api): unify target and enrich option shapes ([0adcd8a](https://github.com/lockgraph/lockgraph/commit/0adcd8aa18928079457a8802ec07ea8fbb15927f))
+* feat(registry): separate npm-tarball and yarn-checksum byte sources ([a5685c1](https://github.com/lockgraph/lockgraph/commit/a5685c166d254ee881c461569a4ad2d4bb418f32))
+
+### Fixes & improvements
+* fix(baseline): attribute the subpaths package.json actually exports ([2b8a6c8](https://github.com/lockgraph/lockgraph/commit/2b8a6c8ab99df0d305f24903a522c619d28f9914))
+* fix(convert): forward workspace root and artifact resource policy to enrichment ([d60bf43](https://github.com/lockgraph/lockgraph/commit/d60bf435691420f8be424b3fb321fe2b60ebfb06))
+* fix: preserve npm alias identity across projections ([86b8432](https://github.com/lockgraph/lockgraph/commit/86b84322d6bd82c4e048858681131c2b4ee032f2))
+* docs(yarn): describe how repacked zips are stored ([6713f62](https://github.com/lockgraph/lockgraph/commit/6713f62dbf79976cf3e62919cd80f1a7d5d4a524))
+* fix: preserve npm local directory resolutions ([9ca05ad](https://github.com/lockgraph/lockgraph/commit/9ca05ad787c77ec0d43af51b61755db3177fcb86))
+* fix: separate project roots from graph roots ([8beff8c](https://github.com/lockgraph/lockgraph/commit/8beff8c022da0af200e112db416fd27d1ac078e4))
+* refactor(api): accept the subject first in parse, stringify and check ([84904ae](https://github.com/lockgraph/lockgraph/commit/84904aeddcde23a60f8479c975a286994141f8bd))
+* docs: record measured conversion boundaries ([99074ef](https://github.com/lockgraph/lockgraph/commit/99074ef8a4f1b93ddeeedfb83df48d72e42a3683))
+* fix: preserve dependency declaration semantics in projections ([0bbd36c](https://github.com/lockgraph/lockgraph/commit/0bbd36c6c81ea01c35ea4c9e76af512bd27f2c54))
+* fix(npm): suppress repeated install occurrences of aliased edges ([9b64bd5](https://github.com/lockgraph/lockgraph/commit/9b64bd59e1999e7a0d677551df75537f4185b760))
+* docs: readme imprs ([f9e24b4](https://github.com/lockgraph/lockgraph/commit/f9e24b42001fce47c84aeb1229424bec6c393af0))
+
 ## [0.5.0](https://github.com/lockgraph/lockgraph/compare/v0.4.0...v0.5.0) (2026-07-28)
 
 ### Features
