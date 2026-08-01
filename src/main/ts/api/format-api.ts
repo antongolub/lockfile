@@ -6,6 +6,7 @@ import type {
   PackageMetadataField,
   TarballPayload,
 } from '../graph.ts'
+import { toTarballKey } from '../graph.ts'
 import { LockfileError } from './errors.ts'
 import type {
   FormatId,
@@ -57,8 +58,18 @@ import {
 } from '../completeness/projection.ts'
 import { captureOverrides, reportYarnOverridesNotProjected, type OverridePM } from '../recipe/overrides.ts'
 import { governingOverrideFor } from '../recipe/descriptor-resolve.ts'
-import type { Integrity } from '../recipe/integrity.ts'
-import type { ResolutionCanonical } from '../recipe/resolution.ts'
+import {
+  emitBerryChecksum,
+  emitSri,
+  parseBerryChecksum,
+  parseSri,
+  type Integrity,
+} from '../recipe/integrity.ts'
+import {
+  parse as parseResolution,
+  stringifyForYarnBerry,
+  type ResolutionCanonical,
+} from '../recipe/resolution.ts'
 import {
   UNRESOLVED_DEPENDENCY_FEATURE,
   unresolvedDependencyDeclarationsOf,
@@ -509,6 +520,7 @@ export function canonicalGraphSnapshot(
   projectedIntegrities?: ReadonlyMap<string, Integrity | undefined>,
   projectedMetadataDrops?: ReadonlyMap<string, ReadonlySet<PackageMetadataField>>,
   projectNativeBerryWorkspaceRoot = false,
+  projectBerryChecksumCacheKey = true,
 ): string {
   const projectedRootIds = new Map<string, string>()
   if (projectNativeBerryWorkspaceRoot) {
@@ -573,7 +585,7 @@ export function canonicalGraphSnapshot(
     const metadataDrops = projectedMetadataDrops?.get(key)
     const projected = {
       ...(integrity === undefined ? {} : { integrity }),
-      ...(payload.berryChecksumCacheKey === undefined ? {} : {
+      ...(payload.berryChecksumCacheKey === undefined || !projectBerryChecksumCacheKey ? {} : {
         berryChecksumCacheKey: payload.berryChecksumCacheKey,
       }),
       ...(payload.engines === undefined || metadataDrops?.has('engines') ? {} : { engines: payload.engines }),
@@ -615,10 +627,64 @@ export function canonicalGraphSnapshot(
 
 // === PROJECTION SNAPSHOTS ===================================================
 
-/** Snapshot the graph as the target adapter will project it. Most targets use
- * the canonical graph unchanged. Yarn classic is the exception for freshly
- * minted registry tarballs: it rehosts their canonical URL to the configured /
- * inferred classic registry while native entries remain verbatim. */
+/** Integrity after serialization through the target's actual carrier. The
+ * canonical graph retains every origin; this projection exists only for the
+ * output/reparse comparator. */
+function projectedTargetIntegrities(
+  graph: Graph,
+  target: FormatId,
+): ReadonlyMap<string, Integrity | undefined> | undefined {
+  if (target === 'yarn-classic') return yarnClassic.projectedCanonicalIntegrities(graph)
+  const family = targetProfileOf({ format: target }).capabilities.integrity
+  if (family !== 'berry-zip' && family !== 'tarball-sri') return undefined
+
+  const projected = new Map<string, Integrity | undefined>()
+  for (const [key, payload] of graph.tarballs()) {
+    if (payload.integrity === undefined) continue
+    if (family === 'berry-zip') {
+      const checksum = emitBerryChecksum(payload.integrity)
+      projected.set(key, checksum === undefined
+        ? undefined
+        : parseBerryChecksum(checksum).integrity)
+      continue
+    }
+    const sri = emitSri(payload.integrity)
+    projected.set(key, sri === undefined ? undefined : parseSri(sri))
+  }
+  return projected.size === 0 ? undefined : projected
+}
+
+/** Resolution after serialization through the target's actual carrier. Berry
+ * registry locators do not carry the source tarball URL (including a classic
+ * `#shasum` fragment), so compare against the URL Berry reconstructs on parse
+ * while leaving the canonical Graph untouched. */
+function projectedTargetResolutions(
+  graph: Graph,
+  target: FormatId,
+): ReadonlyMap<string, ResolutionCanonical> | undefined {
+  if (target === 'yarn-classic') return yarnClassic.projectedCanonicalResolutions(graph)
+  if (!target.startsWith('yarn-berry-')) return undefined
+
+  const projected = new Map<string, ResolutionCanonical>()
+  for (const node of graph.nodes()) {
+    if (node.workspacePath !== undefined) continue
+    const resolution = graph.tarballOf(node.id)?.resolution
+    if (resolution === undefined) continue
+    const locator = stringifyForYarnBerry(resolution, {
+      name: node.name,
+      version: node.version,
+    })
+    projected.set(toTarballKey(node), parseResolution(locator, {
+      sourceKind: 'yarn-berry-locator',
+      name: node.name,
+    }))
+  }
+  return projected.size === 0 ? undefined : projected
+}
+
+/** Snapshot the graph as the target adapter will project it. Target-neutral
+ * authorities stay on Graph while the comparator sees only representable
+ * resolution, integrity, metadata, and workspace-root spellings. */
 export function canonicalProjectionGraphSnapshot(
   graph: Graph,
   target: FormatId,
@@ -631,12 +697,9 @@ export function canonicalProjectionGraphSnapshot(
   // stringify API that can has no projection comparator. This is therefore
   // safely over-strict today; exposing `registryFor` generically must also plumb
   // it through this projection boundary.
-  const projectedResolutions = target === 'yarn-classic'
-    ? yarnClassic.projectedCanonicalResolutions(graph)
-    : undefined
-  const projectedIntegrities = target === 'yarn-classic'
-    ? yarnClassic.projectedCanonicalIntegrities(graph)
-    : undefined
+  const projectedResolutions = projectedTargetResolutions(graph, target)
+  const targetProfile = targetProfileOf({ format: target })
+  const projectedIntegrities = projectedTargetIntegrities(graph, target)
   const projectedMetadataDrops = projectedConditionsMetadataDrops(
     graph,
     target,
@@ -651,6 +714,8 @@ export function canonicalProjectionGraphSnapshot(
     projectedIntegrities,
     projectedMetadataDrops,
     target.startsWith('yarn-berry-'),
+    targetProfile.capabilities.integrity === 'berry-zip'
+      || targetProfile.capabilities.integrity === 'canonical',
   )
 }
 

@@ -33,6 +33,7 @@ import {
 import { normalizeArtifactSources } from '../../main/ts/enrich/artifact-sources.ts'
 import type { EnrichOptions } from '../../main/ts/enrich/facade.ts'
 import type { ConvertOptions } from '../../main/ts/convert/types.ts'
+import { pruneOrphans } from '../../main/ts/optimize/prune.ts'
 import type {
   Packument,
   PackumentVersion,
@@ -297,6 +298,130 @@ describe('0.6 operation spine — modify', () => {
     expect(Object.isFrozen(result)).toBe(true)
     expect(Object.isFrozen(result.diagnostics)).toBe(true)
     expect(Object.isFrozen(result.applied)).toBe(true)
+  })
+
+  it('derives a live orphan seed from the whole operation', async () => {
+    const graph = graphOf(builder => {
+      const workspace = addPackage(builder, {
+        name: 'app',
+        version: '0.0.0',
+        workspacePath: '.',
+      })
+      const old = addPackage(builder, { name: 'pkg', version: '1.0.0' })
+      const target = addPackage(builder, { name: 'pkg', version: '2.0.0' })
+      const child = addPackage(builder, { name: 'child', version: '1.0.0' })
+      const leaf = addPackage(builder, { name: 'leaf', version: '1.0.0' })
+      addEdge(builder, workspace, old, 'dep', '^1.0.0')
+      addEdge(builder, workspace, target, 'dev', '2.0.0')
+      addEdge(builder, old, child, 'dep', '1.0.0')
+      addEdge(builder, child, leaf, 'dep', '1.0.0')
+    })
+    const version: PackumentVersion = {
+      name: 'pkg',
+      version: '2.0.0',
+    }
+    const registry: RegistryAdapter = {
+      async packument() {
+        return { name: 'pkg', distTags: {}, versions: { '2.0.0': version } }
+      },
+      async resolve() { return version },
+    }
+
+    const result = await modify(graph, {
+      kind: 'replaceVersion',
+      selector: { name: 'pkg', fromRange: '1.0.0' },
+      to: '2.0.0',
+    }, {
+      target: 'lockgraph',
+      sources: { packuments: [registry] },
+    })
+
+    expect(result.graph.getNode('pkg@1.0.0')).toBeUndefined()
+    expect(result.frontier.added).toEqual(new Set(['pkg@2.0.0']))
+    expect(result.frontier.orphaned).toEqual(new Set(['pkg@1.0.0', 'child@1.0.0']))
+    const pruned = pruneOrphans(result.graph, { seed: result.frontier.orphaned })
+    expect(pruned.removed).toEqual(['child@1.0.0', 'leaf@1.0.0'])
+  })
+
+  it('seeds completion when a merge target already has consumers', async () => {
+    const graph = graphOf(builder => {
+      const workspace = addPackage(builder, {
+        name: 'app',
+        version: '0.0.0',
+        workspacePath: '.',
+      })
+      const old = addPackage(builder, { name: 'pkg', version: '1.0.0' })
+      const target = addPackage(builder, { name: 'pkg', version: '2.0.0' })
+      addEdge(builder, workspace, old, 'dep', '^1.0.0')
+      addEdge(builder, workspace, target, 'dev', '2.0.0')
+    })
+    const versions: Record<string, PackumentVersion> = {
+      pkg: { name: 'pkg', version: '2.0.0', dependencies: { child: '1.0.0' } },
+      child: { name: 'child', version: '1.0.0' },
+    }
+    const registry: RegistryAdapter = {
+      async packument(name) {
+        const version = versions[name]
+        return version === undefined
+          ? undefined
+          : { name, distTags: {}, versions: { [version.version]: version } }
+      },
+      async resolve(name) { return versions[name] },
+    }
+    const modified = await modify(graph, {
+      kind: 'replaceVersion',
+      selector: { name: 'pkg', fromRange: '1.0.0' },
+      to: '2.0.0',
+    }, {
+      target: 'lockgraph',
+      sources: { packuments: [registry] },
+    })
+
+    expect(modified.frontier.added).toEqual(new Set(['pkg@2.0.0']))
+    const completed = await complete(modified.graph, {
+      target: 'lockgraph',
+      sources: { packuments: [registry] },
+      seed: modified.frontier,
+    })
+    expect(completed.graph.byName('child')).toEqual(['child@1.0.0'])
+  })
+
+  it('retains full-packument funding/license while Yarn classifies their omission', async () => {
+    const graph = graphOf(builder => {
+      const project = addPackage(builder, { name: 'app', version: '0.0.0' })
+      const old = addPackage(builder, { name: 'pkg', version: '1.0.0' })
+      addEdge(builder, project, old, 'dep', '^1.0.0')
+    })
+    const version: PackumentVersion = {
+      name: 'pkg',
+      version: '2.0.0',
+      integrity: {
+        hashes: [{ algorithm: 'sha512', digest: 'ef'.repeat(64), origin: 'sri' }],
+      },
+      tarball: 'https://registry.example/pkg/-/pkg-2.0.0.tgz',
+      funding: { url: 'https://example.test/fund' },
+      license: 'MIT',
+    }
+    const registry: RegistryAdapter = {
+      async packument() {
+        return { name: 'pkg', distTags: {}, versions: { '2.0.0': version } }
+      },
+      async resolve() { return version },
+    }
+
+    const result = await modify(graph, {
+      kind: 'replaceVersion',
+      selector: { name: 'pkg' },
+      to: '2.0.0',
+    }, {
+      target: 'yarn-classic',
+      sources: { packuments: [registry] },
+    })
+
+    expect(result.graph.tarball({ name: 'pkg', version: '2.0.0' })).toEqual(
+      expect.objectContaining({ funding: version.funding, license: version.license }),
+    )
+    expect(() => stringify('yarn-classic', result.graph)).not.toThrow()
   })
 })
 

@@ -356,9 +356,9 @@ describe('optimize/mark-and-sweep', () => {
     expect(again.unresolved.map(d => d.code)).toEqual(['OPTIMIZE_NO_ROOTS'])
   })
 
-  // A caller that DOES want orphan GC on a rootless graph passes the real
-  // roots via `preserve` — the guard then stands down and the sweep runs.
-  it('§6 r3 — preserve on a rootless graph re-enables the sweep', () => {
+  // `preserve` cannot turn an unrelated pin into proof of a workspace anchor.
+  // Rootless reachability remains ambiguous and must stay fail-closed.
+  it('§6 r3 — preserve cannot disable the rootless safety guard', () => {
     const graph = graphOf(builder => {
       const top = addPackage(builder, { name: 'simple-git', version: '3.27.0' })
       const dep = addPackage(builder, { name: 'debug',      version: '4.3.4'  })
@@ -368,11 +368,10 @@ describe('optimize/mark-and-sweep', () => {
     })
 
     const result = optimize(graph, { preserve: new Set(['simple-git@3.27.0']) })
-    // With a real root pinned, the orphaned old version is swept; the
-    // reachable subtree survives.
-    expect(result.removed).toEqual(['simple-git@3.16.0'])
+    expect(result.removed).toEqual([])
     expect(result.graph.getNode('simple-git@3.27.0')).toBeDefined()
     expect(result.graph.getNode('debug@4.3.4')).toBeDefined()
-    expect(result.graph.getNode('simple-git@3.16.0')).toBeUndefined()
+    expect(result.graph.getNode('simple-git@3.16.0')).toBeDefined()
+    expect(result.unresolved.map(d => d.code)).toEqual(['OPTIMIZE_NO_ROOTS'])
   })
 })

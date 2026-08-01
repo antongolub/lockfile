@@ -21,7 +21,7 @@
     "node": ">=14.18"
   },
   "scripts": {
-    "build:dist": "node scripts/clean.mjs && rollup -c && tsc -p tsconfig.dts.json && node scripts/fix-dts.mjs",
+    "build:dist": "node scripts/clean.mjs && rollup -c && tsc -p tsconfig.dts.json && node scripts/fix-dts.mjs && tsc -p tsconfig.dist.json",
     "build:fixtures": "node src/test/resources/fixtures/_gen.mjs",
     "test:types": "tsc --noEmit",
     "test:unit": "vitest run src/test/unit",

@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { applyPatch } from '../../main/ts/modify/apply-patch.ts'
+import { pruneOrphans } from '../../main/ts/optimize/prune.ts'
 import { frozenRegistry } from '../../main/ts/registry/frozen.ts'
 import { canonicalHashOfBytes, sentinelHashOf } from '../../main/ts/recipe/patch.ts'
 import { addEdge, addPackage, graphOf } from './_modify-test-utils.ts'
@@ -31,6 +32,34 @@ describe('modify/applyPatch', () => {
 
     const codes = result.unresolved.map(d => d.code)
     expect(codes).toContain('MODIFY_PATCH_APPLIED')
+  })
+
+  it('reports the replaced id while its re-keyed child closure remains live', async () => {
+    const graph = graphOf(builder => {
+      const workspace = addPackage(builder, {
+        name: 'app',
+        version: '0.0.0',
+        workspacePath: '.',
+      })
+      const pkg = addPackage(builder, { name: 'pkg', version: '1.0.0' })
+      const child = addPackage(builder, { name: 'child', version: '1.0.0' })
+      addEdge(builder, workspace, pkg, 'dep')
+      addEdge(builder, pkg, child, 'dep')
+    })
+
+    const result = await applyPatch(
+      graph,
+      { name: 'pkg' },
+      PATCH_BYTES,
+      { registry: frozenRegistry(graph) },
+    )
+    const patched = `pkg@1.0.0+patch=${EXPECTED_HASH}`
+
+    expect(result.recentlyAdded).toEqual(new Set([patched]))
+    expect(result.recentlyOrphaned).toEqual(new Set(['pkg@1.0.0']))
+    const pruned = pruneOrphans(result.graph, { seed: result.recentlyOrphaned })
+    expect(pruned.removed).toEqual([])
+    expect(pruned.graph.out(patched).map(edge => edge.dst)).toEqual(['child@1.0.0'])
   })
 
   it('F5 normalisation — CRLF input yields the same hash as LF input', async () => {

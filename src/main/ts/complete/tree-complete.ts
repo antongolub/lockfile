@@ -319,6 +319,23 @@ function completionDependency(
   }
 }
 
+/** Default-registry `npm:` is a target spelling, not a graph fact. Keep it for
+ * aliases, where the protocol participates in the aliased descriptor, but
+ * canonicalize ordinary registry ranges regardless of whether completion read
+ * them from a bare npm manifest or a Berry-shaped packument. */
+function canonicalCompletionEdgeAttrs(
+  dependency: CompletionDependency,
+  targetName: string,
+): EdgeAttrs {
+  if (dependency.depName !== targetName) return dependency.edgeAttrs
+  const { range, overrideRange, ...rest } = dependency.edgeAttrs
+  return {
+    ...rest,
+    ...(range === undefined ? {} : { range: canonicalRange(range) }),
+    ...(overrideRange === undefined ? {} : { overrideRange: canonicalRange(overrideRange) }),
+  }
+}
+
 function reuseBoundDescriptor(
   context: CompletionContext,
   dependency: CompletionDependency,
@@ -337,8 +354,14 @@ function reuseBoundDescriptor(
     kind: dependency.kind,
   }
   const resolved = completionEdgeResolved(triple)
+  const target = context.currentGraph.getNode(boundId)!
   context.currentGraph = context.currentGraph.mutate(m => {
-    m.addEdge(dependency.nodeId, boundId, dependency.kind, dependency.edgeAttrs)
+    m.addEdge(
+      dependency.nodeId,
+      boundId,
+      dependency.kind,
+      canonicalCompletionEdgeAttrs(dependency, target.name),
+    )
     m.diagnostic(resolved)
   }).graph
   context.wired.push(triple)
@@ -378,8 +401,14 @@ function reuseFindUp(
     kind: dependency.kind,
   }
   const resolved = completionEdgeResolved(triple)
+  const target = context.currentGraph.getNode(targetId)!
   context.currentGraph = context.currentGraph.mutate(m => {
-    m.addEdge(dependency.nodeId, targetId, dependency.kind, dependency.edgeAttrs)
+    m.addEdge(
+      dependency.nodeId,
+      targetId,
+      dependency.kind,
+      canonicalCompletionEdgeAttrs(dependency, target.name),
+    )
     m.diagnostic(resolved)
   }).graph
   context.wired.push(triple)
@@ -411,8 +440,14 @@ function reuseProjectWide(
     kind: dependency.kind,
   }
   const resolved = completionEdgeResolved(triple)
+  const target = context.currentGraph.getNode(reuseId)!
   context.currentGraph = context.currentGraph.mutate(m => {
-    m.addEdge(dependency.nodeId, reuseId, dependency.kind, dependency.edgeAttrs)
+    m.addEdge(
+      dependency.nodeId,
+      reuseId,
+      dependency.kind,
+      canonicalCompletionEdgeAttrs(dependency, target.name),
+    )
     m.diagnostic(resolved)
   }).graph
   context.wired.push(triple)
@@ -534,7 +569,12 @@ function mintDependency(
     } else {
       alreadyAdded = true
     }
-    m.addEdge(dependency.nodeId, newId, dependency.kind, dependency.edgeAttrs)
+    m.addEdge(
+      dependency.nodeId,
+      newId,
+      dependency.kind,
+      canonicalCompletionEdgeAttrs(dependency, resolved.name),
+    )
   }).graph
 
   if (!alreadyAdded) {

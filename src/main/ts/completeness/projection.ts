@@ -10,6 +10,7 @@ import { evidenceOf, internalEvidenceOf } from './evidence.ts'
 import { detectGraphFeatures, type GraphFeature } from './features.ts'
 import { targetProfileOf } from './targets.ts'
 import type { TargetRequest } from './types.ts'
+import { stripRegistrySha1Fragment } from '../recipe/resolution.ts'
 
 // === PROJECTION MODEL =======================================================
 
@@ -49,6 +50,8 @@ const yarnMetadataDropTargets = Object.freeze(new Set<FormatId>([
 const structuralExpectedMetadataDrops: ReadonlyMap<PackageMetadataField, ReadonlySet<FormatId>> =
   new Map([
     ['engines', yarnMetadataDropTargets],
+    ['funding', yarnMetadataDropTargets],
+    ['license', yarnMetadataDropTargets],
     ['deprecated', yarnMetadataDropTargets],
     ['bin', Object.freeze(new Set<FormatId>(['yarn-classic']))],
   ])
@@ -172,6 +175,28 @@ function structuralExpectedFeature(
   )
 }
 
+function structuralExpectedIntegrityFeature(
+  feature: 'integrity:tarball-sri' | 'integrity:berry-zip' | 'integrity:url-fragment',
+  target: FormatId,
+  subject: string,
+): ProjectionLoss {
+  const remedy = allowLoss()
+  return loss(
+    'structural-expected',
+    feature,
+    target,
+    projectionDiagnostic(
+      'structural-expected',
+      feature,
+      target,
+      `target ${target} structurally omits retained ${feature} authority for ${subject}`,
+      subject,
+      remedy,
+    ),
+    remedy,
+  )
+}
+
 // === GRAPH PREFLIGHT ========================================================
 
 function workspaceProtocolPresent(graph: Graph): boolean {
@@ -248,6 +273,21 @@ function integrityPreflight(
   for (const node of [...graph.nodes()].sort((left, right) => left.id.localeCompare(right.id))) {
     const payload = graph.tarballOf(node.id)
     if (target.capabilities.integrity === 'berry-zip') {
+      if (payload?.integrity?.hashes.some(hash => hash.origin !== 'berry-zip') === true) {
+        losses.push(structuralExpectedIntegrityFeature(
+          'integrity:tarball-sri',
+          target.format,
+          node.id,
+        ))
+      }
+      if (payload?.resolution?.type === 'tarball'
+        && stripRegistrySha1Fragment(payload.resolution.url) !== payload.resolution.url) {
+        losses.push(structuralExpectedIntegrityFeature(
+          'integrity:url-fragment',
+          target.format,
+          node.id,
+        ))
+      }
       const archiveBacked = node.workspacePath === undefined
         && payload?.resolution?.type !== 'directory'
       if (!archiveBacked) continue
@@ -270,9 +310,16 @@ function integrityPreflight(
       ))
       continue
     }
-    if (target.capabilities.integrity !== 'tarball-sri'
-      || payload?.integrity === undefined
-      || emitSri(payload.integrity) !== undefined) continue
+    if (target.capabilities.integrity !== 'tarball-sri') continue
+    if (payload?.integrity?.hashes.some(hash => hash.origin === 'berry-zip') === true
+      || payload?.berryChecksumCacheKey !== undefined) {
+      losses.push(structuralExpectedIntegrityFeature(
+        'integrity:berry-zip',
+        target.format,
+        node.id,
+      ))
+    }
+    if (payload?.integrity === undefined || emitSri(payload.integrity) !== undefined) continue
     const remedy = supply('artifacts', node.id)
     const diagnostic = projectionDiagnostic(
       'enrichable',

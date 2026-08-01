@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { frozenRegistry } from '../../main/ts/registry/frozen.ts'
 import { replaceVersion } from '../../main/ts/modify/replace-version.ts'
+import { pruneOrphans } from '../../main/ts/optimize/prune.ts'
 import { sentinelHashOf } from '../../main/ts/recipe/patch.ts'
 import { mkIntegrity } from '../_integrity-fixtures.ts'
 import { addEdge, addPackage, graphOf } from './_modify-test-utils.ts'
@@ -36,6 +37,36 @@ describe('modify/replaceVersion', () => {
     // Workspace's edge now points at the new lodash.
     const wsOut = result.graph.out('app@0.0.0').map(e => `${e.kind}:${e.dst}`)
     expect(wsOut).toContain('dep:lodash@4.17.21')
+  })
+
+  it('merge branch reports its completion seed and every newly stranded child', async () => {
+    const graph = graphOf(builder => {
+      const workspace = addPackage(builder, {
+        name: 'app',
+        version: '0.0.0',
+        workspacePath: '.',
+      })
+      const old = addPackage(builder, { name: 'pkg', version: '1.0.0' })
+      const target = addPackage(builder, { name: 'pkg', version: '2.0.0' })
+      const child = addPackage(builder, { name: 'child', version: '1.0.0' })
+      const leaf = addPackage(builder, { name: 'leaf', version: '1.0.0' })
+      addEdge(builder, workspace, old, 'dep', '^1.0.0')
+      addEdge(builder, workspace, target, 'dev', '2.0.0')
+      addEdge(builder, old, child, 'dep', '1.0.0')
+      addEdge(builder, child, leaf, 'dep', '1.0.0')
+    })
+
+    const result = await replaceVersion(
+      graph,
+      { name: 'pkg', fromRange: '1.0.0' },
+      '2.0.0',
+      { registry: frozenRegistry(graph) },
+    )
+
+    expect(result.recentlyAdded).toEqual(new Set(['pkg@2.0.0']))
+    expect(result.recentlyOrphaned).toEqual(new Set(['pkg@1.0.0', 'child@1.0.0']))
+    const pruned = pruneOrphans(result.graph, { seed: result.recentlyOrphaned })
+    expect(pruned.removed).toEqual(['child@1.0.0', 'leaf@1.0.0'])
   })
 
   it('happy path — rebinds when target NodeId is fresh (no collision)', async () => {

@@ -1647,8 +1647,17 @@ function addResolvedBerryEdge(
 ): void {
   // Preserve the dependency-block key as an alias when it differs from the
   // resolved target's package name.
-  const attrs: { range: string; alias?: string } = { range: context.normalizedRange }
-  if (context.depName !== nameOf(dstId)) attrs.alias = context.depName
+  const aliased = context.depName !== nameOf(dstId)
+  // `npm:` is Berry's spelling of the default registry protocol, not a
+  // target-neutral graph fact. Completion already stores the equivalent bare
+  // manifest range; parse must land the same canonical value regardless of
+  // provenance. Lookup above still uses the prefixed descriptor, while emit
+  // reconstructs the generation-specific spelling at its adapter boundary.
+  const range = !aliased && context.normalizedRange.startsWith('npm:')
+    ? context.normalizedRange.slice('npm:'.length)
+    : context.normalizedRange
+  const attrs: { range: string; alias?: string } = { range }
+  if (aliased) attrs.alias = context.depName
   builder.addEdge(context.srcId, dstId, kind, attrs)
 }
 

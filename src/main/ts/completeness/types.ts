@@ -315,7 +315,7 @@ export type InternalProjectEvidenceInput =
   | RepositoryManifestEvidence
 
 export interface ConvertProjectOptions extends Omit<ConvertAssessedOptions, 'contract'> {
-  readonly evidenceInputs?: readonly InternalProjectEvidenceInput[]
+  readonly evidenceInputs?: readonly (ProjectEvidenceInput | RepositoryManifestEvidence)[]
 }
 
 export interface AssessedOutput {
@@ -373,7 +373,7 @@ export interface FrozenConversionResult {
 interface FrozenPreparationCommonOptions extends Omit<ConvertCommonOptions, 'strict'> {
   readonly sourceVersion?: string
   readonly manifestCoverage?: ManifestCoverage
-  readonly evidenceInputs?: readonly InternalProjectEvidenceInput[]
+  readonly evidenceInputs?: readonly (ProjectEvidenceInput | RepositoryManifestEvidence)[]
 }
 
 interface FrozenPreparationTargetOptions {

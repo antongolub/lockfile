@@ -85,34 +85,38 @@ export function optimize(graph: Graph, options: OptimizeOptions = {}): OptimizeR
   // operationally equivalent to "iterate workspaces directly" — kept as
   // an explicit union for readability against the ADR pseudocode.
   const live: Set<NodeId> = new Set()
+  let hasWorkspace = false
   for (const id of graph.roots()) {
     const n = graph.getNode(id)
-    if (n?.workspacePath !== undefined) live.add(id)
+    if (n?.workspacePath !== undefined) {
+      hasWorkspace = true
+      live.add(id)
+    }
   }
   let hasNodes = false
   for (const node of graph.nodes()) {
     hasNodes = true
-    if (node.workspacePath !== undefined) live.add(node.id)
+    if (node.workspacePath !== undefined) {
+      hasWorkspace = true
+      live.add(node.id)
+    }
   }
-  for (const id of preserve) live.add(id)
 
   // --- Rootless guard (§4.1 edge case, §6 r3 amendment) ---
   //
-  // The mark phase anchors liveness on workspace nodes and `preserve`. A
-  // non-workspace graph — classic lockfiles carry no `workspacePath` — with
-  // no `preserve` therefore seeds an EMPTY live set, and the §4.3 sweep
-  // would then remove every node, wiping the whole graph. That is never the
-  // intent: with no anchor we cannot distinguish a wanted top-level
-  // dependency from an orphan (both are zero-incoming roots), so we keep all
-  // nodes and surface OPTIMIZE_NO_ROOTS. A caller wanting orphan GC on a
-  // rootless graph supplies the real roots via `preserve`. (An empty graph
-  // has nothing to protect and falls through to the §4 NOOP epilogue.)
-  if (live.size === 0 && hasNodes) {
+  // A non-workspace graph — classic lockfiles carry no `workspacePath` — has
+  // no authoritative reachability anchor. `preserve` is only a retention pin;
+  // it cannot prove that every other zero-incoming node is disposable. Keep
+  // the graph and surface OPTIMIZE_NO_ROOTS even when preserve is non-empty.
+  // (An empty graph falls through to the §4 NOOP epilogue.)
+  if (hasNodes && !hasWorkspace) {
     const diag = optimizeNoRoots()
     const guarded = graph.mutate(m => { m.diagnostic(diag) }).graph
     if (onDiagnostic !== undefined) onDiagnostic(diag)
     return { graph: guarded, removed: [], unresolved: [diag] }
   }
+
+  for (const id of preserve) live.add(id)
 
   // BFS from the live seed via all edge kinds (§4.2 — peer edges count
   // too; removing a peer-only-referenced node violates peer-context

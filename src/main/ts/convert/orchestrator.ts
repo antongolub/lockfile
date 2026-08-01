@@ -854,6 +854,12 @@ const BERRY_FROZEN_PROBE_CODES = new Set([
   'COMPLETENESS_OUTPUT_GRAPH_MISMATCH',
 ])
 
+function isBerryFrozenProbeDiagnostic(diagnostic: Diagnostic): boolean {
+  return BERRY_FROZEN_PROBE_CODES.has(diagnostic.code)
+    || (diagnostic.code === 'PROJECTION_LOSS'
+      && diagnostic.data?.class === 'structural-expected')
+}
+
 function frozenCandidateOutputProbe(
   target: FormatId,
   pendingBerry: RequirementAssessment | undefined,
@@ -863,8 +869,7 @@ function frozenCandidateOutputProbe(
   const codes = probe.diagnostics.map(diagnostic => diagnostic.code)
   if (codes.length === 0
     || !codes.includes('RECIPE_INTEGRITY_INCOMPLETE')
-    || !codes.includes('COMPLETENESS_OUTPUT_GRAPH_MISMATCH')
-    || codes.some(code => !BERRY_FROZEN_PROBE_CODES.has(code))) return probe
+    || probe.diagnostics.some(diagnostic => !isBerryFrozenProbeDiagnostic(diagnostic))) return probe
   return Object.freeze({ accepted: true, diagnostics: Object.freeze([]) })
 }
 
@@ -1434,8 +1439,10 @@ async function prepareFrozenRuntime(
     preparedRuntime.diagnostics,
     options.target.format,
   )
-  if (preparationLosses.some(loss => loss.class !== 'berry-checksum')) {
-    const first = preparationLosses.find(loss => loss.class !== 'berry-checksum')!
+  if (preparationLosses.some(loss =>
+    loss.class !== 'berry-checksum' && loss.class !== 'structural-expected')) {
+    const first = preparationLosses.find(loss =>
+      loss.class !== 'berry-checksum' && loss.class !== 'structural-expected')!
     return frozenPreparationFailure(options, assessedDiagnostic(
       'COMPLETENESS_FROZEN_PROJECTION_BLOCKED',
       first.diagnostic.message,

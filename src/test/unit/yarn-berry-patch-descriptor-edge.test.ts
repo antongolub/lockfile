@@ -257,7 +257,7 @@ describe('yarn-berry patch: descriptor edge resolution (Bug #88)', () => {
     const root = nodes.find(n => n.name === 'case-patch-yarn')!
     const out = g.out(root.id)
     expect(out.length).toBe(1)
-    expect(out[0]!.attrs?.range).toBe('npm:4.17.21')
+    expect(out[0]!.attrs?.range).toBe('4.17.21')
 
     const target = g.getNode(out[0]!.dst)!
     expect(target.patch!.startsWith('unresolved-')).toBe(true)

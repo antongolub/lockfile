@@ -141,8 +141,8 @@ describe('yarn-berry-v9 — simple fixture', () => {
   it('workspace dep edges to lodash and ms', () => {
     const out = g.out('case-simple@0.0.0-use.local').map(e => ({ dst: e.dst, kind: e.kind, range: e.attrs?.range }))
     expect(out.sort((a, b) => a.dst.localeCompare(b.dst))).toEqual([
-      { dst: 'lodash@4.17.21', kind: 'dep', range: 'npm:4.17.21' },
-      { dst: 'ms@2.1.3',       kind: 'dep', range: 'npm:2.1.3'   },
+      { dst: 'lodash@4.17.21', kind: 'dep', range: '4.17.21' },
+      { dst: 'ms@2.1.3',       kind: 'dep', range: '2.1.3'   },
     ])
   })
 

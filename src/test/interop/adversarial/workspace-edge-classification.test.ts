@@ -46,7 +46,7 @@ describe('interop adversarial §8.3 — workspace-edge classification', () => {
     })).sort((a, b) => a.dst.localeCompare(b.dst))).toEqual([
       { dst: '@case-ws/a@0.0.0-use.local', kind: 'dep', range: 'workspace:*', workspace: true },
       { dst: '@case-ws/b@0.0.0-use.local', kind: 'dep', range: 'workspace:^', workspace: true },
-      { dst: 'ms@2.1.3', kind: 'optional', range: 'npm:2.1.3', workspace: undefined },
+      { dst: 'ms@2.1.3', kind: 'optional', range: '2.1.3', workspace: undefined },
     ])
 
     // Re-enrich is a no-op for workspace markers now (parse already set
@@ -60,7 +60,7 @@ describe('interop adversarial §8.3 — workspace-edge classification', () => {
     })).sort((a, b) => a.dst.localeCompare(b.dst))).toEqual([
       { dst: '@case-ws/a@0.0.0-use.local', kind: 'dep', range: 'workspace:*', workspace: true },
       { dst: '@case-ws/b@0.0.0-use.local', kind: 'dep', range: 'workspace:^', workspace: true },
-      { dst: 'ms@2.1.3', kind: 'optional', range: 'npm:2.1.3', workspace: undefined },
+      { dst: 'ms@2.1.3', kind: 'optional', range: '2.1.3', workspace: undefined },
     ])
   })
 })

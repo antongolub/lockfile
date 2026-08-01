@@ -1,11 +1,19 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  complete,
+  modify,
   parse,
+  refurbish,
   stringify,
   type FormatId,
+  type Diagnostic,
+  type NpmTarballSource,
+  type PackumentVersion,
+  type RegistryAdapter,
 } from '../../main/ts/index.ts'
 import { LockfileError } from '../../main/ts/api/errors.ts'
 import { stringifyProjected } from '../../main/ts/api/format-api.ts'
@@ -16,6 +24,7 @@ import * as bunText from '../../main/ts/formats/bun-text.ts'
 import * as pnpmV5 from '../../main/ts/formats/pnpm-v5.ts'
 import * as yarnBerryV9 from '../../main/ts/formats/yarn-berry-v9.ts'
 import type { Integrity } from '../../main/ts/recipe/integrity.ts'
+import { rebindAdapterState as rebindNpmFlatAdapterState } from '../../main/ts/formats/_npm-core.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const fixture = (file: string): string =>
@@ -44,6 +53,7 @@ function metadataGraph(integrity: Integrity = sriIntegrity): Graph {
   builder.addEdge('project@0.0.0', 'dep@1.0.0', 'dep', { range: '1.0.0' })
   builder.setTarball({ name: 'dep', version: '1.0.0' }, {
     integrity: { hashes: [...integrity.hashes] },
+    funding: { url: 'https://example.test/fund' },
     license: 'MIT',
     peerDependencies: { peer: '^1.0.0' },
     peerDependenciesMeta: { peer: { optional: true } },
@@ -67,7 +77,7 @@ function singleMetadataGraph(
   })
   builder.addNode({ id: 'dep@1.0.0', name: 'dep', version: '1.0.0', peerContext: [] })
   builder.addEdge('project@0.0.0', 'dep@1.0.0', 'dep', {
-    range: targetShape === 'yarn-berry-v8' ? 'npm:1.0.0' : '1.0.0',
+    range: '1.0.0',
   })
   builder.setTarball({ name: 'dep', version: '1.0.0' }, {
     integrity: { hashes: [...integrity.hashes] },
@@ -116,6 +126,7 @@ function caught(format: FormatId, graph: Graph): LockfileError {
 }
 
 type MetadataRefusalTarget = 'bun-text' | 'pnpm-v5' | 'pnpm-v6' | 'pnpm-v9'
+type SriProjectionTarget = 'npm-3' | 'pnpm-v9' | 'bun-text'
 
 function addMetadataToNativeControl(
   format: MetadataRefusalTarget,
@@ -136,6 +147,129 @@ function addMetadataToNativeControl(
   if (format === 'bun-text') return bunText.rebindAdapterState(control, mutated).graph
   if (format === 'pnpm-v5') return pnpmV5.rebindAdapterState(control, mutated).graph
   return rebindPnpmFlatAdapterState(control, mutated).graph
+}
+
+function addBerryIntegrityToNativeControl(
+  format: SriProjectionTarget,
+  control: Graph,
+): Graph {
+  const node = [...control.nodes()].find(candidate => candidate.name === 'lodash')
+  expect(node).toBeDefined()
+  const payload = control.tarballOf(node!.id)
+  expect(payload?.integrity).toBeDefined()
+  const mutated = control.mutate(mutable => {
+    mutable.setTarball({ name: node!.name, version: node!.version }, {
+      ...payload,
+      berryChecksumCacheKey: '10c0',
+      integrity: {
+        hashes: [...payload!.integrity!.hashes, ...berryIntegrity.hashes],
+      },
+    })
+  }).graph
+  if (format === 'npm-3') return rebindNpmFlatAdapterState(control, mutated).graph
+  if (format === 'bun-text') return bunText.rebindAdapterState(control, mutated).graph
+  return rebindPnpmFlatAdapterState(control, mutated).graph
+}
+
+async function completedBerryIntegrityGraph() {
+  const bytes = readFileSync(resolve(
+    here,
+    '../resources/fixtures/tarballs/ms-2.1.3.tgz',
+  ))
+  const registryIntegrity: Integrity = {
+    hashes: [{
+      algorithm: 'sha512',
+      digest: createHash('sha512').update(bytes).digest('hex'),
+      origin: 'sri',
+    }],
+  }
+  const versions: Record<string, PackumentVersion> = {
+    ms: { name: 'ms', version: '2.1.3', dependencies: { vuln: '2.0.0' } },
+    vuln: {
+      name: 'vuln',
+      version: '2.0.0',
+      integrity: registryIntegrity,
+      tarball: 'https://registry.npmjs.org/vuln/-/vuln-2.0.0.tgz',
+    },
+  }
+  const registry: RegistryAdapter = {
+    async packument(name) {
+      const version = versions[name]
+      return version === undefined
+        ? undefined
+        : { name, distTags: {}, versions: { [version.version]: version } }
+    },
+    async resolve(name) { return versions[name] },
+  }
+  const completed = await complete(parse(fixture('yarn-berry-v8.lock'), 'yarn-berry-v8'), {
+    target: 'yarn-berry-v8',
+    sources: { packuments: [registry] },
+  })
+  return { bytes, completed, registryDigest: registryIntegrity.hashes[0]!.digest }
+}
+
+async function yafMultiOriginIntegrityGraph() {
+  const bytes = readFileSync(resolve(
+    here,
+    '../resources/fixtures/tarballs/ms-2.1.3.tgz',
+  ))
+  const sri = `sha512-${Buffer.alloc(64, 7).toString('base64')}`
+  const shasum = 'a'.repeat(40)
+  const tarball = `https://registry.npmjs.org/vuln/-/vuln-2.0.0.tgz#${shasum}`
+  const version = {
+    name: 'vuln',
+    version: '2.0.0',
+    dependencies: {},
+    dist: { integrity: sri, shasum, tarball },
+    integrity: sri,
+    tarball,
+  } as unknown as PackumentVersion
+  const registry: RegistryAdapter = {
+    async packument(name) {
+      return name === 'vuln'
+        ? { name, distTags: { latest: '2.0.0' }, versions: { '2.0.0': version } }
+        : undefined
+    },
+    async resolve(name) { return name === 'vuln' ? version : undefined },
+  }
+  const source = parse(
+    '__metadata:\n' +
+    '  version: 8\n' +
+    '  cacheKey: 10c0\n\n' +
+    '"root@workspace:.":\n' +
+    '  version: 0.0.0-use.local\n' +
+    '  resolution: "root@workspace:."\n' +
+    '  dependencies:\n' +
+    '    vuln: "npm:1.0.0"\n' +
+    '  languageName: unknown\n' +
+    '  linkType: soft\n\n' +
+    '"vuln@npm:1.0.0":\n' +
+    '  version: 1.0.0\n' +
+    '  resolution: "vuln@npm:1.0.0"\n' +
+    `  checksum: 10c0/${'a'.repeat(128)}\n` +
+    '  languageName: node\n' +
+    '  linkType: hard\n',
+    'yarn-berry-v8',
+  )
+  const modified = await modify(source, {
+    kind: 'replaceVersion',
+    selector: { name: 'vuln', fromRange: '<2.0.0' },
+    to: '2.0.0',
+  }, {
+    target: 'yarn-berry-v8',
+    sources: { packuments: [registry] },
+  })
+  const completed = await complete(modified.graph, {
+    target: 'yarn-berry-v8',
+    sources: { packuments: [registry] },
+    seed: modified.frontier,
+    pruneOrphans: true,
+  })
+  return {
+    bytes,
+    completed,
+    registryDigest: Buffer.alloc(64, 7).toString('hex'),
+  }
 }
 
 describe('strict projection gate', () => {
@@ -194,13 +328,23 @@ describe('strict projection gate', () => {
     expect(() => stringify('yarn-classic', builder.seal())).not.toThrow()
   })
 
-  it('still rejects a metadata-only node whose sole field is not allowlisted (empty-omit does not mask)', () => {
+  it.each([
+    ['funding', { url: 'https://example.test/fund' }],
+    ['license', 'MIT'],
+  ] as const)('accepts a metadata-only %s field Yarn structurally omits', (field, value) => {
     const builder = newBuilder()
     builder.addNode({ id: 'project@0.0.0', name: 'project', version: '0.0.0', peerContext: [] })
     builder.addNode({ id: 'dep@1.0.0', name: 'dep', version: '1.0.0', peerContext: [] })
     builder.addEdge('project@0.0.0', 'dep@1.0.0', 'dep', { range: '1.0.0' })
-    builder.setTarball({ name: 'dep', version: '1.0.0' }, { license: 'MIT' })
-    expect(caught('yarn-classic', builder.seal()).code).toBe('IRREDUCIBLE_LOSS')
+    builder.setTarball({ name: 'dep', version: '1.0.0' }, { [field]: value })
+    const graph = builder.seal()
+    expect(stringifyProjected('yarn-classic', graph).losses).toContainEqual(
+      expect.objectContaining({
+        class: 'structural-expected',
+        feature: `metadata:${field}`,
+      }),
+    )
+    expect(() => stringify('yarn-classic', graph)).not.toThrow()
   })
 
   it('keeps the structural allowlist pair-specific', () => {
@@ -208,19 +352,23 @@ describe('strict projection gate', () => {
       engines: { node: '>=18' },
       deprecated: 'use dep-next',
       bin: { dep: 'cli.js' },
+      funding: { url: 'https://example.test/fund' },
+      license: 'MIT',
     }, sriIntegrity, 'yarn-classic')
     const classic = stringifyProjected('yarn-classic', graph)
     expect(classic.losses.map(loss => [loss.class, loss.feature])).toEqual([
       ['structural-expected', 'metadata:bin'],
       ['structural-expected', 'metadata:deprecated'],
       ['structural-expected', 'metadata:engines'],
+      ['structural-expected', 'metadata:funding'],
+      ['structural-expected', 'metadata:license'],
     ])
 
     const pnpm = caught('pnpm-v9', graph)
-    expect(pnpm.losses).toContainEqual(expect.objectContaining({
-      class: 'inherent-meaningful',
-      feature: 'completeness-output-graph-mismatch',
-    }))
+    expect(pnpm.losses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ class: 'inherent-meaningful', feature: 'metadata:funding' }),
+      expect.objectContaining({ class: 'inherent-meaningful', feature: 'metadata:license' }),
+    ]))
     expect(isStructuralExpectedDrop('bin', 'pnpm-v9')).toBe(false)
 
     for (const field of [
@@ -228,8 +376,6 @@ describe('strict projection gate', () => {
       'os',
       'libc',
       'hasInstallScript',
-      'funding',
-      'license',
       'bundledDependencies',
     ] as const) {
       expect(isStructuralExpectedDrop(field, 'yarn-classic')).toBe(false)
@@ -299,12 +445,31 @@ describe('strict projection gate', () => {
     'pnpm-v5',
     'pnpm-v6',
     'pnpm-v9',
-    'yarn-classic',
     'bun-text',
   ] as const)('%s rejects a held metadata fact its emitter cannot carry', format => {
     const error = caught(format, metadataGraph())
     expect(error.code).toBe('IRREDUCIBLE_LOSS')
     expect(error.losses?.some(loss => loss.feature === 'metadata:license')).toBe(true)
+  })
+
+  it.each([
+    ['npm-3', 'npm-3.lock'],
+    ['pnpm-v9', 'pnpm-v9.lock'],
+    ['bun-text', 'bun-text.lock'],
+  ] as const)('%s projects an unexpressible Berry checksum without losing tarball SRI', (format, file) => {
+    const control = parse(format, fixture(file))
+    expect(() => stringify(format, control)).not.toThrow()
+    const graph = addBerryIntegrityToNativeControl(format, control)
+    const projected = stringifyProjected(format, graph)
+
+    expect(projected.losses).toContainEqual(expect.objectContaining({
+      class: 'structural-expected',
+      feature: 'integrity:berry-zip',
+      target: format,
+    }))
+    expect(projected.losses.some(loss =>
+      loss.feature === 'completeness-output-graph-mismatch')).toBe(false)
+    expect(() => stringify(format, graph)).not.toThrow()
   })
 
   it.each([
@@ -315,11 +480,18 @@ describe('strict projection gate', () => {
     'yarn-berry-v8',
     'yarn-berry-v9',
     'yarn-berry-v10',
-  ] as const)('%s rejects a held metadata fact with an otherwise valid checksum', format => {
-    const error = caught(format, metadataGraph(berryIntegrity))
-    expect(error.code).toBe('IRREDUCIBLE_LOSS')
-    expect(error.losses?.some(loss => loss.feature === 'metadata:license')).toBe(true)
-    expect(error.losses?.some(loss => loss.feature === 'metadata:peer-declarations')).toBe(false)
+  ] as const)('%s accepts structurally omitted funding/license with a valid checksum', format => {
+    const graph = singleMetadataGraph({
+      funding: { url: 'https://example.test/fund' },
+      license: 'MIT',
+    }, berryIntegrity, 'yarn-berry-v8')
+    const projected = stringifyProjected(format, graph)
+    expect(projected.losses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ class: 'structural-expected', feature: 'metadata:funding' }),
+      expect.objectContaining({ class: 'structural-expected', feature: 'metadata:license' }),
+    ]))
+    expect(projected.losses.some(loss => loss.feature === 'metadata:peer-declarations')).toBe(false)
+    expect(() => stringify(format, graph)).not.toThrow()
   })
 
   it.each(['npm-2', 'npm-3'] as const)('%s rejects virtual peer identity flattening', format => {
@@ -330,8 +502,8 @@ describe('strict projection gate', () => {
 
   it('classifies a missing Berry checksum as enrichable and exposes deterministic losses', () => {
     const error = caught('yarn-berry-v9', metadataGraph())
-    expect(error.code).toBe('IRREDUCIBLE_LOSS')
-    expect(error.message).toMatch(/^inherent-meaningful projection loss/)
+    expect(error.code).toBe('ENRICH_REQUIRED')
+    expect(error.message).toMatch(/^berry-checksum projection loss/)
     expect(error.losses).toBeDefined()
     expect(error.losses?.some(loss => loss.class === 'berry-checksum')).toBe(true)
     expect(Object.isFrozen(error.losses)).toBe(true)
@@ -347,6 +519,77 @@ describe('strict projection gate', () => {
     const error = caught('yarn-berry-v9', graph)
     expect(error.code).toBe('ENRICH_REQUIRED')
     expect(error.losses?.map(loss => loss.class)).toEqual(['berry-checksum'])
+  })
+
+  it('normalizes a completion-created Berry edge independently of checksum repair', async () => {
+    const { completed } = await completedBerryIntegrityGraph()
+    const diagnostics: Diagnostic[] = []
+    stringify(completed.graph, 'yarn-berry-v8', {
+      strict: false,
+      onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+    })
+    expect(diagnostics.some(diagnostic =>
+      diagnostic.code === 'COMPLETENESS_OUTPUT_GRAPH_MISMATCH')).toBe(false)
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PROJECTION_LOSS',
+      data: expect.objectContaining({ class: 'berry-checksum' }),
+    }))
+  })
+
+  it('projects a refurbished Berry checksum without discarding retained tarball authority', async () => {
+    const { bytes, completed, registryDigest } = await yafMultiOriginIntegrityGraph()
+    expect(completed.graph.tarballOf('vuln@2.0.0')?.integrity?.hashes)
+      .toEqual([expect.objectContaining({ origin: 'sri' })])
+
+    const source: NpmTarballSource = {
+      async tarball(name, version) {
+        return name === 'vuln' && version === '2.0.0' ? bytes : undefined
+      },
+    }
+    const repaired = await refurbish(
+      completed.graph,
+      'yarn-berry-v8',
+      { npmTarballs: source },
+    )
+    expect(repaired.graph.tarballOf('vuln@2.0.0')?.integrity?.hashes.map(hash => hash.origin))
+      .toEqual(['sri', 'berry-zip'])
+
+    const diagnostics: Diagnostic[] = []
+    expect(() => stringify(repaired.graph, 'yarn-berry-v8', {
+      onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+    })).not.toThrow()
+    expect(repaired.graph.tarballOf('vuln@2.0.0')?.integrity?.hashes.map(hash => hash.origin))
+      .toEqual(['sri', 'berry-zip'])
+    const npmRoundTrip = parse(
+      stringify(repaired.graph, 'npm-3', { strict: false }),
+      'npm-3',
+    )
+    expect(npmRoundTrip.tarballOf('vuln@2.0.0')?.integrity?.hashes)
+      .toContainEqual(expect.objectContaining({
+        algorithm: 'sha512',
+        digest: registryDigest,
+        origin: 'sri',
+      }))
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PROJECTION_LOSS',
+      subject: 'vuln@2.0.0',
+      data: expect.objectContaining({
+        class: 'structural-expected',
+        feature: 'integrity:tarball-sri',
+        target: 'yarn-berry-v8',
+      }),
+    }))
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PROJECTION_LOSS',
+      subject: 'vuln@2.0.0',
+      data: expect.objectContaining({
+        class: 'structural-expected',
+        feature: 'integrity:url-fragment',
+        target: 'yarn-berry-v8',
+      }),
+    }))
+    expect(diagnostics.some(diagnostic =>
+      diagnostic.code === 'COMPLETENESS_OUTPUT_GRAPH_MISMATCH')).toBe(false)
   })
 
   it('strict:false preserves legacy bytes and reports accepted loss', () => {

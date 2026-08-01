@@ -198,6 +198,7 @@ export async function replaceVersion(
     // 4. Merge branch — target NodeId already exists.
     // F3: retarget incoming edges FIRST, then removeNode(oldId).
     const incoming = currentGraph.in(node.id).slice()
+    const strandedCandidates = currentGraph.out(node.id).map(edge => edge.dst)
     const mergeReplacedDiag = modifyNodeReplaced(node.id, targetId)
     const rewireDiags: ModifyDiagnostic[] = []
     const mergeResult: MutateResult = currentGraph.mutate(m => {
@@ -220,7 +221,22 @@ export async function replaceVersion(
     currentGraph = pruneOrphanTarballs(currentGraph, [node])
     replaced.push({ from: node.id, to: targetId })
     removed.push(node.id)
+    // The existing target is still the completion frontier for this change:
+    // its newly-retargeted consumers may require the target's dependency
+    // closure to be completed even though the node itself was not minted.
+    recentlyAdded.add(targetId)
     recentlyOrphaned.add(node.id)
+    // Removing the collapsed node also removes all of its outgoing edges.
+    // Seed every surviving child that lost its final incoming edge; the seeded
+    // reference-count sweep revalidates these and supplies the full cascade.
+    for (const dstId of strandedCandidates) {
+      const dst = currentGraph.getNode(dstId)
+      if (dst !== undefined
+        && dst.workspacePath === undefined
+        && currentGraph.in(dstId).length === 0) {
+        recentlyOrphaned.add(dstId)
+      }
+    }
     for (const d of rewireDiags) emit(d)
     emit(mergeReplacedDiag)
   }

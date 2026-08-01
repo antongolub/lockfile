@@ -369,8 +369,8 @@ export interface Graph {
 
 export interface Builder {
   addNode(node: Node):                                                      void
-  addEdge(src: NodeId, dst: NodeId, kind: EdgeKind, attrs?: EdgeAttrs):     void
-  setTarball(inputs: TarballKeyInputs, payload: TarballPayload):            void
+  addEdge(src: NodeId, dst: NodeId, kind: EdgeKind, attrs?: EdgeAttributes): void
+  setTarball(inputs: TarballKeyInput, payload: TarballPayload):              void
   diagnostic(d: Diagnostic):                                                void
   layoutHints(h: LayoutHints):                                              void
   seal():                                                                   Graph
@@ -512,7 +512,7 @@ export function validateSourceToken(source: string): void {
   }
 }
 
-export function toTarballKey(inputs: TarballKeyInputs): TarballKey {
+export function toTarballKey(inputs: TarballKeyInput): TarballKey {
   const slots: string[] = []
   if (inputs.patch !== undefined) {
     validatePatchToken(inputs.patch)

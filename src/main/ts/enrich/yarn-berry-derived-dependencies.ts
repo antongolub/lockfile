@@ -83,7 +83,7 @@ export interface YarnBerryDerivedDependencyResult {
 
 function isProvedNodeGypInjection(graph: Graph, edge: Edge): boolean {
   if (edge.kind !== 'dep'
-    || edge.attrs?.range !== 'npm:latest'
+    || edge.attrs?.range?.replace(/^npm:/, '') !== 'latest'
     || edge.attrs.alias !== undefined) return false
   const owner = graph.getNode(edge.src)
   const dependency = graph.getNode(edge.dst)

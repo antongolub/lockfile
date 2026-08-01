@@ -110,7 +110,7 @@ describe('interop: yarn-classic -> yarn-berry (enrich-aware)', () => {
         expect(rootEdges).toContainEqual({
           dst: 'ms@2.1.3',
           kind: 'optional',
-          range: 'npm:2.1.3',
+          range: '2.1.3',
         })
       })
     })

@@ -253,23 +253,19 @@ describe('package metadata completeness', () => {
       status: 'satisfied',
     }))
 
-    const nearMissGraph = graphWith({ license: 'MIT' })
-    const nearMiss = assessConversion(nearMissGraph, {
+    const licenseGraph = graphWith({ license: 'MIT' })
+    const license = assessConversion(licenseGraph, {
       contract: 'project',
       target: { format: 'yarn-classic' },
-      evidence: packageEvidence(nearMissGraph, {
+      evidence: packageEvidence(licenseGraph, {
         name: 'pkg',
         version: '1.0.0',
         license: 'MIT',
       }),
     })
-    expect(nearMiss.requirements).toContainEqual(expect.objectContaining({
+    expect(license.requirements).toContainEqual(expect.objectContaining({
       key: 'target-feature:metadata:license',
-      status: 'unsatisfied',
-      diagnostics: [expect.objectContaining({
-        code: 'COMPLETENESS_TARGET_FEATURE_UNSUPPORTED',
-        data: expect.objectContaining({ fields: ['license'] }),
-      })],
+      status: 'satisfied',
     }))
   })
 

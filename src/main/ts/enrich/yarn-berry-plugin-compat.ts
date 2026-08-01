@@ -410,7 +410,8 @@ function candidateOf(
     if (!outgoing.some(edge =>
       INSTALL_KINDS.has(edge.kind)
       && graph.getNode(edge.dst)?.name === name
-      && (edge.attrs?.overrideRange ?? edge.attrs?.range) === range)) return undefined
+      && (edge.attrs?.overrideRange ?? edge.attrs?.range)?.replace(/^npm:/, '')
+        === range.replace(/^npm:/, ''))) return undefined
   }
 
   const consumers = [...graph.in(base.id)]
