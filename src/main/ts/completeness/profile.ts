@@ -95,7 +95,10 @@ const verificationRank: Record<Verification, number> = {
 const hasOwn = (object: object, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(object, key)
 
-const graphGapPattern = /(BAD_ENTRY|UNRESOLVED|RESOLVE_VIOLATION|MISSING_(?:ENTRY|NODE|SNAPSHOT|TARGET)|UNKNOWN_(?:ENTRY|SNAPSHOT)|AMBIGUOUS_(?:RESOLUTION|TARGET)|COLLISION|IRREDUCIBLE_LOSS)/
+// `WORKSPACE_LINK_EDGE_DROPPED` is a graph gap; its `PEER_BOUND` sibling is NOT
+// — there the peer edge already models the relationship, so the resolved graph
+// is whole and only pnpm's duplicate dependency-block slot is unrepresentable.
+const graphGapPattern = /(BAD_ENTRY|UNRESOLVED|RESOLVE_VIOLATION|WORKSPACE_LINK_EDGE_DROPPED|MISSING_(?:ENTRY|NODE|SNAPSHOT|TARGET)|UNKNOWN_(?:ENTRY|SNAPSHOT)|AMBIGUOUS_(?:RESOLUTION|TARGET)|COLLISION|IRREDUCIBLE_LOSS)/
 const topologyGapPattern = /(WORKSPACE|IMPORTER|ROOT).*(?:MISSING|UNKNOWN|UNRESOLVED|COLLISION)/
 const artifactGapPattern = /(INTEGRITY_INCOMPLETE|RESOLUTION_UNKNOWN|MISSING_(?:RESOLUTION|INTEGRITY))/
 const peerGapPattern = /(PEER.*(?:UNSATISFIED|AMBIGUOUS|UNRESOLVED|COLLISION|ATTRIBUTION|MISSING)|WORKSPACE_PEER.*(?:GAP|COLLISION|MISSING))/

@@ -212,17 +212,16 @@ describe('yarn-classic robustness — relative file:/link:/portal: resolved', ()
   })
 })
 
-// #83 finding 2 — a bare package-name entry key (`foo:` with no `@range`).
-// VERDICT: MALFORMED. yarn 1's lockfile writer always keys entries by
-// `<name>@<range>` descriptors; a bare name is never emitted. The parser
-// rejects cleanly with a typed LockfileError that names the missing `@<range>`
-// — a clear diagnostic, not an uncaught crash and not a contorted attempt to
-// swallow the malformed key.
-describe('yarn-classic robustness — bare package-name entry key (malformed)', () => {
-  it('rejects a bare-name key with a clear PARSE_FAILED diagnostic', () => {
-    const lf = H + 'foo:\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/foo/-/foo-1.0.0.tgz#aaa"\n'
+// #83 finding 2 — source-authored bare package-name entry keys (`foo:` with no
+// `@range`). Seven independent producer locks in the external corpus carry this
+// shape. The key is accepted as package identity with an explicitly absent
+// range; malformed pseudo-scopes remain rejected rather than broadening the
+// grammar to arbitrary bare strings.
+describe('yarn-classic robustness — source-authored bare package-name entry keys', () => {
+  it('still rejects a malformed pseudo-scope through the public parse boundary', () => {
+    const lf = H + '"@foo":\n  version "1.0.0"\n  resolved "https://registry.yarnpkg.com/foo/-/foo-1.0.0.tgz#aaa"\n'
     expect(() => parse('yarn-classic', lf)).toThrow(LockfileError)
-    expect(() => parse('yarn-classic', lf)).toThrow(/bare package name with no '@<range>'/)
+    expect(() => parse('yarn-classic', lf)).toThrow(/bad entry-spec/)
   })
 
   it('a normal `name@range` key still parses (no regression)', () => {

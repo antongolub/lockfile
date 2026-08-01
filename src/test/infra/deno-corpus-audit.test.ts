@@ -18,13 +18,30 @@ const REPLAYABLE_FLOOR = 190
 // Refusals we have measured and understand. A refusal outside this set is a new
 // defect and fails the gate. Shrinking one of these is progress; the counts are
 // printed on every run so the gaps stay visible instead of being absorbed.
+//
+// Every surviving class is a document DENO ITSELF refuses, verified by running the
+// file through the vendored oracle binaries, so refusing is agreement with the
+// producer rather than a gap in this adapter:
+//
+//   dangling-specifier         deno 2.9.4: "The lockfile is corrupt. […] Could not
+//                              find '@types/node@24.2.0' in the list of packages."
+//   legacy-v3-specifier-value  deno 2.9.4: "Invalid npm package id
+//                              '@types/node@npm:@types/node@18.16.19'. Invalid npm
+//                              version." — the same id this adapter builds.
+//   jsr-integrity-missing      deno 2.9.4: "Invalid jsr section: missing field
+//                              `integrity`", and 1.44.4, contemporary with those v3
+//                              files: "Unable to parse contents of lockfile […]
+//                              missing field `integrity`".
+//
+// Closed classes are DELETED from this map rather than left at zero, so a
+// recurrence fails as an unexpected refusal instead of being absorbed:
+//
 // `collapse-onto-canonical-id` used to sit here at 14 files: Deno unrolls a
 // mutual peer cycle to arbitrary depth, and every unrolling of one base projected
 // onto one canonical NodeId. Those unrollings were measured to carry identical
 // integrity in 513 of 513 corpus groups, so they now collapse onto one node and
-// all 14 replay. It is deliberately NOT listed as a known refusal any more: the
-// surviving refusal — two ids that collapse while carrying DIFFERENT integrity —
-// has never been observed, and must fail this gate loudly if it ever is.
+// all 14 replay. The surviving refusal — two ids that collapse while carrying
+// DIFFERENT integrity — has never been observed, and must fail loudly if it is.
 // `seal-failed-peer-edges` likewise used to cover 15 v5 locks where an aliased
 // optional peer appeared both as a declaration and as its native suffix target.
 // The alias declaration now owns that one peer projection, so the entire class
@@ -32,10 +49,20 @@ const REPLAYABLE_FLOOR = 190
 // `entry-without-integrity` covered five v5 workspace-linked patch packages.
 // Their source-authoritative absence is now recognized without permitting
 // mutation-time synthesis, so that refusal class is also closed.
+// `integrity-not-canonical` covered one v5 lock resolved through a cnpm mirror,
+// whose packuments carry only `dist.shasum`, so all 16 of its npm entries hold a
+// bare 40-hex sha1 instead of an SRI. Deno reads that lock without complaint; the
+// adapter now carries the shasum as a `registry`-origin sha1 and re-emits it
+// verbatim, so the class is closed.
+// `jsr-integrity-not-sha256-hex` covered the two files now under
+// `jsr-integrity-missing`. Their entries carry no `integrity` key at all, and
+// absence is not malformation — every jsr integrity present anywhere in the corpus
+// is well-formed lowercase SHA-256 hex, so a genuinely malformed one has never been
+// observed and must fail loudly rather than hide inside an absence count.
 const KNOWN_REFUSALS = {
   'dangling-specifier': /references missing npm package/,
-  'integrity-not-canonical': /integrity must be canonical/,
-  'jsr-integrity-not-sha256-hex': /integrity must be lowercase SHA-256 hex/,
+  'legacy-v3-specifier-value': /a lockfile-v3 locator/,
+  'jsr-integrity-missing': /has no integrity field/,
 } as const
 
 const isUpstreamFixture = (file: string) => file.startsWith('denoland__deno__')

@@ -3,7 +3,12 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { serializeNodeId, type Diagnostic, type Graph } from '../../main/ts/graph.ts'
+import {
+  serializeNodeId,
+  type Diagnostic,
+  type Graph,
+  type TarballPayload,
+} from '../../main/ts/graph.ts'
 import {
   check as checkPublic,
   detect as detectPublic,
@@ -242,6 +247,189 @@ describe('deno adapter', () => {
 }
 `
       expect(denoV5.stringify(denoV5.parse(input))).toBe(input)
+    })
+  })
+
+  // Deno stores whatever `dist.integrity()` yields: the registry's `integrity`
+  // string, else the legacy `dist.shasum` as bare lowercase hex. Registries that
+  // serve no `integrity` — cnpm mirrors — therefore produce a lock whose every npm
+  // entry carries a 40-hex sha1. Deno 2.9.4 reads such a lock without complaint.
+  describe('legacy SHA-1 shasum npm integrity', () => {
+    const SHASUM = '21413001973106cda1c3a9b91eedd4ccd5469d76'
+    const mirrorLock = `{
+  "version": "5",
+  "npm": {
+    "mirrored@1.0.0": {
+      "integrity": "${SHASUM}",
+      "tarball": "http://mirror.invalid/mirrored/download/mirrored-1.0.0.tgz"
+    }
+  }
+}
+`
+
+    // Replaying an unmutated graph returns the original bytes without entering the
+    // emitter, so every emission claim below is asserted through a MUTATION — the
+    // only path that actually builds an npm entry.
+    const rebuild = (graph: Graph, integrity: TarballPayload['integrity']): string => {
+      const node = graph.getNode('mirrored@1.0.0')!
+      return denoV5.stringify(graph.mutate(mutator => {
+        mutator.replaceNode(node.id, { ...node, id: 'mirrored@1.0.1', version: '1.0.1' })
+        mutator.setTarball(
+          { name: 'mirrored', version: '1.0.1' },
+          {
+            integrity,
+            resolution: {
+              type: 'tarball',
+              url: 'http://mirror.invalid/mirrored/download/mirrored-1.0.1.tgz',
+            },
+          },
+        )
+      }).graph)
+    }
+
+    it('carries a bare shasum as a registry-origin sha1 and byte-replays it', () => {
+      const graph = denoV5.parse(mirrorLock)
+      expect(graph.tarballOf('mirrored@1.0.0')?.integrity).toEqual({
+        hashes: [{ algorithm: 'sha1', digest: SHASUM, origin: 'registry' }],
+      })
+      expect(denoV5.stringify(graph)).toBe(mirrorLock)
+    })
+
+    it('re-emits the bare shasum verbatim when it is the only tarball digest', () => {
+      const output = rebuild(denoV5.parse(mirrorLock), {
+        hashes: [{ algorithm: 'sha1', digest: SHASUM, origin: 'registry' }],
+      })
+      expect(JSON.parse(output).npm['mirrored@1.0.1'].integrity).toBe(SHASUM)
+    })
+
+    it('prefers the SHA-512 SRI when a node proves both digests', () => {
+      const output = rebuild(denoV5.parse(mirrorLock), {
+        hashes: [
+          { algorithm: 'sha1', digest: SHASUM, origin: 'registry' },
+          ...parseSri(SCHEDULER_027_SRI).hashes,
+        ],
+      })
+      expect(JSON.parse(output).npm['mirrored@1.0.1'].integrity).toBe(SCHEDULER_027_SRI)
+    })
+
+    it('refuses to emit a yarn-classic url-fragment sha1 into the integrity field', () => {
+      // The fragment sha1 rides yarn-classic's resolved URL and is NOT an SRI-field
+      // digest. Promoting it here would fabricate a supply-chain claim in a field
+      // that means something else.
+      expect(() => rebuild(denoV5.parse(mirrorLock), {
+        hashes: [{ algorithm: 'sha1', digest: SHASUM, origin: 'url-fragment' }],
+      })).toThrow(/has no SHA-512 or legacy SHA-1 tarball integrity/)
+    })
+
+    it('refuses to emit a sha1 whose shape its own parser would reject', () => {
+      expect(() => rebuild(denoV5.parse(mirrorLock), {
+        hashes: [{ algorithm: 'sha1', digest: SHASUM.toUpperCase(), origin: 'registry' }],
+      })).toThrow(/has no SHA-512 or legacy SHA-1 tarball integrity/)
+    })
+
+    it('rejects a shasum that is not 40 lowercase hex characters', () => {
+      const input = mirrorLock.replace(SHASUM, SHASUM.toUpperCase())
+      expect(() => denoV5.parse(input)).toThrow(
+        /integrity must be canonical SHA-512 SRI or a legacy 40-character lowercase SHA-1 hex/,
+      )
+    })
+
+    it('rejects a prefixed sha1-<base64> SRI, which deno never writes here', () => {
+      const input = mirrorLock.replace(SHASUM, 'sha1-IUEwAZcxBs2hw6m5Hu3UzNVGnXY=')
+      expect(() => denoV5.parse(input)).toThrow(
+        /integrity must be canonical SHA-512 SRI or a legacy 40-character lowercase SHA-1 hex/,
+      )
+    })
+  })
+
+  // A jsr entry with no `integrity` key is ABSENT, not malformed, and the two must
+  // not share a message. Absence is still refused: every deno that can open such a
+  // document rejects it with "missing field `integrity`", so accepting it would mint
+  // a graph no deno can install from.
+  describe('jsr integrity absence', () => {
+    it('refuses an integrity-less jsr entry by naming the missing field', () => {
+      const input = `{
+  "version": "4",
+  "jsr": {
+    "@std/fmt@0.216.0": {}
+  }
+}
+`
+      expect(() => denoV4.parse(input)).toThrow(
+        /jsr @std\/fmt@0\.216\.0 has no integrity field/,
+      )
+    })
+
+    it('keeps a malformed jsr integrity on its own distinct diagnostic', () => {
+      const input = `{
+  "version": "4",
+  "jsr": {
+    "@std/fmt@0.216.0": {
+      "integrity": "not-a-digest"
+    }
+  }
+}
+`
+      expect(() => denoV4.parse(input)).toThrow(
+        /jsr @std\/fmt@0\.216\.0 integrity must be lowercase SHA-256 hex/,
+      )
+    })
+  })
+
+  // v4 narrowed the specifier VALUE from v3's `npm:<name>@<version>` locator to a
+  // bare `<version>`. A v4 file carrying the v3 shape rebuilds to
+  // `<name>@npm:<name>@<version>` — the same id deno builds, and the same one it
+  // rejects — so the value is wrong, not the lookup.
+  describe('lockfile-v3 specifier locator in a v4 document', () => {
+    it('names the stale value shape rather than reporting a missing package', () => {
+      const input = `{
+  "version": "4",
+  "specifiers": {
+    "npm:lodash-es@4.17.21": "npm:lodash-es@4.17.21"
+  },
+  "npm": {
+    "lodash-es@4.17.21": {
+      "integrity": "${SCHEDULER_027_SRI}"
+    }
+  }
+}
+`
+      expect(() => denoV4.parse(input)).toThrow(
+        /resolves to npm:lodash-es@4\.17\.21, a lockfile-v3 locator/,
+      )
+    })
+
+    it('still resolves the same locator in a genuine v3 document', () => {
+      const input = `{
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "npm:lodash-es@4.17.21": "npm:lodash-es@4.17.21"
+    },
+    "npm": {
+      "lodash-es@4.17.21": {
+        "integrity": "${SCHEDULER_027_SRI}",
+        "dependencies": {}
+      }
+    }
+  }
+}
+`
+      expect(denoV3.stringify(denoV3.parse(input))).toBe(input)
+    })
+
+    it('keeps reporting a well-formed v4 value that names no package as dangling', () => {
+      const input = `{
+  "version": "4",
+  "specifiers": {
+    "npm:lodash-es@*": "4.17.21"
+  },
+  "npm": {}
+}
+`
+      expect(() => denoV4.parse(input)).toThrow(
+        /references missing npm package lodash-es@4\.17\.21/,
+      )
     })
   })
 

@@ -94,6 +94,17 @@ Compared to v5:
   retained fact fails strict projection with
   `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED`; the loss is irreducible
   and has no registry remedy.
+- An INLINE `packages[*].dependencies` value may be `link:<dir>` — a
+  workspace-directory reference resolved against the lockfile directory. v6
+  shares the v9 handling verbatim (bind for a local `file:` consumer;
+  `PNPM_WORKSPACE_LINK_PEER_BOUND` / `PNPM_WORKSPACE_LINK_EDGE_DROPPED`
+  otherwise): see the
+  [pnpm-v9 note](./pnpm-v9.md#link-inside-a-snapshots-dependency-block). One
+  v6-only wrinkle: pnpm 6–7 key a local directory package as a bare
+  `file:<dir>` (no leading slash, no `@version`), which the packages-key grammar
+  rejects with `PNPM_BAD_ENTRY` — so the local-consumer branch is currently
+  unreachable on v6 input and every v6 `link:` slot takes one of the
+  published branches.
 
 ## Degradation rules
 

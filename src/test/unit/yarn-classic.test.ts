@@ -1213,13 +1213,53 @@ describe('parseSpec', () => {
     expect(parseSpec('@scope/pkg@^1.2.3')).toEqual({ name: '@scope/pkg', spec: '^1.2.3' })
   })
 
-  it('rejects a bare package name with no `@<range>`', () => {
-    expect(() => parseSpec('lodash')).toThrow(/bare package name with no '@<range>'/)
+  it.each([
+    ['lodash', 'lodash'],
+    ['@hackoregon/jinn', '@hackoregon/jinn'],
+  ])('preserves source-authored bare descriptor %s without inventing a range', (descriptor, name) => {
+    expect(parseSpec(descriptor)).toEqual({ name, spec: undefined })
   })
 
   it('rejects a leading-`@`-only / trailing-`@` spec', () => {
-    expect(() => parseSpec('@foo')).toThrow(/bare package name/)
+    expect(() => parseSpec('@foo')).toThrow(/entry-spec|package name/)
     expect(() => parseSpec('foo@')).toThrow(/bad entry-spec/)
+  })
+})
+
+describe('yarn-classic — source-authored bare entry descriptors', () => {
+  const lockWith = (key: string, name: string, version: string): string =>
+    `${CLASSIC_HEADER}${key}:\n` +
+    `  version "${version}"\n` +
+    `  resolved "https://registry.yarnpkg.com/${name}/-/${name.split('/').at(-1)}-${version}.tgz"\n`
+
+  it.each([
+    ['body-parser', 'body-parser'],
+    ['"@hackoregon/jinn"', '@hackoregon/jinn'],
+  ])('round-trips bare key %s exactly without minting an edge or range', (key, name) => {
+    const input = lockWith(key, name, '1.2.3')
+    const graph = parse(input)
+
+    expect(Array.from(graph.nodes(), node => [node.name, node.version])).toEqual([[name, '1.2.3']])
+    expect(Array.from(graph.nodes()).flatMap(node => graph.out(node.id))).toEqual([])
+    expect(stringify(graph)).toBe(input)
+  })
+
+  it('drops a bare descriptor after a version bump instead of treating absence as `*`', async () => {
+    const graph = parse(lockWith('lodash', 'lodash', '4.17.11'))
+    const bumped = await replaceVersion(
+      graph,
+      { name: 'lodash', fromRange: '^4.17.0' },
+      '4.18.0',
+      {
+        registry: {
+          async packument() { return undefined },
+          async resolve(name: string) { return { name, version: '4.18.0' } },
+        },
+      },
+    )
+
+    expect(stringify(bumped.graph).split('\n').find(line => line.startsWith('lodash')))
+      .toBe('lodash@4.18.0:')
   })
 })
 

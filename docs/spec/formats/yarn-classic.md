@@ -61,6 +61,21 @@
 
 Keys = comma-separated dep specs that share the same resolved version.
 
+### Source-authored bare entry keys
+
+Although Yarn 1's normal writer keys entries by `<name>@<range>`, historical
+source-authored locks exist with a bare package identity such as
+`body-parser:` or `"@scope/pkg":`. A bare key contains **no descriptor-range
+authority**. The adapter accepts a syntactically valid unscoped or scoped
+package name and preserves the exact key in its yarn-classic sidecar for
+same-format replay, but it does not infer `*`, `latest`, the resolved version,
+or a range from `package.json`. The key alone creates no dependency edge.
+
+That source spelling is identity-scoped, not a wildcard. If the node's version
+or identity changes, the bare sidecar key is discarded and stringify falls
+back to the canonical `<name>@<newVersion>` key. Malformed pseudo-scopes such
+as `@foo`, empty names, and trailing-`@` descriptors remain parse errors.
+
 ## Capabilities
 
 | Feature | Supported | Notes |

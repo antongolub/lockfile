@@ -252,7 +252,12 @@ function workspaceGraph(specifier: string): Graph {
 }
 
 describe('retained unresolved dependency declarations', () => {
-  it('preserves all 75 unresolved declarations in the real pnpm corpus', () => {
+  // 44, down from 75: the 31 `link:` slots nx's local `file:` packages declare
+  // now bind as real dependency edges instead of being retained as declarations
+  // (see docs/spec/formats/pnpm-v9.md, `link:` inside a snapshots dependency
+  // block). The remaining pnpm `link:` slots stay declarations — the seal admits
+  // no dependency edge from a published package into a workspace member.
+  it('preserves all 44 unresolved declarations in the real pnpm corpus', () => {
     let total = 0
     for (const directory of realWorldPnpmFiles) {
       const input = realWorldFixture(directory, 'pnpm-lock.yaml')
@@ -265,7 +270,7 @@ describe('retained unresolved dependency declarations', () => {
       expect(declarationNames(reparsed), directory).toEqual(declarationNames(source))
       total += before.length
     }
-    expect(total).toBe(75)
+    expect(total).toBe(44)
   })
 
   it('preserves the VSCode cpu-features parse gap through npm-3 and npm-2 output', () => {

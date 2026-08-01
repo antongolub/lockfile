@@ -89,8 +89,28 @@ Three transitions, each a different kind of change:
 | transition | change |
 | --- | --- |
 | v2 → v3 | sections move under a `packages` container; a `jsr` section appears for the first time; `workspace` appears |
-| v3 → v4 | sections hoist back to the top level; `redirects` appears; npm dependency references change from name-to-id maps to compact string arrays |
+| v3 → v4 | sections hoist back to the top level; `redirects` appears; npm dependency references change from name-to-id maps to compact string arrays; **specifier values narrow from a locator to a bare version** |
 | v4 → v5 | section layout is unchanged; the **npm entry gains eight fields** |
+
+#### The v3 → v4 specifier value narrowing is not always applied
+
+A v3 specifier resolves to a full locator — `"npm:lodash-es@4.17.21"` — and v4
+resolves to the bare `"4.17.21"`, with the native id rebuilt as `<name>@<value>`.
+Three corpus files declare `"version": "4"`, use the v4 top-level section layout,
+and still carry v3 locators in **every** specifier value, jsr entries included.
+The rebuild then yields `lodash-es@npm:lodash-es@4.17.21`.
+
+That is not a lookup to be repaired by stripping the prefix. Deno builds the same
+id and refuses it:
+
+```
+Invalid npm package id '@types/node@npm:@types/node@18.16.19'. Invalid npm version.
+```
+
+The value is wrong, not the resolution, so the parser fails closed and names the
+stale shape. Reporting it as a missing package instead — which is what the
+diagnostic used to say — invites exactly the wrong repair. The v3 reader keeps
+accepting the identical locator, because in a v3 document it is correct.
 
 **v4 → v5 is the only transition that adds package metadata rather than moving
 it.** Measured across the corpus, an npm entry carries:
@@ -118,16 +138,19 @@ and deprecation notices have no representation in v2–v4.
 
 | lockfile version | written by | third-party corpus files |
 | --- | --- | ---: |
-| v2 | Deno 1.x (early) | 7 |
-| v3 | Deno 1.44.4 | 25 |
-| v4 | Deno 2.2.8 | 31 |
-| v5 | Deno 2.9.4 | 127 |
+| v2 | Deno 1.x (early) | 1206 |
+| v3 | Deno 1.44.4 | 1351 |
+| v4 | Deno 2.2.8 | 247 |
+| v5 | Deno 2.9.4 | 773 |
 
-Counts are from the measured corpus of 190 strict-JSON lockfiles taken from
-repositories outside `denoland/deno`; Deno's own conformance fixtures are
-excluded because they contain assertion placeholders rather than real values.
-The distribution matters for tooling: **v5 is roughly two thirds of what exists
-in the wild, and v2 is rare but not extinct.**
+Counts are from the measured corpus of 3577 versioned strict-JSON lockfiles
+taken from repositories outside `denoland/deno`; Deno's own conformance fixtures
+are excluded because they contain assertion placeholders rather than real values.
+The distribution matters for tooling: **no generation is vestigial.** v2 and v3
+together are seven files in ten — Deno does not rewrite a lockfile merely to
+raise its version, so old files persist in repositories indefinitely — and v4,
+the shortest-lived generation, is the rarest despite being the most recent
+before v5.
 
 ## Projection boundary
 
@@ -285,7 +308,7 @@ one another:
 
 | Section | Stored value | Meaning |
 | --- | --- | --- |
-| `npm` | canonical singular `sha512-…` SRI | npm registry tarball integrity |
+| `npm` | canonical singular `sha512-…` SRI, or a bare 40-character lowercase SHA-1 hex shasum | npm registry tarball integrity |
 | `jsr` | 64-character lowercase SHA-256 hex | JSR release metadata lock checksum |
 | `remote` | 64-character lowercase SHA-256 hex | fetched remote-module bytes |
 
@@ -295,6 +318,54 @@ npm-3 nodes and 7.3 % of yarn-classic nodes carry `sha1` alongside `sha512`, so
 requiring a singular value would reject roughly one node in ten of every real
 npm-3 lock. Deno stores exactly one member; selection happens on emit, never by
 narrowing the graph. The emitter never derives npm SRI from JSR or remote hashes.
+
+### npm integrity has a second, non-SRI shape
+
+Deno stores whatever `dist.integrity()` yields for the resolved packument: the
+registry's own `integrity` string when it has one, otherwise the legacy
+`dist.shasum` as **bare lowercase hex, with no `sha1-` prefix and no base64**.
+
+registry.npmjs.org always supplies `integrity`, so 310 462 of the 310 478 npm
+entries across the v3/v4/v5 corpus are canonical singular `sha512-…` SRI. The
+other 16 are one lock resolved through a cnpm mirror — all 16 entries carry an
+explicit `tarball` on `registry.m.jd.com`, and cnpm packuments serve only
+`shasum`. Deno 2.9.4 reads that lock without complaint, so refusing it was a
+defect here, not in the file.
+
+The hex digest is carried as a `sha1` hash tagged `registry`, because it *is*
+`dist.shasum` verbatim. That origin is tarball-scoped, so it re-encodes into
+another family's SRI field as `sha1-<base64>` — exactly what npm itself writes
+for a shasum-only package — while the yarn-classic `url-fragment` sha1 stays
+excluded from this field, as it must. On emit the sha512 is preferred; the bare
+shasum is written only when it is the sole tarball digest the node proves, which
+is precisely when Deno would write it too.
+
+Uppercase hex is refused rather than normalised: canonicality is the byte-replay
+condition, not a matter of taste.
+
+### An absent `jsr` integrity is refused, and is not a malformed one
+
+Eight `jsr` entries across two v3 corpus files carry no `integrity` key at all —
+`{"dependencies": ["jsr:@std/fmt@^0.216.0"]}`, or just `{}`. Absence is not
+malformation and does not share its diagnostic; reporting "must be lowercase
+SHA-256 hex" for a field that is not there sends the reader hunting a corrupt
+digest that does not exist.
+
+Absence is nonetheless **refused**. This is the opposite of the v5
+patched-package case below, where Deno's own printer declares `integrity`
+optional and Deno reads the file back. Here every Deno that can open the
+document rejects it:
+
+| oracle | message |
+| --- | --- |
+| 1.44.4, contemporary with these v3 files | ``Unable to parse contents of lockfile […] missing field `integrity` `` |
+| 2.9.4 | ``Invalid jsr section: missing field `integrity` `` |
+
+Both files date from the first weeks of `jsr:` support; they are orphans of a
+producer whose successors will not read its output. Accepting them would mint a
+graph no Deno can install from. Every `jsr` integrity that *is* present anywhere
+in the corpus — 12 301 of them — is well-formed lowercase SHA-256 hex, so a
+genuinely malformed value has never been observed.
 
 For JSR, the measured artifact proof is `@std/assert@1.0.19`: the SHA-256 of
 the exact raw `_meta.json` response body equals the lock entry. The producer
@@ -351,36 +422,48 @@ hiding them behind one schema-ambiguous declaration.
 ## Corpus and tests
 
 The measured corpus contains **3581 real lockfiles** scraped from public
-repositories, spanning all four generations. **3550 of them replay
+repositories, spanning all four generations. **3571 of them replay
 byte-identically.** Three are merge-conflicted and therefore not strict JSON, one
-is the pre-v2 flat URL-to-hash map with no `version` key, and 27 are refused on
+is the pre-v2 flat URL-to-hash map with no `version` key, and 6 are refused on
 parse. The gate asserts this as a property rather than a file count — the corpus
 is gitignored scratch that grows whenever it is re-scraped, so an exact count
 would only be green for whoever scraped last.
 
-The 27 refusals are known and classified; a refusal outside these classes fails
-the gate:
+**Every remaining refusal is a document Deno itself refuses**, verified by
+running each file through the vendored oracle binaries. Refusing them is
+agreement with the producer, not a gap here:
 
-| refusal | files | status |
+| refusal | files | Deno's own verdict |
 | --- | --: | --- |
-| `seal failed: peer edges` | 15 | open — peer-edge reconstruction |
-| entry with neither integrity nor an explicit tarball | 5 | **our defect** — Deno writes `{}` for a patched package; its printer declares `integrity` optional for exactly that case |
-| specifier references an npm package absent from the file | 4 | open — likely genuinely malformed input, unconfirmed |
-| jsr integrity not lowercase SHA-256 hex | 2 | open |
-| npm integrity not canonical | 1 | open |
+| specifier value is a lockfile-v3 locator in a v4 document | 3 | `Invalid npm package id '@types/node@npm:@types/node@18.16.19'. Invalid npm version.` — the same id this adapter builds |
+| `jsr` entry has no `integrity` field | 2 | ``Invalid jsr section: missing field `integrity` `` (2.9.4); ``missing field `integrity` `` (1.44.4) |
+| specifier references an npm package absent from the file | 1 | `The lockfile is corrupt. […] Could not find '@types/node@24.2.0' in the list of packages.` |
 
-A sixth class — 14 files whose native npm ids collapsed onto one canonical
-NodeId — is gone: those ids are cycle unrollings of one artifact and now share
-one node (see *[Mutual peer cycles unroll to arbitrary
-depth](#mutual-peer-cycles-unroll-to-arbitrary-depth)*). All fifteen remaining
-seal failures are unaffected by that rule — the same fifteen files before and
-after — and in five of them the node that fails has a single native id in the
-whole lock, so the class is a distinct defect rather than a residue of the
-collapse. One measured instance: an aliased optional peer
-(`ajv-formats@3.0.1_@redocly+ajv@8.18.1` with `optionalPeers:
-["ajv@npm:@redocly/ajv@8.18.1"]`) contributes both an aliased and an unaliased
-peer edge to the same target, so the node carries two peer edges where its
-peerContext records one base.
+Closed classes are deleted from the gate's known-refusal map rather than left at
+zero, so a recurrence fails as an *unexpected* refusal instead of being absorbed
+into a count nobody reads:
+
+- **14 files whose native npm ids collapsed onto one canonical NodeId** — those
+  ids are cycle unrollings of one artifact and now share one node (see *[Mutual
+  peer cycles unroll to arbitrary
+  depth](#mutual-peer-cycles-unroll-to-arbitrary-depth)*). The surviving refusal
+  — two ids that collapse while carrying *different* integrity — has never been
+  observed.
+- **15 v5 locks that failed to seal peer edges** — an aliased optional peer
+  (`ajv-formats@3.0.1_@redocly+ajv@8.18.1` with `optionalPeers:
+  ["ajv@npm:@redocly/ajv@8.18.1"]`) appeared both as a declaration and as its
+  native suffix target, contributing two peer edges where the node's peerContext
+  records one base. The alias declaration now owns that projection.
+- **5 v5 workspace-linked patch packages with neither integrity nor tarball** —
+  Deno writes `{}` for a patched package and its printer declares `integrity`
+  optional for exactly that case. The absence is now recognised as
+  source-authoritative without permitting mutation-time synthesis.
+- **1 lock whose npm integrity was not canonical SRI** — a cnpm mirror's bare
+  `dist.shasum` hex (see *[npm integrity has a second, non-SRI
+  shape](#npm-integrity-has-a-second-non-sri-shape)*).
+- **2 files reported as malformed `jsr` integrity** — their entries carry no
+  `integrity` key at all, and absence is not malformation. They moved to their
+  own class; a genuinely malformed `jsr` digest has still never been seen.
 
 The unit and interop suites cover:
 

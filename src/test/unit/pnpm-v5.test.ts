@@ -586,6 +586,67 @@ describe('parse', () => {
     expect(edge!.attrs?.range).toBe('link:packages/b')
     expect(edge!.attrs?.workspaceRange).toEqual({ specifier: '', resolvedVersion: '0.0.0' })
   })
+
+  // A `link:` inside a `packages[*].dependencies` block references a workspace
+  // DIRECTORY, resolved against the lockfile directory — pnpm 7 writes exactly
+  // this key/value pair for a peer satisfied by a workspace member.
+  const V5_WORKSPACE_LINK_INLINE = V5(
+    'importers:\n' +
+      '  .:\n    specifiers:\n      aspect: 0.4.2\n    dependencies:\n      aspect: 0.4.2_gzsh7z76cwfbf6hhd5uhb6mghu\n' +
+      '  packages/tailwindcss:\n    specifiers: {}\n\n' +
+      'packages:\n\n  /aspect/0.4.2_gzsh7z76cwfbf6hhd5uhb6mghu:\n' +
+      '    resolution: {integrity: sha512-a}\n' +
+      "    peerDependencies:\n      tailwindcss: '>=2.0.0'\n" +
+      '    dependencies:\n      tailwindcss: link:packages/tailwindcss\n    dev: false\n',
+  )
+
+  it('warns PNPM_WORKSPACE_LINK_EDGE_DROPPED for a published inline `link:` dep', () => {
+    // v5 hashes every peer set into the key tail, so the workspace-satisfied
+    // peer is unrecoverable and no peer edge can carry the binding either.
+    const graph = parse(V5_WORKSPACE_LINK_INLINE)
+    const diags = graph.diagnostics().filter(d => d.code === 'PNPM_WORKSPACE_LINK_EDGE_DROPPED')
+    expect(diags).toHaveLength(1)
+    expect(diags[0]!.message).toContain('packages/tailwindcss@0.0.0')
+  })
+
+  it('reports no PNPM_UNRESOLVED_DEP for an inline `packages` `link:` dep', () => {
+    const graph = parse(V5_WORKSPACE_LINK_INLINE)
+    expect(graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')).toEqual([])
+  })
+
+  it('binds an inline `link:` dep of a directory-resolution package to the workspace member', () => {
+    // pnpm 5–7 key a directory package as a bare `file:<dir>`, which
+    // `parsePackagesKey` rejects outright (a separate, pre-existing gap), so the
+    // key here is a parseable stand-in carrying the directory resolution — the
+    // predicate under test is the RESOLUTION, not the key shape.
+    const graph = parse(
+      V5(
+        'importers:\n' +
+          '  .:\n    specifiers:\n      courses: file:nx-dev/courses\n    dependencies:\n      courses: 1.0.0\n' +
+          '  nx-dev/docs:\n    specifiers: {}\n\n' +
+          'packages:\n\n  /courses/1.0.0:\n' +
+          '    resolution: {directory: nx-dev/courses, type: directory}\n' +
+          '    dependencies:\n      docs: link:nx-dev/docs\n    dev: false\n',
+      ),
+    )
+    const edge = graph.out('courses@1.0.0', 'dep').find(e => e.dst === 'nx-dev/docs@0.0.0')
+    expect(edge).toBeDefined()
+    expect(edge!.attrs?.range).toBe('link:nx-dev/docs')
+  })
+
+  it('still warns PNPM_UNRESOLVED_DEP when an inline `link:` names no workspace importer', () => {
+    const graph = parse(
+      V5(
+        'specifiers:\n  host: 1.0.0\n\ndependencies:\n  host: 1.0.0\n\n' +
+          'packages:\n\n  /host/1.0.0:\n    resolution: {integrity: sha512-h}\n' +
+          '    dependencies:\n      stray: link:nowhere/at/all\n    dev: false\n',
+      ),
+    )
+    const diags = graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')
+    expect(diags).toHaveLength(1)
+    expect(diags[0]!.message).toContain('no workspace importer')
+    expect(diags[0]!.message).toContain('nowhere/at/all')
+  })
 })
 
 describe('enrich', () => {

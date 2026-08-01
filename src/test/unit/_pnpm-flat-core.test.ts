@@ -125,6 +125,131 @@ describe('parse', () => {
     expect(diags.length).toBeGreaterThan(0)
     expect(diags[0]!.message).toContain('nowhere')
   })
+
+  // A `link:` in a `snapshots` / inline `packages` dependency block is a
+  // WORKSPACE-DIRECTORY reference, not a snapshot reference — pnpm materialises
+  // it as a symlink resolved against the LOCKFILE directory. Measured against
+  // pnpm 10.34.5: such a lock installs under `--frozen-lockfile` (exit 0, lock
+  // unrewritten) and yields
+  // `node_modules/.pnpm/<consumer>/node_modules/<dep> -> ../../../../<path>`.
+  const V9_WORKSPACE_LINK_SNAPSHOT = V9(
+    'importers:\n\n' +
+      '  .:\n    dependencies:\n' +
+      "      '@tailwindcss/aspect-ratio':\n        specifier: 0.4.2\n        version: 0.4.2(tailwindcss@packages+tailwindcss)\n" +
+      '      tailwindcss:\n        specifier: workspace:*\n        version: link:packages/tailwindcss\n\n' +
+      '  packages/tailwindcss: {}\n\n' +
+      'packages:\n\n' +
+      "  '@tailwindcss/aspect-ratio@0.4.2':\n    resolution: {integrity: sha512-a}\n" +
+      "    peerDependencies:\n      tailwindcss: '>=2.0.0'\n\n" +
+      'snapshots:\n\n' +
+      "  '@tailwindcss/aspect-ratio@0.4.2(tailwindcss@packages+tailwindcss)':\n" +
+      '    dependencies:\n      tailwindcss: link:packages/tailwindcss\n',
+  )
+
+  // A LOCAL (`resolution: {type: directory}`) package's own dependencies name
+  // sibling members. No peer suffix carries them, and the seal admits a local
+  // node's edge into a workspace member (ADR-0017 amendment).
+  const V9_LOCAL_LINK_CONSUMER = V9(
+    'importers:\n\n' +
+      '  .:\n    dependencies:\n      courses:\n        specifier: file:nx-dev/courses\n        version: file:nx-dev/courses\n\n' +
+      '  nx-dev/docs: {}\n\n' +
+      'packages:\n\n' +
+      "  'courses@file:nx-dev/courses':\n    resolution: {directory: nx-dev/courses, type: directory}\n\n" +
+      'snapshots:\n\n' +
+      "  'courses@file:nx-dev/courses':\n    dependencies:\n      docs: link:nx-dev/docs\n",
+  )
+
+  it('binds a v9 snapshot `link:` dep of a local `file:` package to the workspace member', () => {
+    const graph = parseV9(V9_LOCAL_LINK_CONSUMER)
+    const edge = graph.out('courses@file:nx-dev/courses', 'dep')
+      .find(e => e.dst === 'nx-dev/docs@0.0.0')
+    expect(edge).toBeDefined()
+    expect(edge!.attrs?.range).toBe('link:nx-dev/docs')
+  })
+
+  it('reports no diagnostic for a bound local `file:` package `link:` dep', () => {
+    expect(parseV9(V9_LOCAL_LINK_CONSUMER).diagnostics()).toEqual([])
+  })
+
+  it('binds a v9 snapshot `link:` into a sub-directory publish to its ancestor importer', () => {
+    // `packages/mui-material/build` is published from inside the importer at
+    // `packages/mui-material`; only the ancestor is an importer.
+    const graph = parseV9(
+      V9(
+        'importers:\n\n  .: {}\n\n  packages/mui-material: {}\n\n' +
+          'packages:\n\n  local@file:tools/local:\n    resolution: {directory: tools/local, type: directory}\n\n' +
+          'snapshots:\n\n  local@file:tools/local:\n    dependencies:\n' +
+          "      '@mui/material': link:packages/mui-material/build\n",
+      ),
+    )
+    const edge = graph.out('local@file:tools/local', 'dep')
+      .find(e => e.dst === 'packages/mui-material@0.0.0')
+    expect(edge).toBeDefined()
+  })
+
+  it('reports PNPM_WORKSPACE_LINK_PEER_BOUND (info) when the peer suffix already binds the member', () => {
+    // The published consumer's peer edge models the relationship; the seal
+    // admits no dependency edge from a published package into a workspace
+    // member, so nothing further is representable and nothing is lost.
+    const graph = parseV9(V9_WORKSPACE_LINK_SNAPSHOT)
+    const consumer = '@tailwindcss/aspect-ratio@0.4.2(packages/tailwindcss@0.0.0)'
+    expect(graph.out(consumer, 'peer').map(e => e.dst)).toContain('packages/tailwindcss@0.0.0')
+    const diags = graph.diagnostics().filter(d => d.code === 'PNPM_WORKSPACE_LINK_PEER_BOUND')
+    expect(diags).toHaveLength(1)
+    expect(diags[0]!.severity).toBe('info')
+    expect(graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')).toEqual([])
+  })
+
+  it('reports PNPM_WORKSPACE_LINK_EDGE_DROPPED (warning) when no peer binding covers the member', () => {
+    // A project `overrides:` entry redirects a published package's ordinary
+    // dependency onto a workspace member — nothing in the model can carry it.
+    const graph = parseV9(
+      V9(
+        'importers:\n\n  .: {}\n\n  packages/kit: {}\n\n' +
+          'packages:\n\n  host@1.0.0:\n    resolution: {integrity: sha512-h}\n\n' +
+          "snapshots:\n\n  host@1.0.0:\n    dependencies:\n      '@nuxt/kit': link:packages/kit\n",
+      ),
+    )
+    const diags = graph.diagnostics().filter(d => d.code === 'PNPM_WORKSPACE_LINK_EDGE_DROPPED')
+    expect(diags).toHaveLength(1)
+    expect(diags[0]!.severity).toBe('warning')
+    expect(diags[0]!.message).toContain('packages/kit@0.0.0')
+    expect(graph.out('host@1.0.0', 'dep')).toEqual([])
+  })
+
+  it('reports PNPM_WORKSPACE_LINK_PEER_BOUND for a v6 inline `packages` `link:` dep', () => {
+    const graph = parseV6(
+      V6(
+        'importers:\n\n' +
+          '  .:\n    dependencies:\n' +
+          "      '@tailwindcss/aspect-ratio':\n        specifier: 0.4.2\n        version: 0.4.2(tailwindcss@packages+tailwindcss)\n" +
+          '      tailwindcss:\n        specifier: workspace:*\n        version: link:packages/tailwindcss\n\n' +
+          '  packages/tailwindcss: {}\n\n' +
+          'packages:\n\n' +
+          "  /@tailwindcss/aspect-ratio@0.4.2(tailwindcss@packages+tailwindcss):\n    resolution: {integrity: sha512-a}\n" +
+          "    peerDependencies:\n      tailwindcss: '>=2.0.0'\n" +
+          '    dependencies:\n      tailwindcss: link:packages/tailwindcss\n    dev: false\n',
+      ),
+    )
+    expect(graph.diagnostics().map(d => d.code)).toContain('PNPM_WORKSPACE_LINK_PEER_BOUND')
+    expect(graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')).toEqual([])
+  })
+
+  it('still warns PNPM_UNRESOLVED_DEP when a v9 snapshot `link:` names no workspace importer', () => {
+    const graph = parseV9(
+      V9(
+        'importers:\n\n  .: {}\n\n' +
+          'packages:\n\n  host@1.0.0:\n    resolution: {integrity: sha512-h}\n\n' +
+          'snapshots:\n\n  host@1.0.0:\n    dependencies:\n      stray: link:nowhere/at/all\n',
+      ),
+    )
+    const diags = graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')
+    expect(diags).toHaveLength(1)
+    // The residual names the LINK channel — the target is a directory pnpm links
+    // by path, so "resolves to no snapshot" would describe the wrong lookup.
+    expect(diags[0]!.message).toContain('no workspace importer')
+    expect(diags[0]!.message).toContain('nowhere/at/all')
+  })
 })
 
 describe('stringify', () => {
@@ -207,6 +332,53 @@ describe('stringify', () => {
     expect(out).toContain('catalogs:')
     expect(out).toContain('default:')
     expect(out).toMatch(/lodash:\n\s+specifier: \^4\.17\.21/)
+  })
+
+  it('re-emits a bound `link:` dep under its declared slot name', () => {
+    // The slot key is the DECLARED dep name (`docs`), not the target node's
+    // name — a pnpm lock names importer members by DIRECTORY, so `dst.name` is
+    // `nx-dev/docs` and emitting that would not resolve for pnpm.
+    const source = V9(
+      'importers:\n\n' +
+        '  .:\n    dependencies:\n      courses:\n        specifier: file:nx-dev/courses\n        version: file:nx-dev/courses\n\n' +
+        '  nx-dev/docs: {}\n\n' +
+        'packages:\n\n' +
+        '  courses@file:nx-dev/courses:\n    resolution: {directory: nx-dev/courses}\n\n' +
+        'snapshots:\n\n' +
+        '  courses@file:nx-dev/courses:\n    dependencies:\n      docs: link:nx-dev/docs\n',
+    )
+    const out = stringifyV9(parseV9(source))
+    expect(out).toContain('docs: link:nx-dev/docs')
+    expect(out).toBe(source)
+  })
+
+  it('re-emits a bound `link:` into a sub-directory publish at its original path', () => {
+    // The graph node collapses onto the ancestor importer, but the emitted
+    // locator must stay the published sub-directory pnpm recorded.
+    const source = V9(
+      'importers:\n\n  .: {}\n\n  packages/mui-material: {}\n\n' +
+        'packages:\n\n  local@file:tools/local:\n    resolution: {directory: tools/local}\n\n' +
+        'snapshots:\n\n  local@file:tools/local:\n    dependencies:\n' +
+        "      '@mui/material': link:packages/mui-material/build\n",
+    )
+    expect(stringifyV9(parseV9(source))).toBe(source)
+  })
+
+  it('replays a peer-bound `link:` slot verbatim from its retained declaration', () => {
+    const source = V9(
+      'importers:\n\n' +
+        '  .:\n    dependencies:\n' +
+        "      '@tailwindcss/aspect-ratio':\n        specifier: 0.4.2\n        version: 0.4.2(tailwindcss@packages+tailwindcss)\n\n" +
+        '  packages/tailwindcss: {}\n\n' +
+        'packages:\n\n' +
+        "  '@tailwindcss/aspect-ratio@0.4.2':\n" +
+        '    resolution: {integrity: sha512-8QPrypskfBa7QIMuKHg2TA7BqES6vhBrDLOv8Unb6FcFyd3TjKbc6lcmb9UPQHxfl24sXoJ41ux/H7qQQvfaSQ==}\n' +
+        "    peerDependencies:\n      tailwindcss: '>=2.0.0'\n\n" +
+        'snapshots:\n\n' +
+        "  '@tailwindcss/aspect-ratio@0.4.2(tailwindcss@packages+tailwindcss)':\n" +
+        '    dependencies:\n      tailwindcss: link:packages/tailwindcss\n',
+    )
+    expect(stringifyV9(parseV9(source))).toBe(source)
   })
 })
 

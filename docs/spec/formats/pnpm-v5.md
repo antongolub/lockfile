@@ -135,6 +135,18 @@ this is only how pnpm *carries* it.
   output reparse loses it, strict output rejects
   `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED` as irreducible, with no
   registry remedy.
+- A `link:<dir>` value inside a PACKAGE entry's `dependencies` /
+  `optionalDependencies` is a workspace-directory reference resolved against the
+  lockfile directory, not a `packages` key — pnpm 7 writes it for a peer
+  satisfied by a workspace member. Handling matches
+  [pnpm-v9](./pnpm-v9.md#link-inside-a-snapshots-dependency-block), with two
+  v5 specifics: v5 always HASHES a peer set into the key's `_<hash>` tail, so a
+  workspace-satisfied peer is never recoverable from the key and the
+  `PNPM_WORKSPACE_LINK_PEER_BOUND` branch cannot arise — every published
+  consumer reports `PNPM_WORKSPACE_LINK_EDGE_DROPPED`; and pnpm keys a local
+  directory package as a bare `file:<dir>`, which `parsePackagesKey` rejects
+  (`PNPM_BAD_ENTRY`), so the local-consumer bind is unreachable on real v5
+  input.
 
 ## Degradation rules
 

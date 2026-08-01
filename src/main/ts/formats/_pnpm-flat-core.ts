@@ -254,6 +254,11 @@ export interface PnpmNodeSidecar {
   /** Verbatim resolved dependency slot values keyed
    *  `${kind}\0${targetNodeId}\0${aliasSlot}`. */
   resolvedDependencies?: Map<string, string>
+  /** Verbatim workspace `link:` dependency slots keyed `${kind}\0${targetNodeId}`
+   *  → { declared slot name, raw `link:<dir>` locator }. Neither is derivable
+   *  from the target node: a pnpm lock names importer members by DIRECTORY, and
+   *  a sub-directory publish collapses onto its ancestor importer. */
+  workspaceLinkDependencies?: Map<string, { slot: string; value: string }>
   /** Declared peerDependencies (range record). */
   peerDependencies?: Record<string, string>
   /** Declared peerDependenciesMeta — the per-peer `{ optional: true }` markers
@@ -591,6 +596,11 @@ interface PnpmParseContext {
   readonly importerPaths: string[]
   readonly seenIds: Set<string>
   readonly idByPackagesKey: Map<string, string>
+  /** NodeIds whose `packages` entry carries a `resolution: {type: directory}` —
+   *  pnpm `file:`-protocol LOCAL packages. Part of the project graph rather than
+   *  published artifacts, so the seal admits their edges into workspace members
+   *  (ADR-0017 amendment); a published package's may not. */
+  readonly directoryNodes: Set<string>
 }
 
 function createPnpmParseContext(
@@ -620,6 +630,20 @@ function createPnpmParseContext(
     importerPaths: [],
     seenIds: new Set<string>(),
     idByPackagesKey: new Map<string, string>(),
+    directoryNodes: new Set<string>(),
+  }
+}
+
+/** `resolution: {type: directory}` — the pnpm `file:<dir>` local-package shape. */
+function recordDirectoryResolution(
+  context: PnpmParseContext,
+  nodeId: string,
+  pkgEntry: unknown,
+): void {
+  if (!isPlainObject(pkgEntry)) return
+  const resolution = pkgEntry.resolution
+  if (isPlainObject(resolution) && typeof resolution.directory === 'string') {
+    context.directoryNodes.add(nodeId)
   }
 }
 
@@ -757,6 +781,7 @@ function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
       continue
     }
     addPackageNode(builder, sidecar, name, version, peerContext, nodeId, pkgEntry, diagnostics, resolvePatchForNode(patchDirectives, name, version, nodeId, diagnostics))
+    recordDirectoryResolution(context, nodeId, pkgEntry)
     const nodeSidecar = sidecar.nodes.get(nodeId)
     if (nodeSidecar !== undefined) nodeSidecar.snapshotKey = snapshotKey
     const snapEntry = snapshotsMap[snapshotKey]
@@ -790,6 +815,7 @@ function addPnpmInlinePackageNodes(context: PnpmParseContext): void {
     idByPackagesKey.set(pkgKey, nodeId)
     const pkgEntry = packagesMap[pkgKey]!
     addPackageNode(builder, sidecar, name, version, peerContext, nodeId, pkgEntry, diagnostics, resolvePatchForNode(patchDirectives, name, version, nodeId, diagnostics))
+    recordDirectoryResolution(context, nodeId, pkgEntry)
     if (isPlainObject(pkgEntry) && typeof pkgEntry.dev === 'boolean') {
       const nodeSidecar = sidecar.nodes.get(nodeId)
       if (nodeSidecar !== undefined) nodeSidecar.dev = pkgEntry.dev
@@ -1142,6 +1168,8 @@ interface ParsedDependencyEdgeInput {
   readonly kind: EdgeKind
   readonly depName: string
   readonly rawValue: string
+  /** Workspace importer NodeIds bound by the consumer's own peer suffix. */
+  readonly workspacePeerTargets: ReadonlySet<string>
 }
 
 function addResolvedTreeEdges(
@@ -1168,6 +1196,11 @@ function addResolvedDependencyEdges(
   wired: Set<string>,
   input: ResolvedTreeEdgeInput,
 ): void {
+  const workspacePeerTargets = new Set<string>()
+  for (const peer of input.peers) {
+    const bound = resolveWorkspacePeerId(peer.version, context.sidecar.importerByPath)
+    if (bound !== undefined) workspacePeerTargets.add(bound)
+  }
   for (const [kind, blockName] of [
     ['dep', 'dependencies'],
     ['optional', 'optionalDependencies'],
@@ -1176,7 +1209,9 @@ function addResolvedDependencyEdges(
     if (!isPlainObject(block)) continue
     for (const [depName, rawValue] of Object.entries(block).sort((a, b) => cmpStr(a[0], b[0]))) {
       if (typeof rawValue === 'string') {
-        addResolvedDependencyEdge(context, wired, { srcId: input.srcId, kind, depName, rawValue })
+        addResolvedDependencyEdge(context, wired, {
+          srcId: input.srcId, kind, depName, rawValue, workspacePeerTargets,
+        })
       }
     }
   }
@@ -1187,6 +1222,10 @@ function addResolvedDependencyEdge(
   wired: Set<string>,
   input: ParsedDependencyEdgeInput,
 ): void {
+  if (input.rawValue.startsWith('link:')) {
+    addWorkspaceLinkDependencyEdge(context, wired, input)
+    return
+  }
   const target = resolveParsedDependencyTarget(context, input.depName, input.rawValue)
   if (target === undefined) {
     context.diagnostics.push({
@@ -1225,6 +1264,105 @@ function resolvedDependencySidecarKey(
   aliasSlot: string | undefined,
 ): string {
   return `${kind}\0${targetId}\0${aliasSlot ?? ''}`
+}
+
+function workspaceLinkSidecarKey(kind: EdgeKind, targetId: string): string {
+  return `${kind}\0${targetId}`
+}
+
+/**
+ * A `link:` locator in a RESOLVED-TREE dependency block (`snapshots[*]`, or the
+ * v6 inline `packages[*]`). It is a WORKSPACE-DIRECTORY reference, not a
+ * snapshot reference: pnpm materialises it as a symlink whose path is resolved
+ * against the LOCKFILE directory — NOT against the consumer's own location, and
+ * NOT through the snapshot key set. Measured on pnpm 10.34.5: a `link:` value
+ * retargeted at a directory that does not exist still installs under
+ * `--frozen-lockfile` (exit 0, lock unrewritten) and produces exactly that
+ * dangling symlink, so the value is copied through verbatim with no validation.
+ *
+ * Which of the three outcomes applies is decided by the CONSUMER, because the
+ * seal (ADR-0017 amendment) admits an incoming edge on a workspace node only
+ * from a workspace node, a LOCAL (`resolution: {type: directory}`) package, or a
+ * `peer` edge:
+ *
+ *   - LOCAL consumer — a `file:<dir>` package whose own dependencies name
+ *     sibling members. No peer suffix carries them, so the dep edge is the sole
+ *     carrier; it is also the only case the seal admits. Bind it.
+ *   - PUBLISHED consumer whose peer suffix already binds that member — pnpm
+ *     materialises a workspace-satisfied peer in BOTH the suffix and the
+ *     `dependencies` block. The relationship is modelled by the peer edge; the
+ *     block entry is a duplicate the seal forbids as a dep edge. Nothing is
+ *     lost, so this is `info`.
+ *   - PUBLISHED consumer with no such peer binding — a peer folded into a
+ *     HASHED peer-set token (#69/ADR-0030), or a project `overrides:` entry
+ *     redirecting a published package's ordinary dependency onto a member. The
+ *     model carries no edge for it: `warning`.
+ *
+ * The last two keep the verbatim slot as an unresolved-dependency declaration,
+ * which is what replays the `link:` line at stringify.
+ *
+ * The declared slot name and the raw locator are both kept in the sidecar:
+ * neither is derivable from the target node, which a pnpm lock names by
+ * DIRECTORY (`packages/tailwindcss@0.0.0`, not `tailwindcss@3.4.0`) and which
+ * collapses a sub-directory publish onto its ancestor importer.
+ */
+function addWorkspaceLinkDependencyEdge(
+  context: PnpmParseContext,
+  wired: Set<string>,
+  input: ParsedDependencyEdgeInput,
+): void {
+  const version = context.shape.lockfileVersion.split('.')[0]
+  const directory = input.rawValue.slice('link:'.length)
+  const targetId = resolveWorkspaceDirectoryId(directory, context.sidecar.importerByPath)
+  if (targetId === undefined) {
+    context.diagnostics.push({
+      code: 'PNPM_UNRESOLVED_DEP',
+      severity: 'warning',
+      subject: input.srcId,
+      message: `pnpm-v${version}: ${input.srcId} dep ${input.depName}@${input.rawValue} links to ${JSON.stringify(directory)}, which is no workspace importer`,
+      data: workspaceLinkDeclaration(input),
+    })
+    return
+  }
+  if (!context.directoryNodes.has(input.srcId)) {
+    const peerBound = input.workspacePeerTargets.has(targetId)
+    context.diagnostics.push({
+      code: peerBound ? 'PNPM_WORKSPACE_LINK_PEER_BOUND' : 'PNPM_WORKSPACE_LINK_EDGE_DROPPED',
+      severity: peerBound ? 'info' : 'warning',
+      subject: input.srcId,
+      message: peerBound
+        ? `pnpm-v${version}: ${input.srcId} dep ${input.depName}@${input.rawValue} is workspace member ${targetId}, already bound as a peer edge; the slot is kept verbatim (a published package carries no dependency edge into a workspace member — ADR-0017)`
+        : `pnpm-v${version}: ${input.srcId} dep ${input.depName}@${input.rawValue} is workspace member ${targetId} with no peer binding (hashed peer set, or an \`overrides:\` redirect); the model carries no edge for it and the slot is kept verbatim (ADR-0017)`,
+      data: workspaceLinkDeclaration(input),
+    })
+    return
+  }
+  if (!reserveResolvedEdge(wired, input.kind, targetId, undefined)) return
+  // No `workspace: true` — that flag's contract (ADR-0014 §4.F4) pairs it with
+  // `workspaceRange`, and this channel carries no declared specifier: pnpm
+  // records only the resolved directory, never the range the consumer asked for.
+  addParsedResolvedEdge(context.builder, input.srcId, targetId, input.kind, { range: input.rawValue })
+  const nodeSidecar = context.sidecar.nodes.get(input.srcId)
+  if (nodeSidecar !== undefined) {
+    nodeSidecar.workspaceLinkDependencies ??= new Map<string, { slot: string; value: string }>()
+    nodeSidecar.workspaceLinkDependencies.set(
+      workspaceLinkSidecarKey(input.kind, targetId),
+      { slot: input.depName, value: input.rawValue },
+    )
+  }
+}
+
+function workspaceLinkDeclaration(
+  input: ParsedDependencyEdgeInput,
+): Record<string, unknown> {
+  return unresolvedDependencyData({
+    src: input.srcId,
+    kind: input.kind,
+    name: input.depName,
+    descriptor: input.rawValue,
+    resolution: input.rawValue,
+    channel: 'package',
+  })
 }
 
 function resolveParsedDependencyTarget(
@@ -2547,7 +2685,16 @@ function buildSnapshotEntry(
     if (edge.kind !== 'dep' && edge.kind !== 'optional') continue
     const dst = graph.getNode(edge.dst)
     if (dst === undefined) continue
-    if (dst.workspacePath !== undefined && dst.workspacePath !== '') continue
+    if (dst.workspacePath !== undefined && dst.workspacePath !== '') {
+      // Workspace target — pnpm records the DIRECTORY, resolved against the
+      // lockfile root (see addWorkspaceLinkDependencyEdge). Replay the parsed
+      // slot/locator when present; otherwise derive both from the target, which
+      // is all a cross-format graph carries.
+      const link = sidecar?.nodes.get(node.id)?.workspaceLinkDependencies
+        ?.get(workspaceLinkSidecarKey(edge.kind, dst.id))
+      blocks[edge.kind]![link?.slot ?? dst.name] = link?.value ?? `link:${dst.workspacePath}`
+      continue
+    }
     if (dst.id === sidecar?.rootId) continue
     const block = blocks[edge.kind]!
     // ADR-0028 INV-RESOLVE — alias slot keying + canonical value. An aliased
@@ -3039,14 +3186,24 @@ export function resolveWorkspacePeerId(
   peerVersion: string,
   importerByPath: Map<string, string>,
 ): string | undefined {
-  let path = peerVersion.replace(/\+/g, '/')
+  return resolveWorkspaceDirectoryId(peerVersion.replace(/\+/g, '/'), importerByPath)
+}
+
+/**
+ * Map a workspace DIRECTORY path (lockfile-relative) onto the importer member
+ * NodeId that owns it. Exact hit first; otherwise the nearest ANCESTOR importer
+ * — a workspace package may be published from a SUB-DIRECTORY of its importer
+ * (`packages/<name>/build` published by the importer at `packages/<name>`).
+ * Never matches the root `.` through the walk (it prefixes every path); an
+ * ordinary semver `+build` tail therefore finds no importer.
+ */
+export function resolveWorkspaceDirectoryId(
+  directory: string,
+  importerByPath: Map<string, string>,
+): string | undefined {
+  let path = directory
   const exact = importerByPath.get(path)
   if (exact !== undefined) return exact
-  // A workspace package may be published from a SUB-DIRECTORY of its importer —
-  // e.g. a package published from a sub-dir encodes `packages+<name>+build`
-  // (`packages/<name>/build`) while the importer is `packages/<name>`.
-  // Walk up to the nearest ANCESTOR importer. Never match the root `.` (it
-  // prefixes every path); an ordinary semver `+build` tail finds no importer.
   while (path.includes('/')) {
     path = path.slice(0, path.lastIndexOf('/'))
     if (path.length === 0 || path === '.') break

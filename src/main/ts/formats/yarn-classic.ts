@@ -72,6 +72,7 @@ const cmpUtf16 = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0
 const DEP_PAIR_RE = /^("(?:\\.|[^"])*"|[^\s"]\S*) ("(?:\\.|[^"])*"|[^\s"]\S*)$/
 
 const BARE_DEP_NAME_RE = /^[A-Za-z0-9._-]+$/
+const SCOPED_DEP_NAME_RE = /^@[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
 
 // The EXACT trigger class from yarn 1's `shouldWrapKey` (@yarnpkg/lockfile
 // stringify.js, mirrored in yarn cli.js): a descriptor is wrapped in quotes iff
@@ -490,18 +491,19 @@ export function parseDependencyLine(line: string): [string, string] {
   ]
 }
 
-export function parseSpec(spec: string): { name: string; spec: string } {
+export function parseSpec(spec: string): { name: string; spec: string | undefined } {
   const idx = spec.indexOf('@', spec.startsWith('@') ? 1 : 0)
-  // A bare package-name entry key (`foo:` with no `@<range>`) is NOT a shape
-  // yarn 1 emits — its lockfile writer always keys entries by `<name>@<range>`
-  // descriptors; malformed descriptors are rejected. Use a clear,
-  // typed diagnostic that names the missing `@<range>`, rather than the generic
-  // "bad entry-spec" message, so the failure is actionable.
+  // Some source-authored Yarn 1 locks contain a bare package-name entry key
+  // (`foo:` / `"@scope/pkg":`) even though the normal writer emits
+  // `<name>@<range>`. The key carries package identity but NO range authority:
+  // preserve that absence explicitly for same-format replay. Never turn it into
+  // `*`, `latest`, the resolved version, or a manifest-derived guess.
   if (idx < 0) {
-    throw parseFailed(
-      `entry key ${JSON.stringify(spec)} is a bare package name with no '@<range>' descriptor; `
-        + `yarn-classic keys must be '<name>@<range>'`,
-    )
+    const validBareName = spec.startsWith('@')
+      ? SCOPED_DEP_NAME_RE.test(spec)
+      : BARE_DEP_NAME_RE.test(spec)
+    if (!validBareName) throw parseFailed(`bad entry-spec ${JSON.stringify(spec)}`)
+    return { name: spec, spec: undefined }
   }
   if (idx === 0 || idx === spec.length - 1) {
     throw parseFailed(`bad entry-spec ${JSON.stringify(spec)}`)
@@ -525,20 +527,20 @@ export function parseSpec(spec: string): { name: string; spec: string } {
 //     else the descriptor's own name;
 //   - `aliasName` is the consumer-facing alias (`<alias>`), or `undefined` for a
 //     canonical (non-aliased) descriptor;
-//   - `descriptorKey` is the verbatim `<part.name>@<part.spec>` join — the exact
-//     entry-key spec, indexed into `specIndex` so a consumer that declares the
-//     alias range resolves to the same node, and preserved on the entry key.
+//   - `descriptorKey` is the verbatim `<part.name>@<part.spec>` join, or the bare
+//     name when the source supplied no range — the exact entry-key spec, indexed
+//     into `specIndex` and preserved on the entry key.
 //
 // Only the `npm:` protocol aliases an identity. A bare/`file:`/`link:`/`git…`
 // spec keeps its own name. The alias TARGET may itself be scoped
 // (`npm:@scope/pkg@^1`).
-export function specIdentity(part: { name: string; spec: string }): {
+export function specIdentity(part: { name: string; spec: string | undefined }): {
   resolvedName: string
   aliasName?: string
   descriptorKey: string
 } {
-  const descriptorKey = `${part.name}@${part.spec}`
-  if (part.spec.startsWith('npm:')) {
+  const descriptorKey = part.spec === undefined ? part.name : `${part.name}@${part.spec}`
+  if (part.spec?.startsWith('npm:')) {
     const target = part.spec.slice('npm:'.length)
     // An alias REQUIRES the `npm:` body to be a full `<target-name>@<range>`
     // locator — a name AND an embedded `@<range>` separator. The target name may

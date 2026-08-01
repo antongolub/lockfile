@@ -28,10 +28,12 @@ import {
 } from '../graph.ts'
 import { LockfileError } from '../api/errors.ts'
 import {
+  type Integrity,
   emitSri,
   isEmptyIntegrity,
   parseSri,
   pickTarballSha512,
+  tarballHashes,
 } from '../recipe/integrity.ts'
 
 export interface DenoParseOptions {
@@ -308,6 +310,7 @@ export function parseVersion(
   }
   const layout = parseLayout(input, expectedVersion)
   validateNonNpmIntegrity(layout)
+  validateSpecifierValueShape(layout)
   const context = createParseContext(layout, options.manifests?.[''])
   registerNpmNodes(context)
   addNpmEdges(context)
@@ -755,11 +758,13 @@ function buildNpmEntry(
   if (payload === undefined || payload.integrity === undefined || isEmptyIntegrity(payload.integrity)) {
     throw emitFailure(`npm ${nativeId} lacks registry integrity evidence`)
   }
-  const sha512 = pickTarballSha512(payload.integrity)
-  if (sha512 === undefined) {
-    throw emitFailure(`npm ${nativeId} has no SHA-512 tarball integrity; deno.lock cannot carry any other algorithm`)
+  const integrity = emitDenoNpmIntegrity(payload.integrity)
+  if (integrity === undefined) {
+    throw emitFailure(
+      `npm ${nativeId} has no SHA-512 or legacy SHA-1 tarball integrity; `
+        + `deno.lock cannot carry any other algorithm`,
+    )
   }
-  const integrity = emitSri({ hashes: [sha512] })!
   if (payload.resolution?.type !== 'tarball') {
     throw emitFailure(`npm ${nativeId} lacks tarball resolution evidence`)
   }
@@ -1124,6 +1129,50 @@ function collapseUnrolledNative(
   )
 }
 
+// Deno stores exactly ONE integrity value per npm entry, and it stores whatever
+// `dist.integrity()` yields for the resolved packument: the registry's own
+// `integrity` string when the packument has one, else the legacy `dist.shasum` as
+// bare lowercase hex. registry.npmjs.org always supplies `integrity`, so 310 287 of
+// the 310 303 v3/v4/v5 npm entries that carry the field are canonical singular
+// `sha512-…` SRI. The other 16 are one lock resolved through a cnpm mirror
+// (`registry.m.jd.com`, and every entry in it carries an explicit `tarball` on that
+// host); cnpm packuments serve only `shasum`, so all 16 are 40-hex sha1. Deno 2.9.4
+// reads that lock without complaint, so refusing it was ours, not the file's.
+//
+// The hex digest is tagged `registry` because it IS `dist.shasum` verbatim, and that
+// origin is tarball-scoped — the value sits in deno's integrity FIELD, so it must
+// stay SRI-emittable, unlike the yarn-classic `url-fragment` sha1 which rides a URL
+// and is excluded from this field by `tarballHashes`.
+const DENO_LEGACY_SHASUM_RE = /^[0-9a-f]{40}$/
+
+function parseDenoNpmIntegrity(raw: string): Integrity | undefined {
+  if (DENO_LEGACY_SHASUM_RE.test(raw)) {
+    return { hashes: [{ algorithm: 'sha1', digest: raw, origin: 'registry' }] }
+  }
+  const integrity = parseSri(raw, 'sri')
+  // Canonicality is the round-trip condition, not taste: re-emit must reproduce the
+  // input byte for byte, so a non-canonical encoding is refused, never rewritten.
+  if (
+    isEmptyIntegrity(integrity)
+    || integrity.hashes.length !== 1
+    || integrity.hashes[0]?.algorithm !== 'sha512'
+    || emitSri(integrity) !== raw
+  ) return undefined
+  return integrity
+}
+
+/** The single value `npm.<id>.integrity` can carry, or `undefined` when the node
+ *  proves no digest deno.lock can express. Prefers sha512; falls back to the bare
+ *  shasum hex, which is what deno writes when that is all the registry proved. The
+ *  fallback re-checks the digest shape because `setTarball` is public API: emitting
+ *  a hash this adapter's own parser would refuse is never the better failure. */
+function emitDenoNpmIntegrity(integrity: Integrity): string | undefined {
+  const sha512 = pickTarballSha512(integrity)
+  if (sha512 !== undefined) return emitSri({ hashes: [sha512] })
+  const sha1 = tarballHashes(integrity).find(hash => hash.algorithm === 'sha1')?.digest
+  return sha1 !== undefined && DENO_LEGACY_SHASUM_RE.test(sha1) ? sha1 : undefined
+}
+
 function recordTarball(
   context: DenoParseContext,
   node: Node,
@@ -1137,14 +1186,12 @@ function recordTarball(
   }
   if (entry.tarball !== undefined) payload.nativeResolution = entry.tarball
   if (entry.integrity !== undefined) {
-    const integrity = parseSri(entry.integrity, 'sri')
-    if (
-      isEmptyIntegrity(integrity)
-      || integrity.hashes.length !== 1
-      || integrity.hashes[0]?.algorithm !== 'sha512'
-      || emitSri(integrity) !== entry.integrity
-    ) {
-      throw failure(`deno adapter: npm ${nativeId} integrity must be canonical SHA-512 SRI`)
+    const integrity = parseDenoNpmIntegrity(entry.integrity)
+    if (integrity === undefined) {
+      throw failure(
+        `deno adapter: npm ${nativeId} integrity must be canonical SHA-512 SRI `
+          + `or a legacy 40-character lowercase SHA-1 hex shasum`,
+      )
     }
     payload.integrity = integrity
   } else if (
@@ -1671,6 +1718,8 @@ function nativeIdFromSpecifier(
     if (target === undefined) return undefined
     return target.name === alias ? { nativeId } : { nativeId, alias }
   }
+  // A v3 locator reaching here is refused by `validateSpecifierValueShape` before any
+  // caller runs, so `resolved` is a bare version and this rebuild is well formed.
   const nativeId = `${name}@${resolved}`
   return name === alias ? { nativeId } : { nativeId, alias }
 }
@@ -1979,8 +2028,61 @@ function defaultNpmTarballUrl(name: string, version: string): string {
 
 // === VALIDATION AND STRUCTURAL GUARDS =======================================
 
+// A jsr entry with NO `integrity` key is a different fact from one whose value is
+// malformed, and the two must not share a message — reporting absence as
+// malformation sends the reader looking for a corrupt digest that is not there.
+// Absence is nonetheless a REFUSAL, not a tolerable gap. It is the opposite of the
+// v5 patched-npm `{}` case: there deno's own printer declares the field optional and
+// deno reads the file back, whereas here every deno that can open the document
+// rejects it — 1.44.4 (contemporary with these v3 files) with "Unable to parse
+// contents of lockfile: missing field `integrity`", and 2.9.4 with "Invalid jsr
+// section: missing field `integrity`". Eight entries across two corpus files, all
+// v3 and all from the first weeks of `jsr:` support, are orphans of a producer whose
+// output its successors will not read. Accepting them would let us mint a graph no
+// deno can install from.
+// v4 narrowed the specifier VALUE from v3's `npm:<name>@<version>` locator to a bare
+// `<version>`; the native id is rebuilt as `<name>@<value>`. Real v4 files carry the
+// v3 value shape anyway — when they do it is EVERY specifier in the file, jsr
+// included — so the rebuild yields `<name>@npm:<name>@<version>`. That is not a
+// lookup being fumbled here: deno builds the very same id and rejects it ("Invalid
+// npm package id '@types/node@npm:@types/node@18.16.19'. Invalid npm version."), so
+// the document is unreadable by its own producer. Fail closed naming the cause,
+// rather than reporting a missing package and inviting the reader to "fix" a lookup
+// that is not wrong — the value is.
+//
+// This is a document property, so it is validated once at parse, where PARSE_FAILED
+// is the honest code. `nativeIdFromSpecifier` is shared with the convert path and
+// stays a pure function; keeping the guard there would have let an emit surface a
+// parse diagnostic.
+function validateSpecifierValueShape(layout: DenoLayout): void {
+  if (layout.version === '2' || layout.version === '3') return
+  for (const [request, resolved] of Object.entries(layout.specifiers)) {
+    if (!request.startsWith('npm:') || !resolved.startsWith('npm:')) continue
+    // Same target-name derivation `nativeIdFromSpecifier` uses, so the id named here
+    // is the one that would have been built — including the aliased
+    // `npm:<alias>@npm:<target>@<range>` request shape.
+    const requestBody = request.slice('npm:'.length)
+    const requestParts = splitNameAndTail(requestBody)
+    const alias = requestParts?.name ?? requestBody
+    const name = requestParts?.tail.startsWith('npm:')
+      ? splitNameAndTail(requestParts.tail.slice('npm:'.length))?.name ?? alias
+      : alias
+    throw failure(
+      `deno adapter: specifier ${request} resolves to ${resolved}, a lockfile-v3 locator; `
+        + `v${layout.version} specifiers carry a bare version, so this yields the invalid npm `
+        + `package id ${name}@${resolved} that deno itself refuses`,
+    )
+  }
+}
+
 function validateNonNpmIntegrity(layout: DenoLayout): void {
   for (const [name, value] of Object.entries(layout.jsr)) {
+    if (isObject(value) && value.integrity === undefined) {
+      throw failure(
+        `deno adapter: jsr ${name} has no integrity field; deno itself refuses such a `
+          + `lockfile with "missing field \`integrity\`"`,
+      )
+    }
     if (!isObject(value) || typeof value.integrity !== 'string' || !/^[0-9a-f]{64}$/.test(value.integrity)) {
       throw failure(`deno adapter: jsr ${name} integrity must be lowercase SHA-256 hex`)
     }

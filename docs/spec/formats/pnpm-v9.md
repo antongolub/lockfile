@@ -204,6 +204,66 @@ carrier for optional peers pnpm never resolved into an edge). `os` / `cpu` /
   the canonical `<real-name>@<version>(<peers>)`. Round-trips via the edge's
   `alias` attribute.
 
+### `link:` inside a `snapshots` dependency block
+
+A `snapshots[*].dependencies` / `optionalDependencies` value may be
+`link:<dir>`. It is a **workspace-directory reference**, not a snapshot
+reference: the path is resolved against the **lockfile directory** — not
+against the consumer's own location, and not through the snapshot key set.
+Measured on pnpm 10.34.5: a lock carrying one installs under
+`--frozen-lockfile` (exit 0, lock unrewritten) and materialises
+`node_modules/.pnpm/<consumer>/node_modules/<dep> -> ../../../../<dir>`;
+retargeting the value at a directory that does not exist still exits 0 and
+produces exactly that dangling symlink, so pnpm copies the path through
+verbatim without validating it.
+
+Two producers write the shape, and they need different handling:
+
+- A **peer satisfied by a workspace member.** pnpm records it twice — once as
+  the `(name@dir+path)` token in the consumer's snapshot key, once as this
+  dependency slot. The model binds the peer edge from the key; the slot is a
+  duplicate.
+- A **`file:`-protocol directory package** whose own dependencies name sibling
+  members (`courses@file:nx-dev/courses` → `docs: link:nx-dev/docs`). No peer
+  suffix carries these, so the slot is the sole record of the relationship.
+
+The target is the importer at that directory, or — when the package publishes
+from a **sub-directory** of its importer (`link:packages/mui-material/build`) —
+its nearest ancestor importer, the same collapse
+[`resolveWorkspacePeerId`](#peer-virtualisation-in-snapshot-keys-node-identity)
+performs for workspace peers.
+
+What the model does with it follows the seal's rule (ADR-0017 amendment) that a
+workspace node accepts an incoming edge only from a workspace node, a **local**
+(`resolution: {type: directory}`) package, or a `peer` edge:
+
+| consumer | outcome | diagnostic |
+| --- | --- | --- |
+| local `file:` package | `dep`/`optional` edge bound to the member | none |
+| published, member already bound by the consumer's peer suffix | peer edge models it; slot replayed verbatim | `PNPM_WORKSPACE_LINK_PEER_BOUND` (info) |
+| published, no such peer binding | no edge; slot replayed verbatim | `PNPM_WORKSPACE_LINK_EDGE_DROPPED` (warning) |
+| directory names no importer | no edge; slot replayed verbatim | `PNPM_UNRESOLVED_DEP` (warning) |
+
+The third row has two real causes: pnpm folded the peer set into a **hashed**
+token (`@angular/build@22.0.0-rc.2(53b8fd9b…)`), so the workspace peer is not
+recoverable from the key; or a project `overrides:` entry
+(`'@nuxt/kit': workspace:*`) redirected a published package's **ordinary**
+dependency onto a member, which is not a peer at all.
+
+Rows 2–4 keep the slot as an unresolved-dependency declaration, which is what
+replays the `link:` line at stringify. Row 1 keeps the declared slot name and
+the raw locator in the adapter sidecar instead: neither is derivable from the
+target, because a pnpm lock names importer members by **directory**
+(`packages/tailwindcss@0.0.0`, not `tailwindcss@3.4.0`) and because the
+sub-directory collapse above is lossy in the emit direction.
+
+Census over 77 pnpm locks (70 scraped + the 6 real-world fixtures + generated):
+133 occurrences across 12 files — 32 local, 77 peer-bound, 23 unrepresentable,
+0 naming an unknown directory. The bound edge carries **no** `workspace: true`
+attribute: that flag pairs with `workspaceRange` (ADR-0014 §4.F4) and this
+channel records only the resolved directory, never the range the consumer
+declared.
+
 ## Degradation rules
 
 Same as [pnpm-v6](./pnpm-v6.md#degradation-rules). Multi-hash SRIs round-trip

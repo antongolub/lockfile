@@ -601,6 +601,14 @@ function diagnosticLossClass(
     || code.endsWith('_NO_MANIFESTS')
     || code.endsWith('_UNRESOLVED_DEP')
     || code === 'PNPM_WORKSPACE_PEER_ATTR_MISSING'
+    // A pnpm `snapshots`/inline `link:` slot the seal admits no dependency edge
+    // for (ADR-0017: a published package may not depend on a workspace member).
+    // The slot survives same-format emit as an unresolved-dependency
+    // declaration; cross-format it drops, exactly as it did while these were
+    // reported as `PNPM_UNRESOLVED_DEP` — same class, so strictness is
+    // unchanged by the rename.
+    || code === 'PNPM_WORKSPACE_LINK_PEER_BOUND'
+    || code === 'PNPM_WORKSPACE_LINK_EDGE_DROPPED'
     // A supplied override that a yarn/npm/bun lock structurally cannot carry (no
     // overrides block) stays declared in the project manifest (resolutions /
     // overrides) — where it was read from — so an immutable install still honours

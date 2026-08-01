@@ -114,6 +114,7 @@ import {
   relativeImporterPath,
   resolveLinkPath,
   resolvePeerTargetById,
+  resolveWorkspaceDirectoryId,
   sortRecord,
   tarballPayloadOf,
 } from './_pnpm-flat-core.ts'
@@ -212,6 +213,11 @@ interface PnpmV5NodeSidecar {
   cpu?: string[]
   dev?: boolean
   optional?: boolean
+  /** Verbatim workspace `link:` dependency slots keyed `${kind}\0${targetNodeId}`
+   *  → { declared slot name, raw `link:<dir>` locator }. Neither is derivable
+   *  from the target node: a pnpm lock names importer members by DIRECTORY, and
+   *  a sub-directory publish collapses onto its ancestor importer. */
+  workspaceLinkDependencies?: Map<string, { slot: string; value: string }>
 }
 
 interface PnpmV5EdgeSidecar {
@@ -244,6 +250,10 @@ interface PnpmV5ParseContext {
   packagesMap: Record<string, unknown>
   seenIds: Set<string>
   idByPackagesKey: Map<string, string>
+  /** NodeIds whose `packages` entry carries `resolution: {directory}` — pnpm
+   *  `file:`-protocol LOCAL packages, whose edges into workspace members the
+   *  seal admits (ADR-0017 amendment) where a published package's do not. */
+  directoryNodes: Set<string>
 }
 
 interface PnpmV5ImporterLayout {
@@ -467,6 +477,7 @@ function createPnpmV5ParseContext(yaml: YamlMap): PnpmV5ParseContext {
     packagesMap: isPlainObject(yaml.packages) ? yaml.packages : {},
     seenIds: new Set(),
     idByPackagesKey: new Map(),
+    directoryNodes: new Set(),
   }
 }
 
@@ -489,9 +500,13 @@ function addPnpmV5PackageNodes(context: PnpmV5ParseContext): void {
     if (context.seenIds.has(nodeId)) continue
     context.seenIds.add(nodeId)
     context.idByPackagesKey.set(pkgKey, nodeId)
-    addPackageNode(
-      context, name, ver, peerContext, nodeId, context.packagesMap[pkgKey],
-    )
+    const pkgEntry = context.packagesMap[pkgKey]
+    addPackageNode(context, name, ver, peerContext, nodeId, pkgEntry)
+    // `resolution: {directory}` — the pnpm `file:<dir>` local-package shape.
+    if (isPlainObject(pkgEntry) && isPlainObject(pkgEntry.resolution)
+      && typeof pkgEntry.resolution.directory === 'string') {
+      context.directoryNodes.add(nodeId)
+    }
   }
 }
 
@@ -700,10 +715,7 @@ function addPnpmV5ResolvedTreeEdges(context: PnpmV5ParseContext): void {
     if (parsed === undefined) continue
     const pkgEntry = context.packagesMap[pkgKey]
     if (!isPlainObject(pkgEntry)) continue
-    addResolvedTreeEdges(
-      context.builder, context.diagnostics, srcId, pkgEntry, parsed.peers,
-      context.seenIds, context.sidecar,
-    )
+    addResolvedTreeEdges(context, srcId, pkgEntry, parsed.peers)
   }
 }
 
@@ -767,25 +779,21 @@ function addPackageNode(
 }
 
 function addResolvedTreeEdges(
-  builder: ReturnType<typeof newBuilder>,
-  diagnostics: Diagnostic[],
+  context: PnpmV5ParseContext,
   srcId: string,
   entry: Record<string, unknown>,
   peers: Array<{ name: string; version: string }>,
-  seenIds: Set<string>,
-  sidecar: PnpmV5Sidecar,
 ): void {
-  addResolvedDependencyEdges(builder, diagnostics, srcId, entry, seenIds)
-  addResolvedPeerEdges(builder, diagnostics, srcId, peers, seenIds, sidecar)
+  addResolvedDependencyEdges(context, srcId, entry)
+  addResolvedPeerEdges(context.builder, context.diagnostics, srcId, peers, context.seenIds, context.sidecar)
 }
 
 function addResolvedDependencyEdges(
-  builder: ReturnType<typeof newBuilder>,
-  diagnostics: Diagnostic[],
+  context: PnpmV5ParseContext,
   srcId: string,
   entry: Record<string, unknown>,
-  seenIds: Set<string>,
 ): void {
+  const { builder, diagnostics, seenIds } = context
   for (const [kind, blockName] of [
     ['dep', 'dependencies'],
     ['optional', 'optionalDependencies'],
@@ -795,6 +803,10 @@ function addResolvedDependencyEdges(
     const entries = Object.entries(block).sort((a, b) => cmpStr(a[0], b[0]))
     for (const [depName, rawValue] of entries) {
       if (typeof rawValue !== 'string') continue
+      if (rawValue.startsWith('link:')) {
+        addPnpmV5WorkspaceLinkDependency(context, srcId, kind, depName, rawValue)
+        continue
+      }
       let targetId = resolveDependencyTarget(seenIds, depName, rawValue)
       let aliasSlot: string | undefined
       if (targetId === undefined) {
@@ -825,6 +837,56 @@ function addResolvedDependencyEdges(
       if (aliasSlot !== undefined) attrs.alias = aliasSlot
       addEdgeTolerant(builder, srcId, targetId, kind, attrs)
     }
+  }
+}
+
+/**
+ * A `link:` locator in an inline `packages[*]` dependency block is a WORKSPACE
+ * DIRECTORY resolved against the lockfile directory — not a `packages` key. See
+ * `_pnpm-flat-core.ts`'s `addWorkspaceLinkDependencyEdge` for the measurement
+ * and the three-way split; v5 differs only in that it always HASHES a peer set
+ * into the key's `_<hash>` tail, so a workspace-satisfied peer is never
+ * recoverable from the key and the peer-bound branch cannot arise here.
+ */
+function addPnpmV5WorkspaceLinkDependency(
+  context: PnpmV5ParseContext,
+  srcId: string,
+  kind: 'dep' | 'optional',
+  depName: string,
+  rawValue: string,
+): void {
+  const directory = rawValue.slice('link:'.length)
+  const targetId = resolveWorkspaceDirectoryId(directory, context.sidecar.importerByPath)
+  const declaration = unresolvedDependencyData({
+    src: srcId, kind, name: depName, descriptor: rawValue, resolution: rawValue, channel: 'package',
+  })
+  if (targetId === undefined) {
+    context.diagnostics.push({
+      code: 'PNPM_UNRESOLVED_DEP',
+      severity: 'warning',
+      subject: srcId,
+      message: `pnpm-v5: ${srcId} dep ${depName}@${rawValue} links to ${JSON.stringify(directory)}, which is no workspace importer`,
+      data: declaration,
+    })
+    return
+  }
+  if (!context.directoryNodes.has(srcId)) {
+    context.diagnostics.push({
+      code: 'PNPM_WORKSPACE_LINK_EDGE_DROPPED',
+      severity: 'warning',
+      subject: srcId,
+      message: `pnpm-v5: ${srcId} dep ${depName}@${rawValue} is workspace member ${targetId} with no peer binding (v5 hashes every peer set); the model carries no edge for it and the slot is kept verbatim (ADR-0017)`,
+      data: declaration,
+    })
+    return
+  }
+  // No `workspace: true` — that flag pairs with `workspaceRange` (ADR-0014
+  // §4.F4), and this channel records only the resolved directory.
+  if (!tryAddPnpmV5Edge(context.builder, srcId, targetId, kind, { range: rawValue })) return
+  const nodeSc = context.sidecar.nodes.get(srcId)
+  if (nodeSc !== undefined) {
+    nodeSc.workspaceLinkDependencies ??= new Map<string, { slot: string; value: string }>()
+    nodeSc.workspaceLinkDependencies.set(`${kind}\0${targetId}`, { slot: depName, value: rawValue })
   }
 }
 
@@ -1310,7 +1372,15 @@ function buildPackageEntry(
     if (edge.kind !== 'dep' && edge.kind !== 'optional') continue
     const dst = graph.getNode(edge.dst)
     if (dst === undefined) continue
-    if (dst.workspacePath !== undefined && dst.workspacePath !== '') continue
+    if (dst.workspacePath !== undefined && dst.workspacePath !== '') {
+      // Workspace target — pnpm records the DIRECTORY, resolved against the
+      // lockfile root. Replay the parsed slot/locator when present; otherwise
+      // derive both from the target, which is all a cross-format graph carries.
+      const link = sidecar?.nodes.get(representative.id)?.workspaceLinkDependencies
+        ?.get(`${edge.kind}\0${dst.id}`)
+      blocks[edge.kind]![link?.slot ?? dst.name] = link?.value ?? `link:${dst.workspacePath}`
+      continue
+    }
     if (dst.id === sidecar?.rootId) continue
     const block = blocks[edge.kind]!
     // ADR-0028 INV-RESOLVE — alias slot keying + canonical value (see
