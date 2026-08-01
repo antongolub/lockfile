@@ -1,7 +1,7 @@
 # `pnpm-v9` — pnpm `pnpm-lock.yaml` (lockfileVersion 9)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; packages/snapshots split covered).
-> Updated: 2026-07-29
+> Updated: 2026-08-01
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -102,6 +102,16 @@ Compared to v6:
 
 - Root authority and neutral-importer synthesis inherit the
   [pnpm-v5 rule](./pnpm-v5.md#quirks); DAG reachability is not project identity.
+- A workspace importer's dependency key is the **declared manifest slot**, not
+  the target importer's directory or package-node name. Parse retains that key
+  beside the bound edge; stringify reuses it while `version: link:<dir>` carries
+  the target path. This distinction is producer-enforced: pnpm rejects a lock
+  whose importer key no longer matches the manifest declaration.
+- A representable local `file:` package is emitted with both directory fields:
+  `resolution: {directory: <dir>, type: directory}`. Pinned pnpm 10.34.5 accepts
+  those bytes under `--frozen-lockfile`, leaves them unchanged in write-enabled
+  mode, and materialises both the root link and the local package's dependency
+  link. Omitting `type: directory` makes pnpm treat the entry as a tarball.
 - Two top-level blocks instead of one — `packages` (immutable manifest
   data: resolution, integrity, engines) and `snapshots` (resolution-time
   data: dependency edges, peer bindings). One package can have many

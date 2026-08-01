@@ -1,7 +1,7 @@
 # `pnpm-v5` — pnpm `pnpm-lock.yaml` (lockfileVersion 5.x)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; pnpm 7 default-5.4 verified).
-> Updated: 2026-07-29
+> Updated: 2026-08-01
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -119,6 +119,16 @@ this is only how pnpm *carries* it.
 - Project-root authority comes only from a parse-captured native root importer
   or an explicit node with `workspacePath: ""`. A sole DAG root remains a
   package entry; rootless input receives the native neutral importer.
+- A workspace importer's dependency key is its **declared manifest slot**, not
+  the target importer directory or package-node name. The adapter retains that
+  slot independently from the `link:<dir>` value and re-emits it in both
+  `specifiers` and the matching dependency block.
+- Whenever the graph already holds a representable local-directory package,
+  stringify emits `resolution: {directory: <dir>, type: directory}`; the type
+  tag is required for pnpm to treat the payload as a directory rather than a
+  tarball. This does **not** close the separate native pnpm 5–8 input gap: those
+  producers key local packages as bare `file:<dir>`, which the current v5
+  packages-key parser still rejects with `PNPM_BAD_ENTRY` (see below).
 - `lockfileVersion` is a **string**, not a number (`'5.4'`).
 - Top-level `overrides:` block (pnpm 6–7): pnpm's frozen install
   (`--frozen-lockfile`) DEEP-COMPARES it against current config

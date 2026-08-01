@@ -614,6 +614,19 @@ describe('parse', () => {
     expect(graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')).toEqual([])
   })
 
+  it('re-emits an importer workspace dependency under its declared package name', () => {
+    const source = V5(
+      'importers:\n' +
+        '  .:\n    specifiers:\n      docs: workspace:*\n' +
+        '    dependencies:\n      docs: link:packages/docs\n' +
+        '  packages/docs:\n    specifiers: {}\n',
+    )
+    const output = stringify(parse(source))
+
+    expect(output).toMatch(/dependencies:\n\s+docs: link:packages\/docs/)
+    expect(output).not.toMatch(/dependencies:\n\s+packages\/docs:/)
+  })
+
   it('binds an inline `link:` dep of a directory-resolution package to the workspace member', () => {
     // pnpm 5–7 key a directory package as a bare `file:<dir>`, which
     // `parsePackagesKey` rejects outright (a separate, pre-existing gap), so the
@@ -632,6 +645,18 @@ describe('parse', () => {
     const edge = graph.out('courses@1.0.0', 'dep').find(e => e.dst === 'nx-dev/docs@0.0.0')
     expect(edge).toBeDefined()
     expect(edge!.attrs?.range).toBe('link:nx-dev/docs')
+  })
+
+  it('re-emits the producer-required directory resolution type for a representable local package', () => {
+    const source = V5(
+      'importers:\n' +
+        '  .:\n    specifiers:\n      courses: file:nx-dev/courses\n    dependencies:\n      courses: 1.0.0\n' +
+        'packages:\n\n  /courses/1.0.0:\n' +
+        '    resolution: {directory: nx-dev/courses, type: directory}\n    dev: false\n',
+    )
+
+    expect(stringify(parse(source)))
+      .toContain('resolution: {directory: nx-dev/courses, type: directory}')
   })
 
   it('still warns PNPM_UNRESOLVED_DEP when an inline `link:` names no workspace importer', () => {

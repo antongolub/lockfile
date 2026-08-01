@@ -126,6 +126,27 @@ describe('parse', () => {
     expect(diags[0]!.message).toContain('nowhere')
   })
 
+  it.each([
+    ['v9', parseV9, stringifyV9, V9],
+    ['v6', parseV6, stringifyV6, V6],
+  ] as const)('re-emits a %s importer workspace dependency under its declared package name', (
+    _version,
+    parse,
+    stringify,
+    wrap,
+  ) => {
+    const source = wrap(
+      'importers:\n\n' +
+        '  .:\n    dependencies:\n      docs:\n        specifier: workspace:*\n        version: link:packages/docs\n\n' +
+        '  packages/docs: {}\n\n' +
+        'packages: {}\n',
+    )
+    const output = stringify(parse(source))
+
+    expect(output).toMatch(/dependencies:\n\s+docs:\n\s+specifier: workspace:\*/)
+    expect(output).not.toMatch(/dependencies:\n\s+packages\/docs:/)
+  })
+
   // A `link:` in a `snapshots` / inline `packages` dependency block is a
   // WORKSPACE-DIRECTORY reference, not a snapshot reference — pnpm materialises
   // it as a symlink resolved against the LOCKFILE directory. Measured against
@@ -275,7 +296,7 @@ describe('stringify', () => {
       ),
     )
     const out = stringifyV9(graph)
-    expect(out).toContain('resolution: {directory: loc}')
+    expect(out).toContain('resolution: {directory: loc, type: directory}')
   })
 
   it('emits a `deprecated:` scalar carried on the tarball payload', () => {
@@ -343,7 +364,7 @@ describe('stringify', () => {
         '  .:\n    dependencies:\n      courses:\n        specifier: file:nx-dev/courses\n        version: file:nx-dev/courses\n\n' +
         '  nx-dev/docs: {}\n\n' +
         'packages:\n\n' +
-        '  courses@file:nx-dev/courses:\n    resolution: {directory: nx-dev/courses}\n\n' +
+        '  courses@file:nx-dev/courses:\n    resolution: {directory: nx-dev/courses, type: directory}\n\n' +
         'snapshots:\n\n' +
         '  courses@file:nx-dev/courses:\n    dependencies:\n      docs: link:nx-dev/docs\n',
     )
@@ -357,11 +378,22 @@ describe('stringify', () => {
     // locator must stay the published sub-directory pnpm recorded.
     const source = V9(
       'importers:\n\n  .: {}\n\n  packages/mui-material: {}\n\n' +
-        'packages:\n\n  local@file:tools/local:\n    resolution: {directory: tools/local}\n\n' +
+        'packages:\n\n  local@file:tools/local:\n    resolution: {directory: tools/local, type: directory}\n\n' +
         'snapshots:\n\n  local@file:tools/local:\n    dependencies:\n' +
         "      '@mui/material': link:packages/mui-material/build\n",
     )
     expect(stringifyV9(parseV9(source))).toBe(source)
+  })
+
+  it('re-emits `type: directory` for a representable v6 local package resolution', () => {
+    const source = V6(
+      'importers:\n\n  .:\n    dependencies:\n      courses:\n        specifier: file:vendor/courses\n        version: file:vendor/courses\n\n' +
+        'packages:\n\n  /courses@file:vendor/courses:\n' +
+        '    resolution: {directory: vendor/courses, type: directory}\n    dev: false\n',
+    )
+
+    expect(stringifyV6(parseV6(source)))
+      .toContain('resolution: {directory: vendor/courses, type: directory}')
   })
 
   it('replays a peer-bound `link:` slot verbatim from its retained declaration', () => {

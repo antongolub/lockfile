@@ -221,6 +221,8 @@ interface PnpmV5NodeSidecar {
 }
 
 interface PnpmV5EdgeSidecar {
+  /** Importer-declared dependency slot (which may differ from package name). */
+  slot?: string
   /** Resolved on-disk version field (preserves peer-context underscore tail). */
   resolvedVersion?: string
   /** Importer-declared specifier (the `specifiers` block value). */
@@ -649,7 +651,11 @@ function addPnpmV5WorkspaceDependency(
     range: specifier ?? depValue, workspace: true, workspaceRange,
   })
   if (!added) return
-  parse.sidecar.importerEdges.set(`${srcId}\0${kind}\0${targetId}\0`, { resolvedVersion: depValue, specifier })
+  parse.sidecar.importerEdges.set(`${srcId}\0${kind}\0${targetId}\0`, {
+    slot: depName,
+    resolvedVersion: depValue,
+    specifier,
+  })
 }
 
 function addPnpmV5ResolvedDependency(
@@ -1253,8 +1259,11 @@ function buildImporterEntry(
     // `<name>@<version>` value; non-aliased edges keep the capture verbatim.
     const slot = aliasedDependencySlot(edge, dst)
     const isAliased = edge.attrs?.alias !== undefined
+    const emittedSlot = isWorkspaceTarget
+      ? (edgeSc?.slot ?? workspaceNames?.get(dst.id) ?? dst.name)
+      : slot.key
     const range = edge.attrs?.range
-    const specifierFromSidecar = importerSpecs?.[slot.key]
+    const specifierFromSidecar = importerSpecs?.[emittedSlot]
     const captureIsAliasConsistent = edgeSc?.resolvedVersion?.startsWith(`${dst.name}@`) === true
     const declaredSpecifier = isAliased
       ? (range ?? specifierFromSidecar ?? edgeSc?.specifier ?? dst.version)
@@ -1262,7 +1271,7 @@ function buildImporterEntry(
     const override = overrides === undefined
       ? undefined
       : governingOverrideFor(
-          slot.key,
+          emittedSlot,
           [workspaceNames?.get(node.id) ?? node.name],
           overrides,
           declaredSpecifier,
@@ -1274,8 +1283,8 @@ function buildImporterEntry(
         ? (captureIsAliasConsistent ? edgeSc!.resolvedVersion! : slot.value)
         : (edgeSc?.resolvedVersion ?? slot.value)
 
-    blocks[edge.kind][slot.key] = version
-    specifiers[slot.key] = specifier
+    blocks[edge.kind][emittedSlot] = version
+    specifiers[emittedSlot] = specifier
   }
 
   for (const declaration of unresolvedDependencyDeclarationsOf(graph)) {
@@ -1340,14 +1349,17 @@ function buildPackageEntry(
     if (integ !== undefined) resolution.integrity = integ
     if (nativeIsPnpmUrl) resolution.tarball = stripRegistrySha1Fragment(nativeResolution!)
     else if (derivedPnpm?.tarball !== undefined && !derivedTarballIsRegistryDefault) resolution.tarball = derivedPnpm.tarball
-    else if (derivedPnpm?.directory !== undefined) resolution.directory = derivedPnpm.directory
+    else if (derivedPnpm?.directory !== undefined) {
+      resolution.directory = derivedPnpm.directory
+      resolution.type = 'directory'
+    }
     if (Object.keys(resolution).length > 0) entry.resolution = flowMap(resolution)
   } else if (nativeIsPnpmUrl) {
     entry.resolution = flowMap({ tarball: nativeResolution! })
   } else if (derivedPnpm?.tarball !== undefined && !derivedTarballIsRegistryDefault) {
     entry.resolution = flowMap({ tarball: derivedPnpm.tarball })
   } else if (derivedPnpm?.directory !== undefined) {
-    entry.resolution = flowMap({ directory: derivedPnpm.directory })
+    entry.resolution = flowMap({ directory: derivedPnpm.directory, type: 'directory' })
   }
 
   const nodeSc = sidecar?.nodes.get(representative.id)

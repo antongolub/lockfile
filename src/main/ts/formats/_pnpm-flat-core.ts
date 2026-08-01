@@ -283,6 +283,8 @@ export interface PnpmNodeSidecar {
 }
 
 export interface PnpmEdgeSidecar {
+  /** Importer-declared dependency slot (which may differ from package name). */
+  slot?: string
   /** Resolved on-disk version field (preserves resolved-snapshot-key tail). */
   resolvedVersion?: string
   /** Importer specifier. */
@@ -939,7 +941,11 @@ function addPnpmWorkspaceImporterDependency(
     workspaceRange,
   }
   if (!addPnpmImporterEdge(builder, { srcId, targetId, kind, attrs })) return
-  sidecar.importerEdges.set(`${srcId}\0${kind}\0${targetId}\0`, { resolvedVersion: version, specifier })
+  sidecar.importerEdges.set(`${srcId}\0${kind}\0${targetId}\0`, {
+    slot: depName,
+    resolvedVersion: version,
+    specifier,
+  })
 }
 
 /** Resolve a registry or alias locator through the parsed snapshot node set. */
@@ -2412,6 +2418,9 @@ function buildImporterEntry(
     // + bare version — byte-unchanged for the non-alias case.
     const slot = aliasedSnapshotSlotValue(edge, dst, projection)
     const isAliased = edge.attrs?.alias !== undefined
+    const emittedSlot = isWorkspaceTarget
+      ? (edgeSc?.slot ?? workspaceNames?.get(dst.id) ?? dst.name)
+      : slot.key
     const range = edge.attrs?.range
     // The `importerEdges` sidecar is keyed by the (src,kind,dst) triple, which
     // an aliased and a direct edge to the SAME node SHARE (an npm-aliased
@@ -2428,7 +2437,7 @@ function buildImporterEntry(
     const override = overrides === undefined
       ? undefined
       : governingOverrideFor(
-          slot.key,
+          emittedSlot,
           [workspaceNames?.get(node.id) ?? node.name],
           overrides,
           declaredSpecifier,
@@ -2441,7 +2450,7 @@ function buildImporterEntry(
         : (edgeSc?.resolvedVersion ?? slot.value)
 
     const depBlock = blocks[edge.kind]!
-    depBlock[slot.key] = {
+    depBlock[emittedSlot] = {
       specifier,
       version,
     } as YamlMap
@@ -2545,6 +2554,7 @@ function writePackageResolution(context: PackageEntryContext): void {
       resolution.tarball = derivedPnpm.tarball
     } else if (derivedPnpm?.directory !== undefined) {
       resolution.directory = derivedPnpm.directory
+      resolution.type = 'directory'
     }
     if (Object.keys(resolution).length > 0) entry.resolution = flowMap(resolution)
     return
@@ -2553,7 +2563,7 @@ function writePackageResolution(context: PackageEntryContext): void {
   else if (derivedPnpm?.tarball !== undefined && !derivedTarballIsRegistryDefault) {
     entry.resolution = flowMap({ tarball: derivedPnpm.tarball })
   } else if (derivedPnpm?.directory !== undefined) {
-    entry.resolution = flowMap({ directory: derivedPnpm.directory })
+    entry.resolution = flowMap({ directory: derivedPnpm.directory, type: 'directory' })
   }
 }
 

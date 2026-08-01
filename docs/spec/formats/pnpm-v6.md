@@ -1,7 +1,7 @@
 # `pnpm-v6` — pnpm `pnpm-lock.yaml` (lockfileVersion 6.x)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; collapsed-root + `@`-id grammar covered).
-> Updated: 2026-07-29
+> Updated: 2026-08-01
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -73,6 +73,15 @@ Compared to v5:
 
 - Root authority and neutral-importer synthesis inherit the
   [pnpm-v5 rule](./pnpm-v5.md#quirks); DAG reachability is not project identity.
+- A workspace importer's dependency key is its **declared manifest slot**, not
+  the target importer directory or package-node name. The adapter retains that
+  slot independently from the `link:<dir>` resolution and re-emits both.
+- Whenever the graph already holds a representable local-directory package,
+  stringify emits `resolution: {directory: <dir>, type: directory}`; the type
+  tag is required for pnpm to treat the payload as a directory rather than a
+  tarball. This does **not** close the separate native pnpm 5–8 input gap: those
+  producers key local packages as bare `file:<dir>`, which the current v6
+  packages-key parser still rejects with `PNPM_BAD_ENTRY` (see below).
 - Package ids switch from `/<name>/<ver>` to `/<name>@<ver>` (and
   `/<name>@<ver>(peer@x)` for virtualised). Easier to read; trivial to migrate.
 - `importers.<path>.dependencies.<name>` is now an object `{specifier, version}`
