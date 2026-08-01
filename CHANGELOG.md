@@ -1,3 +1,10 @@
+## [0.6.2](https://github.com/lockgraph/lockgraph/compare/v0.6.1...v0.6.2) (2026-08-01)
+
+### Fixes & improvements
+* fix(api): preserve strict Yarn projection and declaration contracts ([2296426](https://github.com/lockgraph/lockgraph/commit/229642649ee085fd2b23df0e88feaadb28a217f1))
+* fix(api): re-expose refurbish for same-format repair ([7ffcd1a](https://github.com/lockgraph/lockgraph/commit/7ffcd1a177c8b9816a4e2b8a801e5c022d32dd6d))
+* docs: split convert.md and pairs.md ([cd65d8d](https://github.com/lockgraph/lockgraph/commit/cd65d8d56bb92e88d507b5a10b1fb48b0869e81d))
+
 ## [0.6.1](https://github.com/lockgraph/lockgraph/compare/v0.6.0...v0.6.1) (2026-07-31)
 
 ### Fixes & improvements
