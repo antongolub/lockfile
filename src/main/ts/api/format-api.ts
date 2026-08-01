@@ -1,5 +1,6 @@
 import type {
   Diagnostic,
+  EdgeKind,
   Graph,
   Manifest,
   OverrideConstraint,
@@ -35,6 +36,7 @@ import {
   pnpmManifestExtensionFeatureOf,
 } from '../formats/_pnpm-flat-core.ts'
 import { composeConditionsFromPayload } from '../formats/_yarn-berry-core.ts'
+import { denoDeclarationRangeProjections } from '../formats/_deno-core.ts'
 import * as bunText from '../formats/bun-text.ts'
 import * as pnpmV5 from '../formats/pnpm-v5.ts'
 import * as yarnClassic from '../formats/yarn-classic.ts'
@@ -521,6 +523,8 @@ export function canonicalGraphSnapshot(
   projectedMetadataDrops?: ReadonlyMap<string, ReadonlySet<PackageMetadataField>>,
   projectNativeBerryWorkspaceRoot = false,
   projectBerryChecksumCacheKey = true,
+  projectedPeerDependencies?: ReadonlyMap<string, Readonly<Record<string, string>>>,
+  projectedEdgeRanges?: ReadonlyMap<string, string>,
 ): string {
   const projectedRootIds = new Map<string, string>()
   if (projectNativeBerryWorkspaceRoot) {
@@ -545,6 +549,12 @@ export function canonicalGraphSnapshot(
       const source = graph.getNode(edge.src)
       const target = graph.getNode(edge.dst)
       const declaredRange = edge.attrs?.range
+      const targetProjectedRange = projectedEdgeRanges?.get(projectionEdgeKey(
+        edge.src,
+        edge.kind,
+        edge.dst,
+        edge.attrs?.alias,
+      ))
       const descriptor = edge.attrs?.alias ?? target?.name
       const projectedRange = source?.workspacePath !== undefined
         && descriptor !== undefined
@@ -563,7 +573,9 @@ export function canonicalGraphSnapshot(
         kind: edge.kind,
         ...(edge.attrs === undefined ? {} : {
           attrs: {
-            ...(declaredRange === undefined ? {} : { range: projectedRange ?? declaredRange }),
+            ...(declaredRange === undefined
+              ? {}
+              : { range: projectedRange ?? targetProjectedRange ?? declaredRange }),
             ...(contract === 'snapshot' || edge.attrs.overrideRange === undefined
               ? {}
               : { overrideRange: edge.attrs.overrideRange }),
@@ -604,7 +616,7 @@ export function canonicalGraphSnapshot(
       }),
       ...(resolution === undefined ? {} : { resolution }),
       ...(payload.peerDependencies === undefined || metadataDrops?.has('peerDependencies') ? {} : {
-        peerDependencies: payload.peerDependencies,
+        peerDependencies: projectedPeerDependencies?.get(key) ?? payload.peerDependencies,
       }),
       ...(payload.peerDependenciesMeta === undefined || metadataDrops?.has('peerDependenciesMeta') ? {} : {
         peerDependenciesMeta: payload.peerDependenciesMeta,
@@ -700,6 +712,9 @@ export function canonicalProjectionGraphSnapshot(
   const projectedResolutions = projectedTargetResolutions(graph, target)
   const targetProfile = targetProfileOf({ format: target })
   const projectedIntegrities = projectedTargetIntegrities(graph, target)
+  const denoDeclarationRanges = denoDeclarationRangeProjections(graph, target)
+  const projectedPeerDependencies = projectedDenoPeerDependencies(graph, denoDeclarationRanges)
+  const projectedEdgeRanges = projectedDenoEdgeRanges(denoDeclarationRanges)
   const projectedMetadataDrops = projectedConditionsMetadataDrops(
     graph,
     target,
@@ -716,7 +731,53 @@ export function canonicalProjectionGraphSnapshot(
     target.startsWith('yarn-berry-'),
     targetProfile.capabilities.integrity === 'berry-zip'
       || targetProfile.capabilities.integrity === 'canonical',
+    projectedPeerDependencies,
+    projectedEdgeRanges,
   )
+}
+
+function projectedDenoPeerDependencies(
+  graph: Graph,
+  projections: ReturnType<typeof denoDeclarationRangeProjections>,
+): ReadonlyMap<string, Readonly<Record<string, string>>> | undefined {
+  const output = new Map<string, Readonly<Record<string, string>>>()
+  const payloads = new Map(graph.tarballs())
+  for (const projection of projections) {
+    if (projection.carrier !== 'peerDependencies') continue
+    const current = output.get(projection.key)
+      ?? payloads.get(projection.key)?.peerDependencies
+    if (current === undefined) continue
+    output.set(projection.key, Object.freeze({
+      ...current,
+      [projection.name]: projection.to,
+    }))
+  }
+  return output.size === 0 ? undefined : output
+}
+
+function projectionEdgeKey(
+  source: string,
+  kind: EdgeKind,
+  destination: string,
+  alias?: string,
+): string {
+  return `${source}\0${kind}\0${destination}\0${alias ?? ''}`
+}
+
+function projectedDenoEdgeRanges(
+  projections: ReturnType<typeof denoDeclarationRangeProjections>,
+): ReadonlyMap<string, string> | undefined {
+  const output = new Map<string, string>()
+  for (const projection of projections) {
+    if (projection.kind === 'peer') continue
+    output.set(projectionEdgeKey(
+      projection.subject,
+      projection.kind,
+      projection.destination,
+      projection.alias,
+    ), projection.to)
+  }
+  return output.size === 0 ? undefined : output
 }
 
 const CONDITION_METADATA_FIELDS = ['os', 'cpu', 'libc'] as const

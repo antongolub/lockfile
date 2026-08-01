@@ -38,7 +38,7 @@ not invoke `dnt`, and no composed `dnt` → Lockgraph round trip is certified he
 
 | Lock version | Evidence | Frozen oracle |
 | --- | --- | --- |
-| v2 | structurally valid fixture plus corpus parse/replay | no separately pinned producer |
+| v2 | structurally valid fixture plus corpus parse/replay | none exists — see below |
 | v3 | emitted by Deno 1.44.4 | clean/restored exit 0; cold-cache tamper exit 10 |
 | v4 | emitted by Deno 2.2.8 | clean/restored exit 0; cold-cache tamper exit 10 |
 | v5 | emitted by Deno 2.9.4 | clean/restored exit 0; cold-cache tamper exit 1 |
@@ -46,6 +46,14 @@ not invoke `dnt`, and no composed `dnt` → Lockgraph round trip is certified he
 Deno v1 is unsupported. Every concrete format detector and parser rejects it
 rather than
 guessing an obsolete schema.
+
+**v2 has no producer oracle in either direction.** No pinned binary writes it, and
+none preserves it: given a minimal valid v2 lock and a real dependency install on
+a cold cache, 1.44.4 rewrites it to v3, 2.2.8 to v4 and 2.9.4 to v5. On 2.9.4
+`--frozen` fails before that, demanding a `workspace` block — a section the v2
+layout does not define. So a v2 lock cannot be certified by acceptance either, and
+v2 emission is conformance to this specification alone. The v2 files in the
+scraped corpus are the only external evidence for the generation.
 
 The frozen oracle uses `deno install --frozen`, the relevant project config,
 and an isolated `DENO_DIR`. The tamper leg has a fresh empty cache and must
@@ -177,6 +185,64 @@ If an adapter cannot associate a suffix peer with one unique npm package, it
 keeps the native suffix, emits a diagnostic, and declines any mutation that
 would require inventing the missing association.
 
+### The suffix is an opaque map key
+
+Deno parses the suffix, uses the whole string as a map key, and never checks it
+against the resolution it names. A lock relabelled to
+`react-dom@19.1.1_ghost@9.9.9` — a peer naming a package present nowhere in the
+file — passes `install --frozen=true`, plain `install`, and `deno ci` on a cold
+`DENO_DIR`, and is not rewritten. Four further mutually incompatible relabelings
+of the same lock behave identically.
+
+Two consequences. Reproducing the exact suffix Deno would have chosen is not a
+correctness requirement, so emitted ids may be canonical rather than
+Deno-historical. And a lock whose suffixes are internally consistent cannot be
+rejected by Deno on that ground, which makes the frozen oracle — not id equality
+— the only available proof of acceptance.
+
+### Which fields can carry a declared range
+
+Only one. Measured over every npm entry in 153 real v5 locks, classifying each
+string reference as a bare name, an exact `name@version`, or a range:
+
+| field | bare | exact | ranged |
+| --- | --: | --: | --: |
+| `dependencies` | 72848 | 12428 | **0** |
+| `optionalDependencies` | 5117 | 1422 | **0** |
+| `optionalPeers` | 1932 | 210 | **3** |
+| key suffix `_peer@version` | — | 7412 | **0** |
+
+`optionalPeers` is the sole carrier that accepts `name@range`, and it is used that
+way rarely — `encoding@^0.1.0`, `bufferutil@^4.0.1`, `utf-8-validate@^5.0.2`. Every
+other reference in the file records a **resolution**, never a constraint. A
+round trip through `deno.lock` therefore normalizes the declared range of an
+ordinary dependency, an optional dependency, and a non-optional peer to the exact
+resolved version, and only an optional peer's range can be preserved verbatim.
+
+Concretely: `react-dom` declaring `peerDependencies.react = "^19.2.0"` comes back
+from a round trip as `19.2.8`. The normalization is a property of the format, not
+of any adapter, and an emitter may treat it as expected only for a **resolved**
+reference whose exact version the emitted carrier actually holds. An
+**unresolved** non-optional peer has no carrier at all, and dropping one is a
+real loss rather than a normalization.
+
+### `optionalPeers` has three states, and two producers disagree
+
+Measured on `node-fetch@2.7.0`, which declares `encoding` as an optional peer:
+
+| situation | what the producer writes |
+| --- | --- |
+| optional peer absent from the tree, fresh install on 2.9.4 | no `optionalPeers` key at all |
+| optional peer present in the tree | key gains a peer suffix — `node-fetch@2.7.0_encoding@0.1.13` — and the entry carries `optionalPeers: ["encoding"]`, a bare name, with `encoding` also listed in `dependencies` |
+| real corpus lock produced by the v4→v5 upgrade | `optionalPeers: ["encoding@^0.1.0"]`, ranged, with `encoding` absent from the file entirely |
+
+So the ranged shape comes from the version-upgrade path, not from a fresh
+resolve: a fresh 2.9.4 install of the same package omits the field that
+`transform4_to_5` writes. Both are accepted on read — 1469 entries across the
+corpus carry `optionalPeers` — but a byte-identity claim must name which producer
+path it was compared against. The bare shape is legal only when the package is
+present in `npm`; the ranged shape is always legal.
+
 ## Integrity
 
 The file contains distinct integrity domains which must not be normalized into
@@ -188,8 +254,12 @@ one another:
 | `jsr` | 64-character lowercase SHA-256 hex | JSR release metadata lock checksum |
 | `remote` | 64-character lowercase SHA-256 hex | fetched remote-module bytes |
 
-The emitter requires singular SHA-512 SRI and a tarball resolution for every
-mutated npm node. It never derives npm SRI from JSR or remote hashes.
+The emitter requires a tarball resolution and a SHA-512 member for every mutated
+npm node, and selects that member. A multi-member SRI is legal input: 9.8 % of
+npm-3 nodes and 7.3 % of yarn-classic nodes carry `sha1` alongside `sha512`, so
+requiring a singular value would reject roughly one node in ten of every real
+npm-3 lock. Deno stores exactly one member; selection happens on emit, never by
+narrowing the graph. The emitter never derives npm SRI from JSR or remote hashes.
 
 For JSR, the measured artifact proof is `@std/assert@1.0.19`: the SHA-256 of
 the exact raw `_meta.json` response body equals the lock entry. The producer
@@ -245,9 +315,29 @@ hiding them behind one schema-ambiguous declaration.
 
 ## Corpus and tests
 
-The measured corpus contains 190 real strict-JSON v2-v5 lockfiles. Every
-non-conflicted file parses and replays byte-identically. Conflict fixtures are
-tested separately because they are intentionally not JSON.
+The measured corpus contains **3581 real lockfiles** scraped from public
+repositories, spanning all four generations. **3536 of them replay
+byte-identically.** Three are merge-conflicted and therefore not strict JSON, one
+is the pre-v2 flat URL-to-hash map with no `version` key, and 41 are refused on
+parse. The gate asserts this as a property rather than a file count — the corpus
+is gitignored scratch that grows whenever it is re-scraped, so an exact count
+would only be green for whoever scraped last.
+
+The 41 refusals are known and classified; a refusal outside these classes fails
+the gate:
+
+| refusal | files | status |
+| --- | --: | --- |
+| `seal failed: peer edges` | 15 | open — peer-edge reconstruction |
+| native npm ids collapse onto one canonical NodeId | 14 | open — two ids differing only by peer suffix map onto one canonical id |
+| entry with neither integrity nor an explicit tarball | 5 | **our defect** — Deno writes `{}` for a patched package; its printer declares `integrity` optional for exactly that case |
+| specifier references an npm package absent from the file | 4 | open — likely genuinely malformed input, unconfirmed |
+| jsr integrity not lowercase SHA-256 hex | 2 | open |
+| npm integrity not canonical | 1 | open |
+
+Twenty-nine of the forty-one are peer-related, which is the same collision the
+conversion direction has to solve: two native ids that differ only by their peer
+suffix are distinct packages, and collapsing them loses a resolution.
 
 The unit and interop suites cover:
 

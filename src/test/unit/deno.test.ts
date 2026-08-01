@@ -6,11 +6,18 @@ import { describe, expect, it } from 'vitest'
 import { serializeNodeId, type Diagnostic, type Graph } from '../../main/ts/graph.ts'
 import {
   check as checkPublic,
+  detect as detectPublic,
   parse as parsePublic,
   stringify as stringifyPublic,
   type FormatId,
 } from '../../main/ts/index.ts'
-import { sourceVersionOf, type DenoVersion } from '../../main/ts/formats/_deno-core.ts'
+import { stringify as stringifyGraph } from '../../main/ts/api/format-api.ts'
+import {
+  denoDeclarationRangeProjections,
+  rebindAdapterState,
+  sourceVersionOf,
+  type DenoVersion,
+} from '../../main/ts/formats/_deno-core.ts'
 import * as denoV2 from '../../main/ts/formats/deno-v2.ts'
 import * as denoV3 from '../../main/ts/formats/deno-v3.ts'
 import * as denoV4 from '../../main/ts/formats/deno-v4.ts'
@@ -323,4 +330,195 @@ describe('deno adapter', () => {
       data: expect.objectContaining({ feature: 'top-level:x-lockgraph-sentinel' }),
     }))
   })
+})
+
+describe('buildNpmEntry', () => {
+  it('selects the SHA-512 member from multi-member tarball SRI', () => {
+    const graph = bumpScheduler(parse(fixture('deno.lock')))
+    const payload = graph.tarballOf('scheduler@0.27.0')!
+    const withMultipleSriMembers = graph.mutate(mutator => {
+      mutator.setTarball(
+        { name: 'scheduler', version: '0.27.0' },
+        {
+          ...payload,
+          integrity: parseSri(
+            `sha1-AAAAAAAAAAAAAAAAAAAAAAAAAAA= ${SCHEDULER_027_SRI}`,
+          ),
+        },
+      )
+    }).graph
+
+    expect(JSON.parse(stringify(withMultipleSriMembers)).npm['scheduler@0.27.0'].integrity)
+      .toBe(SCHEDULER_027_SRI)
+  })
+
+  it('emits resolved non-optional peers in dependencies', () => {
+    const graph = parse(fixture('deno.lock'))
+    const reactDomId = graph.byName('react-dom')[0]!
+    const peer = graph.out(reactDomId, 'peer').find(edge =>
+      graph.getNode(edge.dst)?.name === 'react')!
+    const duplicateDependency = graph.out(reactDomId, 'dep').find(edge =>
+      edge.dst === peer.dst)!
+    expect(peer.attrs?.optional).not.toBe(true)
+
+    const peerOnly = duplicateDependency === undefined
+      ? graph.mutate(mutator => {
+          const payload = graph.tarballOf(reactDomId)!
+          mutator.setTarball(
+            { name: 'react-dom', version: '19.1.1' },
+            { ...payload, deprecated: 'force rebuilt entry' },
+          )
+        }).graph
+      : graph.mutate(mutator => {
+          mutator.removeEdge(reactDomId, duplicateDependency.dst, 'dep')
+        }).graph
+    expect(JSON.parse(stringify(peerOnly)).npm['react-dom@19.1.1_react@19.2.8'].dependencies)
+      .toEqual(['react', 'scheduler'])
+  })
+
+  it('keeps optional peers distinct and re-emits resolved and unresolved shapes', () => {
+    const input = `${JSON.stringify({
+      version: '5',
+      npm: {
+        'host@1.0.0': {
+          integrity: SCHEDULER_027_SRI,
+          optionalPeers: ['encoding@^0.1.0', 'resolved'],
+        },
+        'resolved@1.0.0': { integrity: SCHEDULER_027_SRI },
+      },
+    }, null, 2)}\n`
+    const graph = parse(input)
+    const hostId = graph.byName('host')[0]!
+    const resolvedId = graph.byName('resolved')[0]!
+    expect(graph.out(hostId, 'peer')).toContainEqual(expect.objectContaining({
+      dst: resolvedId,
+      attrs: expect.objectContaining({ optional: true }),
+    }))
+    expect(graph.out(hostId, 'optional')).toEqual([])
+    expect(graph.tarballOf(hostId)?.peerDependencies).toMatchObject({
+      encoding: '^0.1.0',
+    })
+    expect(graph.tarballOf(hostId)?.peerDependenciesMeta).toMatchObject({
+      encoding: { optional: true },
+      resolved: { optional: true },
+    })
+
+    const hostPayload = graph.tarballOf(hostId)!
+    const rebuilt = graph.mutate(mutator => {
+      mutator.setTarball(
+        { name: 'host', version: '1.0.0' },
+        { ...hostPayload, deprecated: 'force rebuilt entry' },
+      )
+    }).graph
+    const entry = JSON.parse(stringify(rebuilt)).npm['host@1.0.0']
+    expect(entry.optionalPeers).toEqual(['encoding@^0.1.0', 'resolved'])
+    expect(entry.optionalDependencies).toBeUndefined()
+  })
+})
+
+describe('emitConvertedDocument', () => {
+  it('omits empty top-level sections', () => {
+    const source = denoV3.parse('{\n  "version": "3",\n  "remote": {}\n}\n')
+    expect(JSON.parse(denoV4.stringify(source))).toEqual({ version: '4' })
+  })
+})
+
+describe('dependencyBlockForEmit', () => {
+  it('sorts dependency entries uniformly by alias or package name', () => {
+    const input = `${JSON.stringify({
+      version: '5',
+      npm: {
+        'host@1.0.0': {
+          integrity: SCHEDULER_027_SRI,
+          dependencies: ['zulu', 'aardvark@npm:target@1.0.0', 'alpha'],
+        },
+        'alpha@1.0.0': { integrity: SCHEDULER_027_SRI },
+        'target@1.0.0': { integrity: SCHEDULER_027_SRI },
+        'zulu@1.0.0': { integrity: SCHEDULER_027_SRI },
+      },
+    }, null, 2)}\n`
+    const graph = parse(input)
+    const hostId = graph.byName('host')[0]!
+    const hostPayload = graph.tarballOf(hostId)!
+    const rebuilt = graph.mutate(mutator => {
+      mutator.setTarball(
+        { name: 'host', version: '1.0.0' },
+        { ...hostPayload, deprecated: 'force rebuilt entry' },
+      )
+    }).graph
+    expect(JSON.parse(stringify(rebuilt)).npm['host@1.0.0'].dependencies).toEqual([
+      'aardvark@npm:target@1.0.0',
+      'alpha',
+      'zulu',
+    ])
+  })
+
+  it('projects only a resolved optional-dependency range carried as an exact native id', () => {
+    const input = `${JSON.stringify({
+      version: '5',
+      npm: {
+        'host@1.0.0': {
+          integrity: SCHEDULER_027_SRI,
+          optionalDependencies: ['optional'],
+        },
+        'optional@1.0.0': { integrity: SCHEDULER_027_SRI },
+      },
+    }, null, 2)}\n`
+    const source = parse(input)
+    const host = source.byName('host')[0]!
+    const optional = source.byName('optional')[0]!
+    const removed = source.mutate(mutator => {
+      mutator.removeEdge(host, optional, 'optional')
+    }).graph
+    const withoutOptional = rebindAdapterState(source, removed).graph
+    const mutated = withoutOptional.mutate(mutator => {
+      mutator.addEdge(host, optional, 'optional', {
+        optional: true,
+        range: '^1.0.0',
+      })
+    }).graph
+    const graph = rebindAdapterState(withoutOptional, mutated).graph
+    expect(graph.out(host, 'optional')).toEqual([expect.objectContaining({
+      dst: optional,
+      attrs: expect.objectContaining({ range: '^1.0.0' }),
+    })])
+    expect(denoDeclarationRangeProjections(graph, 'deno-v5')).toContainEqual(
+      expect.objectContaining({
+        carrier: 'optionalDependencies',
+        subject: host,
+        destination: optional,
+        from: '^1.0.0',
+        to: '1.0.0',
+      }),
+    )
+    expect(denoDeclarationRangeProjections(graph, 'npm-3')).toEqual([])
+
+    const diagnostics: Diagnostic[] = []
+    const output = stringifyGraph(graph, 'deno-v5', {
+      onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+    })
+    expect(JSON.parse(output).npm['host@1.0.0'].optionalDependencies).toEqual(['optional'])
+    expect(graph.out(host, 'optional')[0]?.attrs?.range).toBe('^1.0.0')
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: 'PROJECTION_LOSS',
+      subject: host,
+      data: expect.objectContaining({
+        class: 'structural-expected',
+        feature: 'metadata:optional-dependency-declaration-range',
+        target: 'deno-v5',
+      }),
+    }))
+  })
+})
+
+describe('checkVersion', () => {
+  it.each(['4', '5'] as const)(
+    'recognizes a valid section-less v%s lock',
+    version => {
+      const input = `{\n  "version": "${version}"\n}\n`
+      const format = `deno-v${version}` as const
+      expect(checkPublic(format, input)).toBe(true)
+      expect(detectPublic(input)).toBe(format)
+    },
+  )
 })

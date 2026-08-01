@@ -11,6 +11,7 @@ import { detectGraphFeatures, type GraphFeature } from './features.ts'
 import { targetProfileOf } from './targets.ts'
 import type { TargetRequest } from './types.ts'
 import { stripRegistrySha1Fragment } from '../recipe/resolution.ts'
+import { denoDeclarationRangeProjections } from '../formats/_deno-core.ts'
 
 // === PROJECTION MODEL =======================================================
 
@@ -340,6 +341,36 @@ function integrityPreflight(
   return losses
 }
 
+function denoDeclarationRangePreflight(
+  graph: Graph,
+  target: ReturnType<typeof targetProfileOf>,
+): ProjectionLoss[] {
+  const remedy = allowLoss()
+  return denoDeclarationRangeProjections(graph, target.format).map(projection => {
+    const feature = projection.carrier === 'peerDependencies'
+      ? 'metadata:peer-declaration-range'
+      : projection.carrier === 'optionalDependencies'
+        ? 'metadata:optional-dependency-declaration-range'
+        : 'metadata:dependency-declaration-range'
+    return (
+      loss(
+        'structural-expected',
+        feature,
+        target.format,
+        projectionDiagnostic(
+          'structural-expected',
+          feature,
+          target.format,
+          `target ${target.format} carries resolved ${projection.carrier} member ${projection.name} as exact ${projection.to} rather than declared range ${projection.from}`,
+          projection.subject,
+          remedy,
+        ),
+        remedy,
+      )
+    )
+  })
+}
+
 function manifestExtensionProvenancePreflight(
   graph: Graph,
   target: ReturnType<typeof targetProfileOf>,
@@ -479,6 +510,7 @@ export function projectionPreflightLosses(
   }
   losses.push(...metadataPreflight(graph, target, features))
   losses.push(...integrityPreflight(graph, target))
+  losses.push(...denoDeclarationRangePreflight(graph, target))
   losses.push(...npm4PatchCarrierPreflight(graph, target))
   losses.push(...manifestExtensionProvenancePreflight(graph, target))
   losses.push(...npm4BunGraphShapePreflight(graph, target))

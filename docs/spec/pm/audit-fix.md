@@ -15,8 +15,8 @@ and what `--force` changes.
 
 The central fact: there are **two structurally different ways a fix is persisted**
 — bump the declared range, or write an override pin — and a PM's fixer commits to
-one of them (deno's native fixer is the degenerate range-family case: it stays
-in-range, so nothing is rewritten — §4.6). Getting a fix that survives the PM's own
+one of them (deno commits to neither: its `--fix` flag applies no edit at all —
+§4.6). Getting a fix that survives the PM's own
 frozen install ([`_common §… frozen invariant`](../formats/_common.md#111-fundamental-invariant--frozen--ci-acceptance))
 means reproducing the model the target PM uses — not a generic "bump the version."
 
@@ -155,19 +155,30 @@ withholds. (berry locks embed the workspace deps, so they are not blind this way
 yarn `resolutions`, which surface as a top-level `overrides` block in `bun.lock` — an
 override-pin done by hand. Bun's blunt automatic option is `bun update`.
 
-### 4.6 deno — native, constraint-preserving fix
+### 4.6 deno — scan only; the documented fixer does not apply a fix
 
-Deno is the **inverse of bun**: it ships BOTH `deno audit` (scan) and native
-remediation. `deno audit fix` / `deno audit --fix` (Deno 2.6+) upgrades each affected
-package to the **nearest patched version that still satisfies the declared
-constraints** — a constraint-preserving, in-range bump across BOTH npm and JSR deps.
-Because it stays inside the declared constraints by design, there is no documented
-`--force` breaking-bump escape hatch (unlike npm); `--level=high` gates by severity
-and advisories can be suppressed by CVE id. Advisory source is the **GitHub
-Advisory / CVE** database (+ optional socket.dev), not the npm bulk endpoint —
-see [`spec/pm/deno.md §6.3`](./deno.md#63-advisories--audit--deno-audit-directly-on-this-projects-spine).
-For deno the native path is real and constraint-aware, so this library's value-add is
-cross-PM / format breadth rather than the fix itself.
+Deno is **the same shape as bun**, one step further along: it ships `deno audit`
+(scan, measured working) and a `--fix` flag that applies nothing.
+
+`deno audit --fix` (Deno 2.8+) is documented as a constraint-preserving in-range
+bump of vulnerable **direct** dependencies. Measured on Deno 2.9.4 — the latest
+release — across five fixtures built from scratch, four of them squarely inside
+that documented scope, the manifest and the lock come back **byte-identical**
+every time, and no advisory carries the documented *could not be fixed
+automatically* label. The full table and the reproduction command are in
+[`spec/pm/deno.md §6.3`](./deno.md#63-advisories--audit--deno-audit-directly-on-this-projects-spine).
+
+The capability is present in the binary but reachable only by another command:
+`deno outdated --update --lockfile-only` performs the same remediation on the
+same fixture, reporting `npm:minimist 1.2.0 -> 1.2.8`. It bumps direct
+dependencies as a side effect of re-resolving the whole tree, does not report
+transitive changes it makes, and is not advisory-driven — an oracle for what a
+resolved tree should look like, not a remediation model.
+
+There is no `--force` axis to describe, because there is no applied fix to
+constrain. Advisory source is the **GitHub Advisory / CVE** database (+ optional
+socket.dev), not the npm bulk endpoint. For deno this library's value-add is
+remediation itself, on top of cross-PM and format breadth.
 
 ---
 

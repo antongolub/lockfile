@@ -617,25 +617,46 @@ Deno is **multi-registry by construction**, and each maps to an existing
 
 ### 6.3 Advisories / audit — `deno audit` (directly on this project's spine)
 
-**Deno ships native audit *and* native remediation** — notable because it is the
-**inverse** of Bun (which shipped `bun audit` scan but **not** `bun audit fix`):
+**Deno ships native audit. Its native remediation flag does not remediate.**
 
 - **`deno audit`** (shipped **Deno 2.6**) scans the whole dependency graph against
   the **GitHub Advisory/CVE database** (and, with `--socket` + `SOCKET_API_KEY`,
-  **socket.dev**). Works across **both npm and JSR** deps.
-  ([deno.com/blog/v2.6], [docs.deno.com/runtime/reference/cli/audit])
-- **`deno audit --fix`** / **`deno audit fix`** automatically upgrades affected
-  packages to the **nearest patched version that still satisfies your constraints**
-  — i.e. Deno has a built-in equivalent of this project's driver feature.
-- `--level=high` gates by severity; advisories can be **filtered by CVE id**
-  (suppress accepted risk in CI). `deno ci` / config-level integration exists.
+  **socket.dev**). Works across **both npm and JSR** deps. Measured working.
+- **`deno audit --fix`** exists as a flag from **Deno 2.8** and is documented as
+  upgrading vulnerable direct dependencies to a patched, semver-compatible
+  version, deliberately skipping major bumps, exotic specifiers, and transitive
+  dependencies with no clean direct path — the last "surfaced as *could not be
+  fixed automatically*".
+- `--level` gates by severity, `--ignore <CVE>` suppresses accepted risk, and
+  `--ignore-unfixable` implies advisories carry fixability.
 
-Implication for `lockgraph`: for Deno the **native** remediation path is
-real and constraint-aware (unlike Bun's blunt `bun update`). The project's value-add
-for Deno is narrower — cross-PM / lockfile-format breadth and the GitHub-advisory
-bulk path documented in [`_common.md` §8](../registry/_common.md#8-advisories--audit-api),
-not "Deno can't fix vulns natively." (The Bun status is the inverse: Bun's native
-remediation is blunt, so the project's value-add there is remediation itself.)
+Measured on **Deno 2.9.4**, the latest release, against advisory
+`GHSA-xvch-5gv4-984h` (`minimist` prototype pollution, critical, `>=1.0.0 <1.2.6`)
+with the clean `1.2.8` published. Every fixture built from scratch; the manifest
+and the lock were hashed before and after each run:
+
+| shape | inside the documented scope | result |
+| --- | --- | --- |
+| direct, `^1.2.0`, patch in range | yes | manifest and lock byte-identical |
+| the same, with `node_modules` installed | yes | byte-identical |
+| direct, exact pin `npm:minimist@1.2.0` | yes | `deno.json` and lock byte-identical |
+| direct via `package.json`, `^1.2.0` | yes | byte-identical |
+| transitive in range (`handlebars` → `minimist`) | no — documented as skipped | byte-identical |
+
+No advisory in any run carried the documented *could not be fixed automatically*
+label, which places the failure before the fix path rather than inside it. The
+same remediation succeeds through a different command on the same fixture:
+`deno outdated --update --lockfile-only` reports
+`npm:minimist 1.2.0 -> 1.2.8` and rewrites the lock. The capability exists in the
+binary; `audit --fix` does not reach it.
+
+Reproduce: `tmp/deno-audit-fix/exp/probe-fix-shapes.sh`.
+
+Implication for `lockgraph`: Deno is in the same position as Bun, one step
+further along — the noun exists, the verb does not. Remediation itself is a
+value-add for Deno, not merely cross-PM breadth. The published documentation
+describes behaviour the shipped binary does not have, so **the documentation is
+not usable as evidence here**; only the measured binary is.
 
 Where deno sits among the cross-PM remediation models — native constraint-preserving
 fix, no `--force` — is [`audit-fix.md §4.6`](./audit-fix.md#46-deno--native-constraint-preserving-fix).

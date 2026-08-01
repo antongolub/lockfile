@@ -6,6 +6,7 @@
 // dev/prod distinction in the lockfile.
 
 import { createHash } from 'node:crypto'
+import semver from 'semver'
 import {
   accessGraphGoverningOverride,
   accessGraphOverrides,
@@ -13,6 +14,8 @@ import {
   GraphError,
   newBuilder,
   serializeNodeId,
+  stripPeerContextFromNodeId,
+  toTarballKey,
   type Diagnostic,
   type EdgeAttrs,
   type EdgeKind,
@@ -24,7 +27,12 @@ import {
   type TarballPayload,
 } from '../graph.ts'
 import { LockfileError } from '../api/errors.ts'
-import { emitSri, isEmptyIntegrity, parseSri } from '../recipe/integrity.ts'
+import {
+  emitSri,
+  isEmptyIntegrity,
+  parseSri,
+  pickTarballSha512,
+} from '../recipe/integrity.ts'
 
 export interface DenoParseOptions {
   manifests?: Readonly<Record<string, Manifest>>
@@ -98,6 +106,12 @@ interface DenoParseContext {
   readonly rootManifest?: Manifest
 }
 
+interface DenoOptionalPeerDeclaration {
+  readonly alias: string
+  readonly range: string
+  readonly nativeId?: string
+}
+
 // === ADAPTER STATE / SIDECAR ================================================
 
 const sidecarByGraph = new WeakMap<Graph, DenoSidecar>()
@@ -124,6 +138,105 @@ export function nonNpmSectionCounts(
   return sidecar === undefined
     ? undefined
     : Object.freeze({ jsr: sidecar.jsrCount, remote: sidecar.remoteCount })
+}
+
+export type DenoDeclarationRangeCarrier =
+  | 'dependencies'
+  | 'optionalDependencies'
+  | 'peerDependencies'
+
+export interface DenoDeclarationRangeProjection {
+  readonly carrier: DenoDeclarationRangeCarrier
+  readonly key: string
+  readonly subject: string
+  readonly destination: string
+  readonly kind: 'dep' | 'optional' | 'peer'
+  readonly name: string
+  readonly alias?: string
+  readonly from: string
+  readonly to: string
+}
+
+/** Declaration ranges that the current Deno v5 emit will carry as exact
+ * identities. The sidecar checks are load-bearing: an edge alone does not prove
+ * that the target carrier will contain the exact version, and must therefore
+ * not authorize a comparison-only normalization. Optional peer ranges are
+ * deliberately absent because Deno can carry those ranges verbatim. */
+export function denoDeclarationRangeProjections(
+  graph: Graph,
+  target: string,
+): readonly DenoDeclarationRangeProjection[] {
+  if (target !== 'deno-v5') return []
+  const sidecar = sidecarByGraph.get(graph)
+  if (sidecar === undefined) return []
+
+  const projections: DenoDeclarationRangeProjection[] = []
+  for (const node of graph.nodes()) {
+    if (node.workspacePath !== undefined) continue
+    const nativeId = sidecar.nativeByNode.get(node.id)
+    const native = nativeId === undefined ? undefined : sidecar.parsedByNative.get(nativeId)
+    const payload = graph.tarballOf(node.id)
+    if (native === undefined) continue
+    if (payload?.peerDependencies !== undefined) {
+      for (const edge of graph.out(node.id, 'peer')) {
+        if (edge.attrs?.optional === true || edge.attrs?.alias !== undefined) continue
+        const peer = graph.getNode(edge.dst)
+        if (peer === undefined) continue
+        const carried = native.peers.some(candidate =>
+          candidate.name === peer.name && candidate.version === peer.version)
+        if (!carried) continue
+        const declared = payload.peerDependencies[peer.name]
+        if (declared === undefined || declared === peer.version) continue
+        projections.push(Object.freeze({
+          carrier: 'peerDependencies',
+          key: toTarballKey(node),
+          subject: node.id,
+          destination: peer.id,
+          kind: 'peer',
+          name: peer.name,
+          from: declared,
+          to: peer.version,
+        }))
+      }
+    }
+
+    for (const kind of ['dep', 'optional'] as const) {
+      for (const edge of graph.out(node.id, kind)) {
+        const dependency = graph.getNode(edge.dst)
+        const dependencyNativeId = sidecar.nativeByNode.get(edge.dst)
+        const dependencyNative = dependencyNativeId === undefined
+          ? undefined
+          : sidecar.parsedByNative.get(dependencyNativeId)
+        const declared = edge.attrs?.range
+        if (
+          dependency === undefined
+          || dependencyNative === undefined
+          || dependencyNative.name !== dependency.name
+          || dependencyNative.version !== dependency.version
+          || declared === undefined
+        ) continue
+        const exact = edge.attrs?.alias === undefined
+          ? dependency.version
+          : `npm:${dependency.name}@${dependency.version}`
+        if (declared === exact) continue
+        projections.push(Object.freeze({
+          carrier: kind === 'dep' ? 'dependencies' : 'optionalDependencies',
+          key: toTarballKey(node),
+          subject: node.id,
+          destination: dependency.id,
+          kind,
+          name: edge.attrs?.alias ?? dependency.name,
+          ...(edge.attrs?.alias === undefined ? {} : { alias: edge.attrs.alias }),
+          from: declared,
+          to: exact,
+        }))
+      }
+    }
+  }
+  return Object.freeze(projections.sort((left, right) =>
+    compareStrings(left.subject, right.subject)
+      || compareStrings(left.carrier, right.carrier)
+      || compareStrings(left.name, right.name)))
 }
 
 function rememberSidecar(graph: Graph, sidecar: DenoSidecar): void {
@@ -180,12 +293,7 @@ export function checkVersion(input: string, expectedVersion: DenoVersion): boole
       || isObject(value.remote)
       || isObject(value.workspace)
   }
-  return isObject(value.npm)
-    || isObject(value.jsr)
-    || isObject(value.specifiers)
-    || isObject(value.remote)
-    || isObject(value.redirects)
-    || isObject(value.workspace)
+  return true
 }
 
 export function parseVersion(
@@ -316,17 +424,25 @@ function emitConvertedDocument(
   const document: JsonObject = { version: targetVersion }
 
   if (targetVersion === '2') {
-    document.remote = remote
-    document.npm = { specifiers: npmOnlySpecifiers(specifiers), packages: npm }
+    if (Object.keys(remote).length > 0) document.remote = remote
+    const npmSection: JsonObject = {}
+    const npmSpecifiers = npmOnlySpecifiers(specifiers)
+    if (Object.keys(npmSpecifiers).length > 0) npmSection.specifiers = npmSpecifiers
+    if (Object.keys(npm).length > 0) npmSection.packages = npm
+    if (Object.keys(npmSection).length > 0) document.npm = npmSection
   } else if (targetVersion === '3') {
-    document.packages = { specifiers, jsr, npm }
-    document.remote = remote
+    const packages: JsonObject = {}
+    if (Object.keys(specifiers).length > 0) packages.specifiers = specifiers
+    if (Object.keys(jsr).length > 0) packages.jsr = jsr
+    if (Object.keys(npm).length > 0) packages.npm = npm
+    if (Object.keys(packages).length > 0) document.packages = packages
+    if (Object.keys(remote).length > 0) document.remote = remote
     if (Object.keys(workspace).length > 0) document.workspace = workspace
   } else {
-    document.specifiers = specifiers
-    document.jsr = jsr
-    document.npm = npm
-    document.remote = remote
+    if (Object.keys(specifiers).length > 0) document.specifiers = specifiers
+    if (Object.keys(jsr).length > 0) document.jsr = jsr
+    if (Object.keys(npm).length > 0) document.npm = npm
+    if (Object.keys(remote).length > 0) document.remote = remote
     if (Object.keys(redirects).length > 0) document.redirects = redirects
     if (Object.keys(workspace).length > 0) document.workspace = workspace
   }
@@ -639,13 +755,11 @@ function buildNpmEntry(
   if (payload === undefined || payload.integrity === undefined || isEmptyIntegrity(payload.integrity)) {
     throw emitFailure(`npm ${nativeId} lacks registry integrity evidence`)
   }
-  const integrity = emitSri(payload.integrity)
-  if (
-    payload.integrity.hashes.length !== 1
-    || payload.integrity.hashes[0]?.algorithm !== 'sha512'
-  ) {
-    throw emitFailure(`npm ${nativeId} integrity evidence is not singular SHA-512 SRI`)
+  const sha512 = pickTarballSha512(payload.integrity)
+  if (sha512 === undefined) {
+    throw emitFailure(`npm ${nativeId} has no SHA-512 tarball integrity; deno.lock cannot carry any other algorithm`)
   }
+  const integrity = emitSri({ hashes: [sha512] })!
   if (payload.resolution?.type !== 'tarball') {
     throw emitFailure(`npm ${nativeId} lacks tarball resolution evidence`)
   }
@@ -667,8 +781,9 @@ function buildNpmEntry(
     graph,
     sidecar,
     nodeId,
-    targetVersion === '5' ? ['dep'] : ['dep', 'optional'],
+    targetVersion === '5' ? ['dep', 'peer'] : ['dep', 'optional', 'peer'],
     targetVersion,
+    edge => edge.kind !== 'peer' || edge.attrs?.optional !== true,
   )
   const optionalDependencies = targetVersion === '5'
     ? dependencyBlockForEmit(graph, sidecar, nodeId, ['optional'], targetVersion)
@@ -680,9 +795,30 @@ function buildNpmEntry(
   }
   if (optionalDependencies !== undefined) entry.optionalDependencies = optionalDependencies
   if (targetVersion === '5') {
-    const optionalPeers = Object.entries(payload.peerDependenciesMeta ?? {})
-      .filter(([, meta]) => meta.optional === true)
-      .map(([name]) => name)
+    const optionalPeerEdges = graph.out(nodeId, 'peer')
+      .filter(edge => edge.attrs?.optional === true)
+    const resolved = dependencyBlockForEmit(
+      graph,
+      sidecar,
+      nodeId,
+      ['peer'],
+      targetVersion,
+      edge => edge.attrs?.optional === true,
+    ) as string[] | undefined
+    const resolvedNames = new Set(optionalPeerEdges.map(edge => {
+      const target = graph.getNode(edge.dst)
+      return edge.attrs?.alias ?? target?.name ?? edge.dst
+    }))
+    const unresolved = Object.entries(payload.peerDependenciesMeta ?? {})
+      .filter(([name, meta]) => meta.optional === true && !resolvedNames.has(name))
+      .map(([name]) => {
+        const range = payload.peerDependencies?.[name]
+        if (range === undefined) {
+          throw emitFailure(`npm ${nativeId} unresolved optional peer ${name} lacks its declared range`)
+        }
+        return `${name}@${range}`
+      })
+    const optionalPeers = [...(resolved ?? []), ...unresolved]
       .sort(compareStrings)
     if (optionalPeers.length > 0) entry.optionalPeers = optionalPeers
   }
@@ -693,12 +829,15 @@ function dependencyBlockForEmit(
   graph: Graph,
   sidecar: DenoSidecar,
   srcId: string,
-  kinds: readonly ('dep' | 'optional')[],
+  kinds: readonly ('dep' | 'optional' | 'peer')[],
   targetVersion: DenoVersion,
+  include: (edge: ReturnType<Graph['out']>[number]) => boolean = () => true,
 ): Record<string, string> | string[] | undefined {
-  const edges = kinds.flatMap(kind => graph.out(srcId, kind)).sort((a, b) => {
-    const alias = compareStrings(a.attrs?.alias ?? '', b.attrs?.alias ?? '')
-    return alias !== 0 ? alias : compareStrings(a.dst, b.dst)
+  const nameOf = (edge: ReturnType<Graph['out']>[number]): string =>
+    edge.attrs?.alias ?? graph.getNode(edge.dst)?.name ?? edge.dst
+  const edges = kinds.flatMap(kind => graph.out(srcId, kind)).filter(include).sort((a, b) => {
+    const byName = compareStrings(nameOf(a), nameOf(b))
+    return byName !== 0 ? byName : compareStrings(a.dst, b.dst)
   })
   if (edges.length === 0) return undefined
   if (targetVersion === '2' || targetVersion === '3') {
@@ -897,11 +1036,27 @@ function registerNpmNodes(context: DenoParseContext): void {
   for (const [nativeId, entry] of Object.entries(context.layout.npm).sort(compareEntries)) {
     const parsed = context.parsedByNative.get(nativeId)!
     const canonical = canonicalNodeId(parsed)
-    const peerContext = canonicalPeerContext(
+    const peerContextByBase = new Map(canonicalPeerContext(
       parsed,
       (canonicalCounts.get(canonical) ?? 0) > 1,
       peer => resolvePeerNativeId(context, peer, entry) !== undefined,
-    )
+    ).map(value => [stripPeerContextFromNodeId(value), value]))
+    for (const peer of parsed.peers) {
+      const resolved = resolvePeerNativeId(context, peer, entry)
+      const target = resolved === undefined ? undefined : context.parsedByNative.get(resolved)
+      if (target !== undefined) {
+        peerContextByBase.set(serializeNodeId(peer.name, peer.version, []), canonicalNodeId(target))
+      }
+    }
+    for (const peer of optionalPeerDeclarations(context, entry)) {
+      const target = peer.nativeId === undefined
+        ? undefined
+        : context.parsedByNative.get(peer.nativeId)
+      if (target !== undefined) {
+        peerContextByBase.set(serializeNodeId(target.name, target.version, []), canonicalNodeId(target))
+      }
+    }
+    const peerContext = [...peerContextByBase.values()].sort(compareStrings)
     const nodeId = serializeNodeId(parsed.name, parsed.version, peerContext)
     if (context.nativeByNode.has(nodeId)) {
       throw failure(`deno adapter: native npm ids collapse onto canonical NodeId ${nodeId}`)
@@ -955,17 +1110,41 @@ function recordTarball(
       parsed.peers.map(peer => [peer.name, peer.version]),
     )
   }
+  const optionalPeers = optionalPeerDeclarations(context, entry)
+  if (optionalPeers.length > 0) {
+    payload.peerDependencies = {
+      ...payload.peerDependencies,
+      ...Object.fromEntries(optionalPeers.map(peer => [peer.alias, peer.range])),
+    }
+    payload.peerDependenciesMeta = Object.fromEntries(
+      optionalPeers.map(peer => [peer.alias, { optional: true }]),
+    )
+  }
   context.builder.setTarball({ name: node.name, version: node.version }, payload)
 }
 
 function addNpmEdges(context: DenoParseContext): void {
   for (const [nativeId, entry] of Object.entries(context.layout.npm).sort(compareEntries)) {
     const srcId = context.nodeByNative.get(nativeId)!
-    addDependencyBlock(context, srcId, entry.dependencies, 'dep')
-    addDependencyBlock(context, srcId, entry.optionalDependencies, 'optional', true)
-    addDependencyBlock(context, srcId, entry.optionalPeers, 'optional', true)
-
     const parsed = context.parsedByNative.get(nativeId)!
+    const peerNativeIds = new Set(parsed.peers.flatMap(peer => {
+      const resolved = resolvePeerNativeId(context, peer, entry)
+      return resolved === undefined ? [] : [resolved]
+    }))
+    addDependencyBlock(context, srcId, entry.dependencies, 'dep', false, peerNativeIds)
+    addDependencyBlock(context, srcId, entry.optionalDependencies, 'optional', true)
+    for (const declaration of optionalPeerDeclarations(context, entry)) {
+      if (declaration.nativeId === undefined) continue
+      const dstId = context.nodeByNative.get(declaration.nativeId)
+      const target = context.parsedByNative.get(declaration.nativeId)
+      if (dstId === undefined || target === undefined) {
+        throw failure(`deno adapter: optional peer ${declaration.nativeId} is missing`)
+      }
+      const attrs: EdgeAttrs = { optional: true, range: declaration.range }
+      if (declaration.alias !== target.name) attrs.alias = declaration.alias
+      addEdgeOnce(context, srcId, dstId, 'peer', attrs)
+    }
+
     const seenPeerBases = new Set<string>()
     for (const peer of parsed.peers) {
       const peerBase = serializeNodeId(peer.name, peer.version, [])
@@ -987,6 +1166,82 @@ function addNpmEdges(context: DenoParseContext): void {
       }
       addEdgeOnce(context, srcId, dstId, 'peer', { range: peer.version })
     }
+  }
+}
+
+function optionalPeerDeclarations(
+  context: DenoParseContext,
+  entry: DenoNpmPackageEntry,
+): DenoOptionalPeerDeclaration[] {
+  const raw = entry.optionalPeers
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    return Object.entries(raw).sort(compareEntries).map(([alias, nativeId]) => {
+      const target = context.parsedByNative.get(nativeId)
+      if (target === undefined) {
+        const split = splitNameAndTail(nativeId)
+        return {
+          alias,
+          range: split?.tail ?? nativeId,
+        }
+      }
+      return {
+        alias,
+        range: alias === target.name
+          ? target.version
+          : `npm:${target.name}@${target.version}`,
+        nativeId,
+      }
+    })
+  }
+  return raw.map(value => optionalPeerDeclarationFromCompact(context, value))
+}
+
+function optionalPeerDeclarationFromCompact(
+  context: DenoParseContext,
+  value: string,
+): DenoOptionalPeerDeclaration {
+  const split = splitNameAndTail(value)
+  if (split === undefined) {
+    const candidates = context.nativeByName.get(value) ?? []
+    if (candidates.length !== 1) {
+      throw failure(`deno adapter: compact npm optional peer ${value} is not uniquely resolvable`)
+    }
+    const target = context.parsedByNative.get(candidates[0]!)!
+    return { alias: value, range: target.version, nativeId: candidates[0]! }
+  }
+
+  if (split.tail.startsWith('npm:')) {
+    const nativeId = split.tail.slice('npm:'.length)
+    const target = context.parsedByNative.get(nativeId)
+    if (target === undefined) {
+      throw failure(`deno adapter: optional peer alias ${value} has no npm package`)
+    }
+    return {
+      alias: split.name,
+      range: `npm:${target.name}@${target.version}`,
+      nativeId,
+    }
+  }
+
+  if (context.parsedByNative.has(value)) {
+    const target = context.parsedByNative.get(value)!
+    return { alias: split.name, range: target.version, nativeId: value }
+  }
+
+  const candidates = (context.nativeByName.get(split.name) ?? []).filter(nativeId => {
+    const target = context.parsedByNative.get(nativeId)
+    if (target === undefined || semver.valid(target.version) === null) return false
+    try {
+      return semver.satisfies(target.version, split.tail)
+    } catch {
+      return false
+    }
+  })
+  return {
+    alias: split.name,
+    range: split.tail,
+    nativeId: candidates.length === 1 ? candidates[0] : undefined,
   }
 }
 
@@ -1032,12 +1287,14 @@ function addDependencyBlock(
   raw: Record<string, string> | string[] | undefined,
   kind: 'dep' | 'optional' | 'peer',
   allowMissing = false,
+  excludedNativeIds: ReadonlySet<string> = new Set(),
 ): void {
   if (raw === undefined) return
   const refs = Array.isArray(raw)
     ? raw.map(value => dependencyRefFromCompact(context, value))
     : Object.entries(raw).sort(compareEntries).map(([alias, nativeId]) => ({ alias, nativeId }))
   for (const ref of refs) {
+    if (excludedNativeIds.has(ref.nativeId)) continue
     const dstId = context.nodeByNative.get(ref.nativeId)
     if (dstId === undefined) {
       const qualifier = allowMissing ? 'optional ' : ''
