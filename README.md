@@ -189,9 +189,9 @@ default `'snapshot'` it still fills whatever the target format requires.
 
 ### When bytes are not enough
 
-Berry v10 checksums are not the v8 ones. They have to be recomputed from the
-archives, so `parse` and `stringify` cannot reach that target — and the pair says so
-with `ENRICH_REQUIRED` instead of emitting a lock Yarn would rewrite.
+For example, Yarn Berry v10 checksums are not the v8 ones. They have to be recomputed
+from the archives, so `parse` and `stringify` cannot reach that target — and the pair
+says so with `ENRICH_REQUIRED` instead of emitting a lock Yarn would rewrite.
 
 <!-- readme-example id="convert-with-caches" mode="typecheck" -->
 ```ts
@@ -231,12 +231,16 @@ const artifacts = [
 const ready = await enrich(graph, {
   sources: { artifacts },
   target,
-  contract: 'install',              // 'snapshot' — project the bytes as they are
-                                    // 'policy'   — and satisfy declared policy
-                                    // 'install'  — and be installable by the target
+  contract: 'install',              // 'snapshot' — the bytes, projected
+                                    // 'policy'   — + declared policy satisfied
+                                    // 'install'  — + everything an install needs
 })
 await writeFile('yarn.lock', stringify(ready.graph, target))
 ```
+
+`install` is the top rung, and it is still a claim about the lock's contents, not about
+the manager's behaviour: whether the manager rewrites the file is settled by running
+it — [Proving it installs](#proving-it-installs).
 
 Bytes are checked against lock-recorded integrity before any checksum is recomputed,
 wherever they came from. That check is not overridable. Resource ceilings are:

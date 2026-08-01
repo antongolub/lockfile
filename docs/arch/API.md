@@ -12,6 +12,7 @@
 | [`removeUnreachable`](#removeunreachable) | graph | Sweep nodes unreachable from the workspaces. |
 | [`selectConstrained`](#selectconstrained) | registry | Pick a version satisfying range and conditions. |
 | [`enrich`](#enrich) | graph | Fill everything the target format requires. |
+| [`refurbish`](#refurbish) | graph payloads | Repair payload fields in the lock's own format. |
 | [`prepareFrozen`](#preparefrozen) | lockfile → candidate | Build a candidate for a pinned manager version. |
 | [`certifyFrozen`](#certifyfrozen) | candidate + files | Bind a manager run to that candidate. |
 | [`liveRegistry`](#liveregistry) | — | Network-backed registry adapter. |
@@ -346,6 +347,62 @@ Plus [common options](#common-options).
 **Returns** `EnrichResult` — `{ graph, diagnostics }`.
 
 **Throws** `LockfileError` — `ENRICH_REQUIRED`, `CAPABILITY_LACK`, `INVALID_INPUT`.
+
+## refurbish
+
+<!-- readme-example id="api-sig-refurbish" mode="signature" -->
+```ts
+function refurbish(
+  graph: Graph,
+  format: FormatId,
+  source: RefurbishSources | TarballSource,
+  options?: RefurbishOptions,
+): Promise<RefurbishResult>
+```
+
+Repairs payload fields on nodes that already exist, in the graph's **own** format.
+It does not complete, does not materialize, and does not project.
+
+That is the whole distinction from its neighbours. `enrich` is the projection verb —
+*make this graph satisfy that target*. `refurbish` is the repair verb — *I changed
+this graph by hand; refill what can be refilled, in the format it came from*. Which
+is why it takes no target, and why it can be scoped: repair is naturally partial,
+projection is naturally whole-graph.
+
+| | [`complete`](#complete) | `refurbish` |
+|---|---|---|
+| changes | graph **structure** — adds nodes, wires edges | **payload fields** on nodes that already exist |
+| needs | packuments (metadata) | artifact **bytes** |
+| format argument | a target to project onto | the lock's **own** format, repaired in place |
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `graph` | `Graph` | yes | | Graph whose payloads are repaired. |
+| `format` | `FormatId` | yes | | The lock's own format — not a target. `detect()` returns one. |
+| `source` | `RefurbishSources \| TarballSource` | yes | | Where bytes and checksums come from. |
+| `options.seed` | `ReadonlySet<NodeId>` | no | every non-workspace node | Bound the fill to these nodes. |
+| `options.concurrency` | `number` | no | `16` | Concurrent fills. |
+| `options.cacheKey` | `string` | no | inferred | Berry cache key to fill for. |
+| `options.cacheKeyInference` | `'format-default' \| 'observed-only'` | no | | How a missing cache key is chosen. |
+| `options.artifactResources` | `ArtifactResourcePolicy` | no | | Byte ceilings; see [guards](#guards). |
+| `options.onDiagnostic` | `DiagnosticObserver` | no | | Non-fatal findings. |
+
+**Returns** `RefurbishResult` — `{ graph, enriched, unresolved }`. The second field
+names the nodes actually filled; the third carries what could not be. That last name
+is deliberately not `diagnostics`: this is not one of the operations, and consumers
+depend on the distinction.
+
+Two boundaries worth knowing before you call it:
+
+- **A bare-era Berry lock needs an explicit cache key.** Wire versions v4–v7 carry no
+  per-entry prefix to infer from, so without `options.cacheKey` every gap defers
+  rather than filling. Prefix-era locks (v8 and later) can infer it — see
+  [Berry cache keys](#berry-cache-keys) and
+  [within one family](./CONVERT.md#within-one-family).
+- **`TarballSource.berryChecksum` is an optional fast path.** Yarn Berry stores its
+  repacked zip with the digest in the filename, so returning it skips both the fetch
+  and the recompute. It is purely additive: return `undefined` and the normal
+  fetch-and-recompute path runs.
 
 ## prepareFrozen
 
@@ -800,7 +857,10 @@ type ConversionContract = 'snapshot' | 'policy' | 'install'
 | `policy` | Additionally satisfy declared policy. |
 | `install` | Additionally materialise what the target manager needs to install. |
 
-Each rung includes the previous one. There is no `frozen` value: see
+Each rung includes the previous one. **`install` is not a claim that the manager will
+accept the lock unchanged** — it says the lock carries the project topology, edge kinds
+and package metadata an install needs. Whether the manager rewrites it is settled by
+running it. There is no `frozen` value: see
 [`prepareFrozen`](#preparefrozen) and
 [CONVERT.md](./CONVERT.md#frozen-candidate-and-certification-lifecycle).
 

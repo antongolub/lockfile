@@ -173,6 +173,17 @@ export {
   type EnrichOptions,
   type EnrichResult,
 } from './enrich.ts'
+export {
+  refurbish,
+  type ArtifactResourceLimits,
+  type ArtifactResourcePolicy,
+  type NpmTarballSource,
+  type RefurbishOptions,
+  type RefurbishResult,
+  type RefurbishSources,
+  type TarballSource,
+  type YarnBerryChecksumSource,
+} from './refurbish.ts'
 export type {
   ArtifactCacheSpecifier,
   ArtifactSourceList,

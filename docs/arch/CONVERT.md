@@ -1,715 +1,268 @@
-# CONVERT — the conversion reference
+# Converting between lockfiles
 
-How every lockfile format converts to every other: what aligns, what a target
-cannot represent (a dedicated **Lost / breaks** column), what must be supplied
-from `package.json`, and what — if anything — is pulled from the registry.
+Three questions, in this order: **can it be done**, **what do I have to supply**,
+**what do I lose**. This file answers them. For the call signatures see
+[API.md](./API.md); for the format internals see [the format specs](../spec/pm/).
 
-## 0. The conversion model
+## Can it be done?
 
-Every conversion uses one canonical pipeline. There are no pairwise converters:
+Every ordered pair is defined. Find your row (source) and column (target).
 
-```text
-parse(source lock) → Graph → enrich(Graph, sources, target)? [staged] → stringify(target)
+| From ↓ To → | npm | yarn-classic | yarn-berry | pnpm | bun | deno |
+| --- | --- | --- | --- | --- | --- | --- |
+| **npm** | **by version** | needs manifests | needs artifacts | just works | just works | not supported |
+| **yarn-classic** | needs manifests | — | needs manifests | needs manifests | needs manifests | not supported |
+| **yarn-berry** | just works | needs manifests | **by version** | just works | just works | not supported |
+| **pnpm** | just works | needs manifests | just works | **by version** | just works | not supported |
+| **bun** | just works | needs manifests | just works | just works | — | not supported |
+| **deno** | npm subgraph only | npm subgraph only | npm subgraph only | npm subgraph only | npm subgraph only | **by version** |
+
+- **just works** — the lock alone is enough. You may still lose a feature the target
+  cannot express; see [what you lose](#what-you-lose).
+- **needs manifests** — supply `sources.manifests`, or `dev`/`peer` and workspace
+  members are wrong or missing.
+- **needs artifacts** — supply `sources.artifacts`, or the Berry checksum cannot be
+  computed. Berry uses a hash of its own repacked zip; no other format carries it.
+- **npm subgraph only** — the npm packages convert; Deno's JSR and remote-URL modules
+  have no carrier in a Node lockfile and are dropped with a diagnostic.
+- **not supported** — fails closed with `CAPABILITY_LACK`. Synthesizing native Deno
+  identities has never been validated against a real Deno release, so it is refused
+  rather than guessed.
+- **by version** — the family cell is not one answer. A lockfile generation is a
+  format in its own right, and moving between two of them loses whatever the older
+  one cannot express. See [within one family](#within-one-family).
+
+`lockgraph` is the lossless waypoint: any format → `lockgraph` → the same format
+round-trips graph-identical. It is the model serialized, not a package-manager lock.
+
+**Looking for your exact pair?** All 380 of them have a row each in
+[PAIRS.md](./PAIRS.md) — ✅ / ⚠️ / ❌ at a glance, plus the expected diagnostic, what
+to add to the call, and what stays lost whatever you supply. Search it for your
+source format.
+
+## Within one family
+
+Staying inside a family is not staying inside a format: each generation is its own
+wire format. [PAIRS.md](./PAIRS.md) carries the recipe for every one of those pairs —
+what follows is only what a pair row cannot express.
+
+**npm** — the only lossy direction is *into* `npm-1`, which predates workspaces and
+the packages block. Every other npm pair is clean both ways. Separately, the npm-4
+patch carrier and its manifest-extension provenance are npm-4-native: a lock using
+them loses them at **every** other target, `npm-2` and `npm-3` included.
+
+**pnpm** — `v6 ↔ v9` is the only pair clean in both directions. Anything touching v5
+drops tarball payload metadata, and descending to it also drops patches. The catalog
+protocol is v9-only (pnpm 9.5+).
+
+**yarn-berry** — two version boundaries, neither of them visible in a pair row:
+
+| Axis | v4 | v5 | v6 | v7 | v8 | v9 | v10 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| os/cpu/libc conditions | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| checksum form | raw hex | raw hex | raw hex | raw hex | `<cacheKey>/<hex>` | same | same |
+
+Descending to v4 drops the conditions block. Crossing v7 → v8 changes the checksum's
+*shape*: v4–v7 emit a raw sha512 hex, v8 and later prefix it with the cache key. That
+key is captured from the source lock verbatim rather than derived from the
+generation, so producing a checksum for a key the source does not carry needs
+artifact bytes — see [Berry cache keys](./API.md#berry-cache-keys).
+
+Every berry → berry pair also drops an unknown `compressionLevel` metadata subkey.
+That is producer-faithful, not a defect: every pinned Berry release strips it during
+a mutable install.
+
+**deno** — nothing converts *into* `deno-v5`. Descending from v5 names the exact
+per-entry fields that have no target representation; targeting v2 or v3 additionally
+drops any non-empty JSR, workspace or redirect carrier.
+
+Yarn Classic and bun-text have one generation each, so they have no intra-family axis.
+
+## Show me
+
+### The lock is enough
+
+<!-- readme-example id="cv-basic" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
+
+const lock = await convert(await readFile('pnpm-lock.yaml', 'utf8'), { target: 'npm-3' })
+await writeFile('package-lock.json', lock)
 ```
 
-The unified `enrich` facade and composite project input are staged; the current
-public status of each pipeline surface is summarized below.
+### The target needs your `package.json`
 
-- **Parse** reads the source snapshot into the package-manager-independent L2
-  `Graph`. It may also consume explicitly supplied local context, such as
-  repository manifests or patch files, but never consults a registry implicitly.
-- **Enrich** is an opt-in, target-aware top-up. It fills only facts established by
-  caller-supplied sources and leaves every unresolved or conflicting fact as a
-  diagnosed gap. It never fabricates a checksum, version, manifest field, policy,
-  or workspace relation.
-- **Stringify** projects the graph into the target format and is always offline.
-  It cannot recover information absent from both the graph and its evidence.
+A `yarn.lock` records neither the project root nor which dependencies are `dev`.
+Both live in manifests, so hand them over. `sources.manifests` takes paths or globs.
 
-The enrichment vocabulary separates authorities that are often conflated:
+<!-- readme-example id="cv-manifests" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
 
-| Source | Supplies | I/O boundary |
+const lock = await convert(await readFile('yarn.lock', 'utf8'), {
+  target: 'npm-3',
+  sources: { manifests: ['package.json', 'packages/*/package.json'] },
+})
+await writeFile('package-lock.json', lock)
+```
+
+Miss a workspace member and it vanishes from the output — see
+[the sharp edges](#the-two-sharp-edges).
+
+### The target needs archive bytes
+
+Only Yarn Berry needs this: its checksum covers a zip only Yarn produces, so it is
+recomputed from real bytes. Sources are tried in order, first hit wins.
+
+<!-- readme-example id="cv-artifacts" mode="typecheck" -->
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
+
+const lock = await convert(await readFile('package-lock.json', 'utf8'), {
+  target: 'yarn-berry-v10',
+  sources: { artifacts: ['yarn-berry:.yarn/cache', 'npm'] },
+})
+await writeFile('yarn.lock', lock)
+```
+
+Bytes are verified against the lock's own integrity before anything is recomputed.
+A checksum is never fabricated: if it cannot be proven, the conversion refuses.
+
+### Don't throw, just tell me
+
+By default an unmet requirement throws `LockfileError`. `strict: false` emits the
+best-effort result and reports each loss instead.
+
+<!-- readme-example id="cv-diagnostics" mode="typecheck" -->
+```ts
+import { readFile } from 'node:fs/promises'
+import { convert } from 'lockgraph'
+
+await convert(await readFile('yarn.lock', 'utf8'), {
+  target: 'npm-3',
+  strict: false,
+  onDiagnostic: (d) => console.warn(d.code, d.subject),
+})
+```
+
+### Convert the project, not just the lock
+
+Some policy is not in the lock at all. npm and Yarn read overrides from
+`package.json`, never from the lockfile — so converting pnpm → npm has to change two
+files or the result installs the wrong versions. Pass the project and get both back.
+
+<!-- readme-example id="cv-project" mode="typecheck" -->
+```ts
+import { convert } from 'lockgraph'
+
+const { lockfile, companions } = await convert(
+  ['package.json', 'pnpm-lock.yaml', 'packages/*/package.json'],
+  { target: 'npm-3', contract: 'install' },
+)
+```
+
+`companions` are the other files the target manager needs changed, as immutable
+`set` operations. Nothing is written — applying them is your step, so a partial
+result cannot be applied by accident.
+
+## It refused. What do I feed it?
+
+| Diagnostic | What it means | What fixes it |
 | --- | --- | --- |
-| Repository manifests | Root/workspace topology, dependency kinds, authored overrides | Offline `package.json` content keyed by workspace path (`''` = root) |
-| Registry adapter | Missing transitive resolutions and exact-version package manifests | Optional caller-controlled registry/cache reads; no tarball bytes |
-| Artifact source | Tarball bytes or a package-manager-owned cached checksum | Optional caller-controlled cache/network reads for target hash recomputation |
-| Package-manager config evidence | A modeled, complete policy surface; initially overrides only | Already parsed evidence; unmodeled `.npmrc`/`.yarnrc.yml` facts do not upgrade completeness |
+| `ENRICH_REQUIRED` | The target needs a value the source lock never carried. | Evidence — usually `sources.artifacts` for checksums, `sources.packuments` for metadata. The message names the entry and the missing field. |
+| `RECIPE_INTEGRITY_INCOMPLETE` | The target's hash form is not derivable from the graph. | Artifact bytes to recompute from, or an authoritative target checksum. Never fabricated. |
+| `ENRICH_ARTIFACT_INTEGRITY_MISSING` | Bytes were offered for an entry with no verifiable digest. | Nothing to supply — the lock cannot prove those bytes. Fix the source lock. |
+| `YARN_CLASSIC_NO_MANIFESTS` | `dev` / `peer` classification is unprovable from a `yarn.lock`. | `sources.manifests`. `dev` becomes recoverable; **`peer` does not**. |
+| `RECIPE_WORKSPACE_COLLAPSED` | `workspace:` has no target protocol. | Nothing for npm; the members survive as paths. For yarn-classic, manifests. |
+| `INTEROP_OVERRIDE_NOT_PROJECTED` | The pin survives in the graph; the re-emittable overrides block does not. | The project form of `convert`, which returns the companion manifest patch. |
+| `PROJECTION_LOSS` | The target cannot represent the feature at all. | Nothing. Accept it with `strict: false`, or pick another target. |
+| `CAPABILITY_LACK` | The pair itself is unsupported. | Nothing. The message names what no pinned producer has validated. |
+| `INVALID_INPUT` | A source specifier is malformed or names something inert. | Fix the call — e.g. `pnpm` in `sources.artifacts`, which retains no archive. |
+| `DENO_MANIFEST_REQUIRED` | Deno's dev/prod scope is not in `deno.lock`. | The sibling `deno.json` or `package.json`. |
 
-Registry and artifact reads are distinct: a packument can prove package metadata
-or a tarball SRI, but it cannot reproduce a Yarn Berry cache-zip checksum without
-the artifact bytes (or a checksum produced by Yarn itself). Live registry results
-are time-varying; cross-run determinism requires a frozen/snapshotted adapter.
+Full code list: [ERRORS.md](./ERRORS.md).
 
-### Contracts and required sources
+## What you lose
 
-The requested contract determines how much of the composite project must be
-known. Cells are conditional minimums: the target capability table may require
-more, while a source that already carries authoritative facts may require less.
+Conversion targets *semantic equivalence*, not byte-preservation. A feature is lost
+when the target format has nowhere to put it — and "dropped" is not the same as
+"unrecoverable": where the target has a carrier, enrichment refills it.
 
-| Contract | Source lock | Repository manifests | Registry manifests | Artifact source | PM config | Native oracle |
-| --- | --- | --- | --- | --- | --- | --- |
-| **`snapshot`** | Required; must establish the selected graph | Required for manifest-blind facts (notably Yarn Classic root, members, and dependency kinds) | Only for missing transitives or target-consumed facts absent from the source | Only when the target requires a hash form not derivable from the graph | — | — |
-| **`policy`** | As snapshot | Root/workspace authored override policy where the source lock is not the authority | As snapshot | As snapshot | Required when the applicable manager generation stores override policy outside `package.json` | — |
-| **`project`** | As policy | Complete root and workspace manifest set | Authoritative exact-version manifests for every non-workspace package whose required metadata is not already proven | Required for target-specific artifact hashes that must survive immutable installation | As policy | — |
-| **`frozen`** | As project | As project | As project | As project | As project | Successful frozen/immutable installation by the exact target manager and recorded platform/config/input tuple |
+Which features go for **your** pair, the diagnostic to expect, and what to add to the
+call are one row each in [PAIRS.md](./PAIRS.md), generated from the interop contracts.
+That table is not reproduced here: a hand-kept second copy of 380 rows would drift
+from the first one it disagreed with.
 
-Yarn Classic and npm lockfile v1 are the principal manifest-blind sources. A
-`yarn.lock` has no project root and may omit independent workspace members; it
-also cannot classify root declarations as dev or peer without manifests. These
-are source limitations, not target stringifier defects.
+## The two sharp edges
 
-Target refinements remain target-specific. For example, Berry checksum generation
-needs the intended Berry format/cache key plus artifact bytes, while pnpm override
-placement depends on the exact manager generation. Ambiguous target generations
-remain unassessed rather than selecting a convenient default.
+Both produce a lockfile that installs *wrong* rather than one that fails loudly, so
+they are worth knowing by name.
 
-### Raw and certified emission
+1. **A `yarn.lock` cannot describe a monorepo on its own.** yarn 1 records a
+   workspace member only when something depends on it. An independent member has no
+   entry at all. Convert without every member `package.json` and those members
+   silently vanish, while unhoistable transitive versions leak into an internal
+   store key npm cannot install.
+2. **`dev` / `peer` are not in a `yarn.lock`.** They live only in `package.json`.
+   Without manifests `dev` collapses to a plain dependency — and `peer` is not
+   recoverable even with them, because yarn-classic manifest synthesis reads only
+   `dependencies`.
 
-The public family is a 2 × 2 model rather than four unrelated conversion paths:
+## Contracts: how much proof you are asking for
 
-| Input | Raw projection | Certified projection |
+`contract` says how thoroughly the result must be provable. Higher rungs demand more
+evidence and refuse more often.
+
+| Contract | Question it answers | Needs |
 | --- | --- | --- |
-| `Graph` | `stringify(graph, format, options)` | `stringifyAssessed(graph, { target, contract, evidence })` |
-| Lock input | `convert(input, { from, target, ...options })` | `convertAssessed(input, options)` / `convertProject(input, options)` |
+| `'snapshot'` (default) | Does the target describe the same resolved graph? | The lock; manifests when the source is manifest-blind. |
+| `'policy'` | …and does it carry the same override policy? | Plus the authored overrides — from the root manifest, or PM config where that manager keeps them outside `package.json`. |
+| `'install'` | …and would the target manager install it unchanged? | Plus the full manifest set and authoritative metadata for every non-workspace package. |
 
-Certified functions return structured assessments and withhold output unless the
-requested contract is satisfied. Raw emission is strict by default: raw
-`stringify` shares the certified **target-projection** gate, while raw `convert`
-additionally requires snapshot/source readiness. `strict: false` explicitly
-selects the historical best-effort byte path.
-
-A strict failure is enrichable only when a named source can establish the missing
-fact. Inherent target loss requires explicit best-effort opt-in. A field that a
-mutable install can refill is still a strict failure when an immutable/frozen
-install would rewrite or reject the lock; Berry checksums are the canonical
-example.
-
-### Implementation status
-
-The contract vocabulary and assessment framework, evidence ledger, companion
-projection, bundled `convertProject` API, target-aware unified `enrich` facade,
-composite project input, strict raw projection, and frozen candidate/certification
-lifecycle are implemented. Raw `stringify` and `convert` are strict by default;
-`strict: false` is the explicit best-effort escape hatch.
-
-Formats and the package-manager versions behind them:
-
-| Family | Format ids | PM versions | Lock file |
-| --- | --- | --- | --- |
-| npm | `npm-1`, `npm-2`, `npm-3`, `npm-4` | npm 5–6 / 7–8 / 9+ / 12+ feature-triggered (lockfileVersion 1/2/3/4) | `package-lock.json` |
-| yarn classic | `yarn-classic` | yarn 1.x | `yarn.lock` |
-| yarn berry | `yarn-berry-v4` … `yarn-berry-v10` | yarn 2/3/4 (`__metadata.version` 4–10) | `yarn.lock` |
-| pnpm | `pnpm-v5`, `pnpm-v6`, `pnpm-v9` | pnpm 3–7 / 7–8 / 9+ | `pnpm-lock.yaml` |
-| bun | `bun-text` | bun 1.2+ (textual `bun.lock`; binary `bun.lockb` is unsupported and must be migrated first) | `bun.lock` |
-| deno | `deno-v2`, `deno-v3`, `deno-v4`, `deno-v5` | Concrete `deno.lock` v2-v5 identities; same-format npm-section audit/fix, nine intra-Deno targets, and manifest-backed npm-subgraph projection to Node-family targets | `deno.lock` |
-| lockgraph | `lockgraph` | — (the L2 graph serialized; lossless round-trip) | — |
-
-The table above records parser/emitter support, not a claim that every
-cross-format pair is lossless. The interop contract matrix represents **all 380
-of 380 ordered non-identity cells (100%)** across the 20 concrete formats:
-313 supported conversion contracts are tested against their real shared fixture
-intersections: 240 Node-family cells, 64 concrete-Deno → Node-family cells, and
-9 intra-Deno cells. The 67 unsupported cells comprise 64 reverse
-Node-family → concrete-Deno cells and the three v2/v3/v4 → v5 cells. There are
-no assumed or untested cells.
-
-### Measured bare-conversion boundary
-
-The following corpus probe is an outcome measurement, not another format-pair
-contract matrix. It compares strict `stringify(target, parse(source, input))`
-with strict `convert(input, { from: source, target })`, without evidence
-sources, at commit `0bbd36c`.
-
-The corpus rule is explicit and has no size threshold:
-
-1. Visit every directory under `src/test/resources/fixtures/real-world`.
-2. Examine every present `package-lock.json`, `yarn.lock`,
-   `pnpm-lock.yaml`, and `bun.lock`; absent candidate names are not corpus
-   members.
-3. Exclude a present file only when detection returns no format or parsing
-   throws, and report each exclusion.
-4. For each retained file, try the seven targets `npm-2`, `npm-3`,
-   `yarn-classic`, `yarn-berry-v8`, `yarn-berry-v10`, `pnpm-v9`, and
-   `bun-text`, excluding an identity target.
-
-That rule retains **40 distinct files**, excludes zero present files, and
-produces **246 ordered non-identity conversion pairs**. The largest retained
-input is 2,384,187 bytes.
-
-| Strict outcome | Pairs |
-| --- | ---: |
-| Both raw stringify and convert emit | 1 |
-| Both refuse | 242 |
-| Raw stringify emits; convert refuses (`sOnly`) | 3 |
-| Convert emits; raw stringify refuses (`cOnly`) | **0** |
-
-The shared success is byte-identical. The evidenced enrichment claim is only
-the `cOnly = 0` result: **without evidence sources, `convert` never unlocks a
-pair that bare projection cannot already emit.** It does not claim that the two
-APIs have identical gates. `convert` additionally enforces source/snapshot
-readiness, and the three `sOnly` cases expose that distinction:
-
-| Source fixture | Pair | Raw projection verdict | Convert refusal |
-| --- | --- | --- | --- |
-| `facebook-create-react-app-main-6254386/package-lock.json` | npm-2 → npm-3 | The raw source and output reparse have equal canonical snapshots (2,116 nodes; 4,699 edges); no producer verdict measured | No registry completion runs. npm-2 source-adapter enrichment marks 11 existing edges as inferred workspace bindings; npm-3 reparse loses those attributes and exactifies their ranges, so the enriched canonical snapshot fails `COMPLETENESS_OUTPUT_GRAPH_MISMATCH` |
-| `microsoft-vscode-main-ddd12d5/package-lock.json` | npm-3 → npm-2 | Pinned npm 8.19.4 accepts the lock without changing its bytes; the retained unresolved `cpu-features@~0.0.10` declaration is now re-emitted by `0bbd36c` | `ENRICH_REQUIRED`: snapshot readiness still requires resolution evidence for the absent optional package |
-| `socketio-socket.io-main-190572d/package-lock.json` | npm-3 → npm-2 | Pinned npm 8.19.4 accepts the lock byte-identically and Arborist retains all 12 workspace links | `IRREDUCIBLE_LOSS` / `COMPLETENESS_OUTPUT_GRAPH_MISMATCH`; `0bbd36c` separately removed the false workspace-protocol capability blocker |
-
-The public `Graph.diff` for the CRA raw round-trip is also empty, but that API
-compares nodes and edge `(src, dst, kind)` triples, not edge attributes or
-tarball payloads. The stricter canonical snapshot explains why a generic
-graph-mismatch diagnostic can coexist with an empty triple-only diff. Any use
-of that diagnostic as a format-level verdict must inspect the attributed
-snapshot delta rather than infer its cause from the code alone.
-
-### Yarn Classic → npm-3 directional attribution
-
-An attribute-level audit covers every committed real-world Yarn Classic input:
-**11 fixtures / 1,618,277 bytes**. The pre-fix result reproduced identically
-across both audited bases, including `84904ae`, so the buckets were projection
-properties rather than artefacts of intervening API/documentation commits.
-
-Removing the false “sole DAG root = project root” rule changes the measured
-vector as follows:
-
-| Attribute fact | Before | After |
-| --- | ---: | ---: |
-| User-carried loss | 11 | **10** |
-| Adapter-inferred loss | 0 | **0** |
-| Target structural impossibility | 0 | **0** |
-| Target additions | 587 | **588** |
-| Of which unproven | 23 | **22** |
-
-The apparent `587 → 588` increase is not a regression. Before the fix, the
-wasya fixture invented one unproven `workspacePath: ""` on
-`node-sass@9.0.0` and lost its tarball. After the fix that false fact and loss
-are gone, while the correct neutral-root branch adds two proven facts: an
-`@0.0.0` node and its root membership. The complete post-fix addition
-decomposition is **544** Yarn-resolved SHA-1 promotions, **11** neutral root
-nodes, **11** neutral root memberships, and **22** still-unproven alias facts:
-`544 + 11 + 11 + 22 = 588`.
-
-Wasya now has no source removal or source change; its only deltas are the two
-neutral-root additions. At that boundary, the remaining ten source-carried
-losses were the three `link:` / `portal:` canonical-directory facts and seven
-webpack alias-identity facts.
-
-The local-directory increment fixes the three reader-owned facts without
-changing the emitter or comparator. Yarn Classic → npm-3 already emitted the
-literal `link:` / `portal:` values; the npm reader had reparsed those non-link
-package entries as `unknown`. npm-1/2/3/4 now parse them as `directory` while a
-native-resolution carrier preserves the exact protocol spelling on replay.
-The post-root-authority vector therefore moves exactly as predicted:
-
-| Attribute fact | Root-authority boundary | After local-directory reader |
-| --- | ---: | ---: |
-| User-carried loss | 10 | **7** |
-| Adapter-inferred loss | 0 | **0** |
-| Target structural impossibility | 0 | **0** |
-| Target additions | 588 | **588** |
-| Of which unproven | 22 | **22** |
-
-Hahazexia and Magento now have no source removal or change; each has only its
-neutral root and root-membership additions. The seven remaining losses and 22
-unproven additions are all confined to webpack alias identity and remain a
-separate change-set before any comparator relaxation.
-
-The alias-identity increment closes that final boundary without relaxing the
-comparator. Yarn Classic manifest synthesis retains the declared alias when it
-binds a canonical target, and the npm flat emitter writes the canonical package
-`name` whenever any planned install-path tail differs from it. The latter
-depends on the earlier reader rule that deduplicates repeated occurrences of
-the same alias edge: applying only the emitter correction before that rule
-produces duplicate alias edges on output reparse.
-
-The final 11-fixture directional audit is therefore:
-
-| Attribute fact | Before alias identity | After alias identity |
-| --- | ---: | ---: |
-| User-carried loss | 7 | **0** |
-| Adapter-inferred loss | 0 | **0** |
-| Target structural impossibility | 0 | **0** |
-| Target additions | 588 | **566** |
-| Of which unproven | 22 | **0** |
-
-All **566** retained additions are proven: **544** Yarn-resolved SHA-1
-promotions, **11** neutral root nodes, and **11** neutral root memberships.
-The exact webpack manifest exercises both alias-only and redundant own-name
-package entries. Pinned npm 9.9.4 accepts all 6,422 packages and leaves output
-hash
-`0eb28f7463c300ab54018631d22c0e75baca7afc9800d88255a68727c97a3e6d`
-byte-identical.
-
-With Lodash's exact root manifest supplied, the same audit has no loss or
-unproven addition: its 544 additions are all SHA-1 promotions derivable from
-Yarn's resolved-URL fragments. Pinned npm 9.9.4 accepts 1,274 packages and
-leaves output hash
-`ecd32078336e93df6bc9001b4a1da9a8a6738fad17d8adf60522553510a7448c`
-byte-identical. That producer claim is manifest-backed; a neutral root preserves
-snapshot package facts but does not certify a manifestless project.
-
-Berry generations have a separate, fully exhaustive measurement over the same
-corpus rule. There are **16 distinct Berry files**. Trying every other
-generation from v4 through v10 produces **96 ordered non-identity pairs**:
-
-| Target generation | Pairs | Emits | `ENRICH_REQUIRED` | `IRREDUCIBLE_LOSS` |
-| --- | ---: | ---: | ---: | ---: |
-| v4 | 15 | 1 | 0 | 14 |
-| v5 | 16 | 2 | 12 | 2 |
-| v6 | 15 | 2 | 11 | 2 |
-| v7 | 14 | 1 | 11 | 2 |
-| v8 | 8 | 0 | 6 | 2 |
-| v9 | 15 | 0 | 13 | 2 |
-| v10 | 13 | 0 | 11 | 2 |
-| **Total** | **96** | **6** | **64** | **26** |
-
-Fourteen of the 16 files hit at least one archive-backed Berry checksum
-requirement. A cross-generation `cacheKey` change requires recomputing every
-archive-backed entry's Berry zip-cache checksum from artifact bytes (or using an
-authoritative target checksum); a lockfile graph and registry metadata alone
-cannot supply it. The remaining strict refusals are inherent projection losses,
-not evidence that registry enrichment can repair the target.
-
-## Expressiveness — what each family can represent
-
-A target loses a feature exactly when it is `✗` for that target but present in the
-source. `~` = representable only with `manifests`, or in a degraded form.
-
-| Feature | npm-1 | npm-2/3 | npm-4 | yarn-classic | yarn-berry | pnpm-v5/6 | pnpm-v9 | bun-text | deno-v2…v5 |
-| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| Project root in lock | ✗ | ✓ (`""`) | ✓ (`""`) | ✗ (rootless) | ✓ (`root@workspace:.`) | ✓ (`importers`) | ✓ (`importers['.']`) | ✓ (`workspaces[""]`) | ~ (native sidecar) |
-| Workspaces (members) | ✗ | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ✓ | ✓ | ~ (native sidecar) |
-| `workspace:` protocol | ✗ | ~ (`*` + `link`) | ~ (`*` + `link`) | ✗ | ✓ | ✓ | ✓ | ✓ | ~ (native sidecar) |
-| Peer virtualization | ✗ | ✗ | ✗ | ✗ | ✓ (`virtual:`) | ✓ (key suffix) | ✓ (snapshot key) | ✗ | ✓ (npm key suffix) |
-| `dev` / `peer` edge distinction | ~ (flags) | ✓ | ✓ | ~ (needs manifests) | ✓ | ✓ | ~ (from reachability) | ✓ | ✗ `dev`; ✓ peer suffix |
-| `optional` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (npm) |
-| `peerDependenciesMeta` | ✗ | ✓ | ✓ | ✗ | ✓ | ✓ | ✓ | ~ (declarative) | ✓ (`optionalPeers`) |
-| Overrides / resolutions block | ✗ | ✗ (manifest-only) | ✗ (manifest-only) | ✗ (rewrites entry key) | ✗ (manifest-only) | ✓ (`overrides:`) | ✓ | ✓ (npm-shaped) | ✗ (config-only) |
-| Native patch carrier | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✓ (per-node) | ✓ | ✓ | ~ (top-level map only) | ✗ |
-| Manifest-extension fingerprint / applied provenance | ✗ | ✗ | ✓ (same-format replay) | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| `conditions` (os/cpu/libc gate) | ✗ | ✗ | ✗ | ✗ | ✓ (v5+) | ✗ | ✗ | ✗ | ~ (`os`/`cpu`, npm) |
-| `catalog:` protocol | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ (9.5+) | ✗ | ✗ |
-| Integrity form | tarball SRI | tarball SRI | tarball SRI + raw patch SRI | tarball SRI | **berry-zip** checksum | tarball SRI | tarball SRI | tarball SRI | npm SRI + JSR/remote SHA-256 |
-| Bundled deps | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-
-Notes: npm-1 predates workspaces and the `packages` block, so it also has no
-`peerDependenciesMeta` / `hasInstallScript` / `engines`-`os`-`cpu` / overrides.
-yarn-classic's `~` cells are the **manifest-blindness axis** (below). The berry
-integrity form is the single most consequential supported cross-family break.
-Deno's `~` cells are preserved native state, not projected portable graph facts.
-Same-format replay retains them; cross-format conversion projects only the npm
-resolution subgraph. A `deno.lock` has no dev/prod declaration distinction:
-classification and every cross-format conversion require the sibling
-`deno.json`/`deno.jsonc` or `package.json`.
-
-## Lost / breaks — the conversion loss table
-
-Organised by feature axis. "Direction" is the family boundary that loses it;
-"Recoverable" states whether anything can bring it back.
-
-| Feature lost | Direction (source → target) | Runtime diagnostic | Recoverable? |
-| --- | --- | --- | --- |
-| **Deno JSR / remote module graph** | every concrete Deno format → every Node-family format | `DENO_JSR_PACKAGES_DROPPED` / `DENO_REMOTE_PACKAGES_DROPPED` | The npm resolution subgraph is projected, but Node-family locks have no native carrier for Deno JSR packages or remote URL modules. Deno's official [`denoland/dnt`](https://github.com/denoland/dnt) is the source-level path; Lockgraph does not invoke or certify it. |
-| **Deno native identity synthesis** | every Node-family format → `deno-v2` … `deno-v5` | `CAPABILITY_LACK` | Unsupported and fail-closed. No pinned Deno producer has validated synthesized native npm ids and peer suffixes. |
-| **Deno native sections on downgrade** | Deno → `deno-v2` / `deno-v3` | `DENO_V2_NATIVE_SECTION_DROPPED` / `DENO_V3_NATIVE_SECTION_DROPPED` | Target-addressed diagnostics name each non-empty JSR/workspace/redirect carrier without a target representation. Strict conversion fails closed. |
-| **Deno v5 npm-entry metadata on downgrade** | `deno-v5` → `deno-v2` / `deno-v3` / `deno-v4` | `DENO_V2_V5_ENTRY_FIELDS_DROPPED` / `DENO_V3_V5_ENTRY_FIELDS_DROPPED` / `DENO_V4_V5_ENTRY_FIELDS_DROPPED` | Exact per-entry field lists identify unrepresentable v5 metadata. Non-strict output is producer-compatible; strict conversion fails closed. |
-| **Deno v5 synthesis from older locks** | `deno-v2` / `deno-v3` / `deno-v4` → `deno-v5` | `CAPABILITY_LACK` | Unsupported until complete v5 package metadata and correct dependency/optional/peer edge reclassification are proven; registry fetching alone is insufficient. |
-| **Deno dev/prod declaration scope** | `deno.lock` → audit/fix classification | — source fact absent | Yes, but only from the sibling `deno.json` or `package.json`; the lock alone cannot prove that a vulnerability is dev-only. |
-| **Integrity — berry-zip ↔ tarball SRI** | berry → npm / yarn-classic / pnpm / bun (and back) | `RECIPE_INTEGRITY_INCOMPLETE` | Only from an authoritative target checksum or by obtaining artifact bytes and **recomputing** the target's hash. Never fabricated; mutable install may refill it, but immutable/frozen install can reject the omission. |
-| **Peer virtualization** | berry / pnpm → npm / yarn-classic / bun | `YARN_CLASSIC_PEER_VIRT_FLATTENED` / `NPM_V1_PEER_VIRT_FLATTENED` / `BUN_TEXT_PEER_VIRT_FLATTENED` (per target adapter) | No — flat targets model one instance per (name, version); peer-context forks collapse. |
-| **Berry virtual peer payload → yarn-classic** | yarn-berry-v10 → yarn-classic | `PROJECTION_LOSS` plus adapter-specific peer/virtual diagnostics | Classic flattens virtual node identities and edges and cannot retain Berry peer-declaration tarball metadata. The v10 incident contract therefore does not claim node/edge/tarball preservation on peer-bearing inputs. |
-| **Workspace node identity** | berry → pnpm / bun; npm → pnpm | `PROJECTION_LOSS` where classified; `INTEROP_*_WORKSPACE_REKEY` in the contract oracle | The package graph remains representable, but Berry/npm name-keyed root/member ids and pnpm/bun path/default-version ids differ. Consumers must compare the rekeyed workspace graph rather than claim source NodeId preservation. |
-| **Cross-family tarball payload metadata** | npm / pnpm / berry across sidecar boundaries | `PROJECTION_LOSS` where classified; `INTEROP_*_TARBALLS_DROPPED` in the contract oracle | Fields such as `bin`, `engines`, and `funding` have target-native carriers but may be held in parser sidecars that do not cross format adapters. Artifact/manifest enrichment can restore authoritative target metadata; the converter never silently claims it survived. |
-| **Patch recipe** | berry / pnpm → npm-1/2/3, yarn-classic, bun; or → npm-4 without matching native carrier | `RECIPE_FEATURE_DROPPED` (`feature='patch'`) | npm-4 can replay its own native carrier, but cannot derive npm's raw patch SRI/path from a foreign canonical identity. |
-| **npm-4 native patch carrier** | npm-4 → any non-npm-4 target | `PROJECTION_LOSS` (`feature='patch'`) | No portable replay: the raw-SRI/path pair is npm-native. Effective package facts may remain, but strict projection rejects rather than claiming a target-native patch declaration. |
-| **npm-4 manifest-extension provenance** | npm-4 → any non-npm-4 target | `PROJECTION_LOSS` (`feature='manifest-extension-provenance'`) | No target carrier. Representable effective graph edges remain, but fingerprints and applied-provenance evidence are not fabricated. |
-| **Root workspace version** | npm-4 → bun-text | `PROJECTION_LOSS` (`feature='workspace-root-version'`) | bun-text does not encode npm's root version; the native fixture's root `@1.0.0` would reparse as `@0.0.0`. |
-| **Multiple versions behind one bun dependency name** | npm-4 → bun-text | `PROJECTION_LOSS` (`feature='bun-package-key-resolution'`) | Without source-native de-hoist keys, bun's flat dependency index cannot preserve edges simultaneously to root `is-number@7` and nested `is-number@6`; strict projection rejects. |
-| **`conditions` (os/cpu/libc)** | berry v5+ → any non-berry (and berry → v4) | **— none (silent loss)** | Re-derivable on a completion mint from `os`/`cpu`/`libc` (needs the **full** manifest — corgi omits `libc`). |
-| **`workspace:` protocol** | berry / pnpm / bun → npm / yarn-classic | `RECIPE_WORKSPACE_COLLAPSED` (also `_RESOLVED` / `_UNRESOLVED`) | npm keeps members via `packages/<path>` + `link`; yarn-classic keeps them only via manifests (see below). |
-| **Overrides / resolutions block** | pnpm / bun (lock carriers) → npm / yarn-classic / yarn-berry (manifest-only) | `INTEROP_OVERRIDE_NOT_PROJECTED` | The resolved *graph* still reflects the pin; the re-emittable overrides *block* is lost. npm & yarn read the policy from the root manifest, never the lock (npm `package.json.overrides`, yarn `resolutions`) — so the declaration is owed to a companion manifest patch (project-level API), never synthesized into a lock the manager ignores. |
-| **`catalog:` protocol** | pnpm-v9 → anything | **— none (silent)**; missing target → `RECIPE_RESOLUTION_UNKNOWN` | No equivalent elsewhere; a `catalog:` ref binds to the resolved entry the lock already carries. |
-| **`dev` / `peer` classification** | any → yarn-classic **without manifests** | `YARN_CLASSIC_NO_MANIFESTS`; peer edges also `YARN_CLASSIC_PEER_DROPPED` | `dev` is recoverable with `manifests[<path>]`; **`peer` is not** — a `yarn.lock` cannot record it and yarn-classic manifest synthesis reads only `dependencies`. |
-| **Bundled deps** | npm → yarn / pnpm / bun | **— none (silent)** | Carried as a `bundled` edge kind in the graph but not re-emitted by non-npm targets. |
-| **`peerDependenciesMeta`** | npm-2/3/4 / berry / pnpm → npm-1 / yarn-classic | `RECIPE_PEER_META_INCOMPLETE` | Re-derivable from the member `package.json` (manifest metadata npm re-adds on install). |
-| **Legacy `dependencies` mirror / workspaces** | npm-2/3/4 → npm-1 | `NPM_V1_WORKSPACES_UNSAFE`, `NPM_V1_PEER_DROPPED`, `NPM_V1_PEER_VIRT_FLATTENED` | No — npm-1 predates workspaces; members are omitted, peer edges dropped, peer context flattened. |
-| **Resolution URL** (canonical berry locator) | berry → npm-1/2/3/4 / bun / pnpm | **— none (silent)**; non-recomposable locator → `RECIPE_RESOLUTION_UNKNOWN` | The registry tarball URL is recomposed from `(name, version)`; a non-registry locator that cannot be recomposed drops. |
-| **Multi-descriptor entry-key set** | yarn-classic → berry, berry → yarn-classic | **— none (silent)** | Cosmetic: the merged descriptor set narrows; resolution is unaffected. |
-
-> The codes above are the runtime `onDiagnostic` codes `convert()` actually emits.
-> The `INTEROP_*_DROPPED` names used by the interop **test** matrix
-> (`src/test/interop/_matrix.ts`) are that suite's observation vocabulary — they
-> are synthesized by the harness to assert an expected loss, and never appear in
-> a real `onDiagnostic` stream. `RECIPE_FEATURE_DROPPED` fires only for
-> `feature='patch'`; classified cross-target boundaries use `PROJECTION_LOSS`
-> with the feature names shown above. Other remaining feature losses are either
-> an adapter-specific code or explicitly marked silent.
-
-**The two breaks that make a lock non-installable if mishandled** (both now
-handled, listed because they are the sharp edges):
-
-- **Monorepos cannot be described in a `yarn.lock` alone.** yarn 1 records a
-  workspace member only when something depends on it (a `file:` entry); an
-  independent member has no lock entry at all. Converting a yarn-classic
-  workspace to npm/pnpm therefore requires **every** member `package.json` via
-  `manifests` — the members and their dependency edges are synthesized from the
-  manifests. Without them the members vanish and unhoistable transitive versions
-  leak into an internal `node_modules/.lockfile-…` store key npm cannot install.
-- **The dependency-scope marker (`dev`/`peer`) is not in a `yarn.lock`.** It
-  lives only in `package.json`, so yarn-classic → any conversion needs
-  `manifests[<workspacePath>]` to recover **`dev`** (and `optional`); without it
-  `dev` collapses to `dep`. **`peer` is not recoverable from a yarn-classic
-  source** — its manifest synthesis reads only `dependencies`, so a peer edge
-  that was never in the lock cannot be re-derived.
-
-## What must come from `manifests` (`package.json`)
-
-`manifests` is keyed by workspace path (`''` = root). It supplies what the
-lockfile bytes structurally cannot.
-
-| Needed for | Which manifest | If omitted |
-| --- | --- | --- |
-| **Deno dev/prod vulnerability scope and cross-format root declarations** | sibling `deno.json`/`deno.jsonc` or `package.json` | Scope remains unknown for audit; cross-format conversion fails closed with `DENO_MANIFEST_REQUIRED`. |
-| **yarn-classic project root** (rootless source) | `manifests['']` | Target adapters synthesize a neutral native root and preserve ordinary package/tarball carriers, but project identity and root declarations remain unknown. Producer certification against the real project therefore still requires the exact root manifest. |
-| **yarn-classic workspace members** (independent members absent from the lock) | `manifests[<memberPath>]` (every member) | Members are dropped; unhoistable versions leak into `.lockfile-…` keys. |
-| **`dev` classification** (any → yarn-classic; workspace-member edges any family) | `manifests[<path>]` | `dev` collapses to `dep`; only `dep`/`optional` are lockfile-derivable. **`peer` is never recovered from a yarn-classic source** — its manifest synthesis reads only `dependencies`. |
-| **Non-satisfying `resolutions`/overrides pin** | `manifests['']` (`native.yarnResolutions` / `overrides`) | A pin forcing a version the declared range does not satisfy, with ≥2 candidates, has no unique semver target — without the overrides the edge drops and the dependency disappears. |
-
-Every supported Node-family source (npm, berry, pnpm, bun) encodes its own root
-and workspace members in the lock, so `manifests` is optional for them and only
-refines `dev`/`peer`/`optional` classification of workspace-member edges. Deno
-workspace state is preserved only in its native same-format sidecar; its
-manifest-backed npm root declarations are projected in the supported
-the 64 concrete-Deno → Node-family directions and nine supported intra-Deno
-directions.
-
-## Project companion projection
-
-`projectCompanionsOf(graph, { target, evidence })` projects an authoritative
-canonical override policy onto the target manager's project configuration. It
-is pure and returns immutable `set` operations; it never reads or writes files.
-Each operation replaces only the owned value at its JSON-pointer-shaped path,
-creating intermediate containers while preserving sibling fields.
-
-| Target | Companion operation |
-| --- | --- |
-| npm with override support | `package.json` → `/overrides` |
-| Yarn Classic / Berry | `package.json` → `/resolutions` |
-| pnpm ≤10 | `package.json` → `/pnpm/overrides` |
-| pnpm ≥11 | `pnpm-workspace.yaml` → `/overrides` |
-| Bun | `package.json` → `/overrides` |
-| Deno | none in the current same-format npm-section slice |
-
-The result is gated independently from full project conversion: a proven
-companion plan may be returned while the broader `project` contract remains
-unassessed for package metadata. No patch is returned for ambiguous authority,
-an unpinned load-bearing target generation, unsupported policy, or a lossy
-grammar projection. Examples that fail closed include nested Bun rules, npm
-`$name` references outside npm, Yarn Classic descriptor predicates and direct
-dependency overrides, and Yarn Berry selectors deeper than its supported
-single-parent form.
-
-For pnpm, the same canonical authority feeds the companion operation, the lock
-`overrides:` carrier, and importer specifiers. This is required because frozen
-install compares importer specifiers after applying the configured override;
-preserving the original direct-dependency range would make an otherwise
-matching companion and lock carrier fail `--frozen-lockfile`.
-
-## Bundled project conversion
-
-`convertProject(input, options)` returns a lockfile and its companion operations
-only when the complete `project` contract is satisfied. The result is pure and
-immutable; the API never reads or writes project files. Failed or unassessed
-conversions return only their structured assessment, so callers cannot apply a
-partial project bundle accidentally. `projectCompanionsOf` remains available
-when a caller intentionally needs the independently proven companion plan.
-
-Repository manifests may be supplied through the existing `manifests` and
-`manifestCoverage: 'complete'` convenience fields. `evidenceInputs` accepts
-repository manifests, package manifests, and package-manager config authority;
-these inputs are applied after the convenience manifest evidence and conflicts
-fail closed. Graph-scoped target-oracle evidence is not accepted by this
-pre-parse API.
-
-The bundled output, assessment requirements, and native lock policy carrier all
-consume one companion-projection runtime. No second post-emission projection is
-performed, so the returned operation cannot diverge from the authority used to
-emit and assess the lockfile.
+Frozen is not a fourth rung. It cannot be requested, because it is a claim about a
+package manager that has actually run. See below.
 
 ## Frozen candidate and certification lifecycle
 
-`prepareFrozen(input, options)` and `certifyFrozen(candidate, receipt)` form one
-fail-closed lifecycle:
+Freeze-mode acceptance — `npm ci`, `yarn install --immutable`, `pnpm install
+--frozen-lockfile` — is the real gate, and only the genuine manager can open it.
+Lockgraph never executes a package manager, so it splits the job in two:
 
-1. `prepareFrozen` requires
-   `target: { format, managerVersion: <exact full version> }`, performs the composite
-   parse/enrich/evidence pipeline once, projects companions once, emits once, and
-   returns an immutable opaque `FrozenCandidate` only when every non-oracle gate
-   is ready. A candidate remains `contract: 'frozen', status: 'unassessed'`; it is
-   a native-verification challenge, never a certified conversion.
-2. A consumer-controlled runner materializes the exact lock and ordered companion
-   operations in a fresh project, verifies the exact package-manager version,
-   runs its native frozen/immutable command with scripts disabled, and compares
-   the complete pre/post input tree byte-for-byte. The target lock, manifests,
-   PM config, workspace config, and patch files are never output-allowlisted.
-3. The runner issues a `FrozenVerificationReceipt` only after exit 0 and an
-   unchanged input tree. `certifyFrozen` accepts only the original runtime-bound
-   candidate and a receipt echoing its exact target and `projectionDigest`; it
-   recomputes that digest from private candidate state before returning the same
-   lockfile and companion objects with a satisfied assessment.
+1. **`prepareFrozen(input, options)`** does the whole pipeline once against an exact
+   `managerVersion` and returns an opaque `FrozenCandidate` — a challenge, not a
+   certification. Its status stays `unassessed`.
+2. **Your runner** materializes the candidate in a fresh project, runs the native
+   frozen command with scripts disabled, and compares the input tree byte-for-byte.
+   Exit 0 plus an unchanged tree earns a `FrozenVerificationReceipt`.
+3. **`certifyFrozen(candidate, receipt)`** accepts only that candidate with a receipt
+   echoing its exact target and `projectionDigest`, and returns the same output with
+   a satisfied assessment.
 
-The `projectionDigest` hashes a versioned canonical envelope containing the exact
-target format/version, target lock path and UTF-8 bytes, and ordered companion
-operations. `inputDigest` separately covers the materialized pre-run project tree;
-`configDigest` covers executable/runtime/config identity. No digest is generalized
-to a manager major, another platform, another project tree, or a future run.
+A receipt proves **integrity, not authenticity**: it binds the attestation to this
+exact candidate and rejects stale or cross-project reuse, but it cannot prove an
+untrusted producer really ran the manager. Lockgraph's own CI claims are earned by
+executing the pinned binaries.
 
-The sole pre-oracle projection exception is a classifier-produced
-`berry-checksum` loss for an exact Yarn Berry target. The candidate contains the
-real best-effort emitted lock bytes; the loss stays explicitly unassessed. Only
-that exact candidate's successful native immutable receipt may discharge it.
-Every other projection loss and every source, metadata, policy, output, or
-companion gap blocks candidate creation.
+The calibrated CI matrix covers npm 6–12, Yarn 1.22.22 and 2.4.3, and pnpm 6–10,
+each within its Node runtime range. Bun and later Berry generations have no bundled
+runner yet.
 
-Core never executes a package manager and intentionally accepts external exact-
-version receipts, so the authority boundary must remain explicit:
+Some output is byte-identical to the manager's own, not merely acceptable to it: npm
+locks survive even a mutable `npm install`, and Berry locks re-emit the canonical
+preamble, quoting and checksums byte-for-byte. Cross-family output is usually
+semantically equivalent without being byte-identical, since layout and hoisting are
+re-synthesized.
 
-> A receipt supplies **integrity**, not **authenticity**. It proves that the
-> attestation is bound to this exact candidate and rejects stale/cross-projection
-> reuse. It does not cryptographically prove that an untrusted producer actually
-> ran the native PM. Lockgraph CI earns its frozen claims by executing the genuine
-> pinned binaries; third-party `frozen-verified` assessments are only as reliable
-> as their receipt producer or an external signed-attestation system.
+## Deeper
 
-The calibrated CI oracle matrix covers npm 6–12 across
-`npm-1`/`npm-2`/`npm-3` and npm 12's feature-triggered `npm-4`,
-Yarn 1.22.22 and 2.4.3, and pnpm 6–10 across `pnpm-v5`/`pnpm-v6`/`pnpm-v9`, subject
-to each binary's Node runtime range. Bun and later Berry generations have no
-bundled calibrated runner yet. External runners may attest another
-profile-compatible exact version without widening that receipt's scope.
+Everything above is the user-facing contract. The mechanics live elsewhere:
 
-## What is pulled from the registry — and why
-
-**Plain conversion never touches the registry.** `parse → stringify` is offline.
-The historical best-effort path may omit an integrity form it cannot derive,
-including a berry-zip ↔ tarball-SRI crossing, rather than fabricate a value. That
-omission is not an immutable-install guarantee: assessed project conversion and
-the strict raw gate keep the output withheld until the required hash is proven or
-recomputed from a caller-supplied artifact source.
-
-The registry is an **opt-in** adapter (`liveRegistry` from `lockgraph`)
-used by current and staged refinement paths:
-
-| Path | What it fetches | Why |
-| --- | --- | --- |
-| **`completeTransitives(graph, registry, …)`** | the **packument** (all versions of a name), memoised per operation and concurrency-bounded | To wire in transitive dependencies a partial lock is missing. Resolution is deterministic for a stable response set; repeatability across runs requires a frozen/snapshotted registry adapter. |
-| **Minting a node / staged metadata hydration** | the packument version plus, when available, the full exact-version manifest | To materialise a version not already in the lock or fill authoritative metadata absent from an existing payload. Corgi (npm's abbreviated packument) omits fields including `libc` and `license`, so it cannot prove project metadata completeness. Berry checksum recomputation additionally needs a separate artifact source; `RegistryAdapter` does not provide tarball bytes. |
-| **`audit(registryPackages(graph))`** | raw npm bulk advisories | Security audit of the graph's registry packages (severity and fix-selection stay the caller's). |
-
-Artifact evidence is a separate ordered channel. `sources.artifacts` accepts
-cache specifiers (`npm` or `yarn-berry`) and their `family:path`
-variants, plus retained remote registry adapters. Normalization happens
-once at `enrich` entry, even for a target that needs no artifact bytes, so an
-unknown family or malformed descriptor fails with `INVALID_INPUT` rather than
-remaining latent until another conversion.
-
-Each cache keeps its actual byte capability: npm exposes the original tgz, Yarn
-Berry exposes the checksum of its own repacked zip. `pnpm` and `pnpm:*` fail
-closed because the decomposed pnpm store supplies neither a retained registry
-tarball nor a lock-carried archive checksum. Sources of the same capability are queried in
-declared order until the first hit. Across capabilities, a manager-owned Yarn
-checksum is preferred to recomputing one from an npm tgz. Cache adapter identity
-is retained but its partial packuments are not promoted into the singular
-registry authority; doing so requires separate ordered merge/conflict semantics.
-Remote descriptors are explicit network consent and are consulted in their
-declared position after earlier cache misses. Only a byte-capable
-`LiveRegistryAdapter` may occupy this lane. Its scope-aware
-`liveRegistry.fromConfig(cwd, options)` route is selected uniquely per package;
-an ambiguous set never falls through to a sibling registry.
-
-Remote route authorization is separate from credentials and follows four
-fail-closed outcomes: (1) a lock-named URL inside the selected configured route;
-(2) a lock-named URL outside that route only when exact name-and-version metadata
-attests the same HTTPS URL; (3) no lock URL, so exact name-and-version metadata
-supplies the artifact URL (plaintext is accepted only inside an explicitly
-configured plaintext route); or (4) no authorized URL, producing a named defer
-without a request. Redirects are manual and each target is re-authorized before
-the next request. Credentials are resolved only for the already-authorized HTTPS
-hop and are never authorization policy themselves.
-
-Every local or remote npm tgz passes central lock-integrity verification before
-target recomputation. Missing, unsupported, and mismatching integrity are distinct
-deferrals. Consequently, a hand-written legacy `TarballSource.tarball()` that
-returns local bytes for a graph with no verifiable digest now defers with
-`ENRICH_ARTIFACT_INTEGRITY_MISSING` where it previously produced a checksum.
-Real npm-family locks carry tgz integrity, while Berry locks use source-domain
-verification because Berry lock syntax cannot carry npm tgz SRI evidence. For a
-Berry source checksum whose cache key differs from the target,
-the downloaded tgz is first repacked in the source domain and compared exactly;
-only verified bytes are then repacked for the target. Yarn admits one checksum
-per entry, so the verified source member is superseded by the target member while
-unrelated integrity members remain. This is target-domain replacement, not
-evidence loss. Pako proves STORE and mixed cache keys 7/8/9. Mixed cache key 10
-requires optional `@yarnpkg/libzip`; an unavailable required backend produces
-`ENRICH_ARTIFACT_INTEGRITY_UNSUPPORTED` with the install remedy.
-
-The entire byte path has mandatory, overridable safety ceilings: 384 MiB
-compressed; 3 GiB each for inflated bytes, cumulative tar content, and repacked
-zip; and 7 GiB simultaneously live. Callers may raise or lower the representation
-defaults and add per-tarball overrides, but cannot disable checks. A diagnostic
-records whether the implementation default or a caller-provided ceiling was
-reached. The live meter may govern large-artifact throughput; adding workers is
-not a remedy for that bound.
-
-Every convert/enrich operation uses a lockgraph-owned CAS for original,
-centrally verified npm tgz bytes unless `store: false` disables it. Its default root is
-`$XDG_CACHE_HOME/lockgraph` when XDG supplies an absolute root, otherwise
-`~/.cache/lockgraph`; `store: lockgraphStore(path, { maxBytes })` replaces the
-global store. The default 5 GiB capacity is mandatory. Persistence is not an
-artifact source: the store is always checked before the ordered external source
-list and is the single post-verification sink after another source succeeds.
-`STORE_PATH_RESOLVED` reports the resolved path exactly once before the
-operation's first store filesystem mutation.
-
-Canonical objects use computed SHA-512 addressing. Supported lock SRI, Yarn
-Classic fragments, and Berry source-domain checksums may create digest-only
-indexes into that canonical object. An alias is only a lookup index, never
-proof: every hit self-verifies the canonical path and then passes unchanged
-central envelope and current-lock verification before recompute. Canonical
-self-hash failure removes the object and traversed alias; a stale or poisoned
-alias removes only that index because its object can remain valid for another
-lock. Both warn and fall through. A later verified source writes back and
-self-heals the removed object or alias.
-
-The CAS uses private `0700` directories and `0600` files, same-filesystem
-temporary files plus sync-and-rename commits, and digest-only metadata.
-Cross-process pin markers prevent eviction of in-flight objects; dead-owner
-pins and interrupted temps are recovered by the next locked operation.
-Completed unpinned victims are ordered deterministically by modification time
-and canonical digest. Capacity includes stable objects and aliases, and a
-commit is skipped when an individual object, live pins, or an eviction failure
-prevents proving room. No package identity, source URL, credential, header, or
-raw process diagnostic is added to paths or metadata. Content digests of public
-tarballs are corpus-invertible, so the CAS is not a privacy mechanism; it adds
-no identifying material beyond what integrity addressing inherently implies,
-and private permissions are the access boundary.
-
-For compatibility, the facade also accepts the split `RefurbishSources` pair and
-the older combined `TarballSource`, preserving both capabilities in either
-object form. This increment neither removes nor newly deprecates either shape;
-whether the facade eventually converges on the list alone is a later public-
-contract decision. The direct `refurbish` primitive continues to accept object
-sources independently.
-
-Alias completion has two explicit fail-closed boundaries. npm-1, pnpm v5/v6/v9,
-and bun-text preserve aliases already proven by their native locks, but cannot
-reconstruct a missing aliased edge from a project manifest alone. Separately,
-`completeTransitives` does not split an npm-alias transitive manifest range into
-declared alias, canonical target, and target range; it defers that edge instead
-of binding the wrong package. Both are capability gaps, not permission to infer
-identity from a matching version or tarball.
-
-Registry routing and auth are resolved from the package-manager config, **never
-guessed**, and are ecosystem-scoped (`resolveRegistry(cwd, { ecosystem })` — a
-planted `.yarnrc.yml` cannot inject into an npm resolve; npm and yarn directives
-never mix). A minted registry tarball is re-hosted onto the lock's own
-scope-inferred registry so a `--frozen-lockfile` install does not rewrite it.
-
-## Package-metadata completeness
-
-The `project` contract requires authoritative package manifests for every
-non-workspace package used by the graph. `full-packument`, `version-manifest`,
-and `tarball-manifest` evidence can establish both presence and absence within
-the closed canonical metadata universe; abbreviated/corgi packuments cannot,
-because omitted fields such as `libc` and `license` remain unknown.
-
-Coverage alone is insufficient. `packageMetadata: complete` requires the
-canonical metadata already stored in each graph tarball payload to equal its
-authoritative manifest projection, including authoritative absence. Detached
-evidence never substitutes for graph state that an emitter cannot see. Peer
-virtual variants share one TarballKey subject. Git, directory, and other
-non-registry subjects remain fail-closed until a source-specific manifest
-evidence input exists.
-
-Target readiness is assessed separately from canonical completeness. A target
-claims support for a metadata field only when its emitter reads that field from
-the canonical tarball payload. A present field that the target cannot preserve
-makes `project` conversion unsatisfied rather than silently lossy.
-
-## Byte-identity of the target
-
-Freeze-mode acceptance (`npm ci`, `yarn install --immutable`, `pnpm install
---frozen-lockfile`) is the final gate: only a successful oracle for the exact
-manager version, platform, config, and materialized inputs proves that guarantee.
-Snapshot or project assessment can prove that all modeled prerequisites are
-present without generalizing an empirical result to another environment.
-The npm-4 carrier and bun-shape boundaries in the loss table are projection
-failures, not byte-identity exceptions: strict conversion withholds output;
-only `strict: false` emits the explicitly diagnosed best-effort bytes.
-
-For **npm and yarn**, the frozen unit is the lock **plus the root manifest**, not
-the lock alone: the override policy lives in `package.json` (`overrides` /
-`resolutions`), never the lock, so a project that uses overrides needs a matching
-companion manifest for the target to freeze-clean — the lock carries the resolved
-graph, not the policy. (pnpm/bun persist an in-lock `overrides` carrier and
-additionally deep-compare it against config in frozen mode — pnpm 6–10 reject on
-mismatch.)
-
-Beyond acceptance, some targets are byte-identical to the PM's own output:
-
-- **npm** emits `json-stringify-nice` key order (matching arborist) and preserves
-  `peerDependenciesMeta` / `hasInstallScript`, so a generated `package-lock.json`
-  survives even a mutable `npm install` unchanged, not only `npm ci`.
-- **yarn-berry** re-emits the canonical preamble, field schedule, quoting, and
-  `cacheKey`-prefixed checksums byte-for-byte (checksums recomputed byte-exact for
-  cacheKey 7/8/9 via pure-JS; cacheKey 10 via optional `@yarnpkg/libzip`).
-- **Cross-family** output can be semantically equivalent without being
-  byte-identical to what the target PM would generate from scratch (layout and
-  hoisting may be re-synthesized; `LAYOUT_PLACEMENT_RESYNTHESISED`). It is called
-  frozen-clean only after the exact native oracle succeeds.
-
-## Per-family quick reference
-
-Headline for each source family → target family (see the loss table for the
-diagnostic codes). "clean" means no known modeled feature loss after the named
-sources are supplied; it does not replace native frozen verification.
-
-| From ↓ \ To → | npm | yarn-classic | yarn-berry | pnpm | bun |
-| --- | --- | --- | --- | --- | --- |
-| **npm** | v3↔v2 clean; v→v1 drops workspaces/peerMeta; npm-4 native carriers do not project downward | needs manifests for dev/peer + workspaces; npm-4 patch/provenance drops | overrides are manifest-only; Berry integrity needs an artifact-backed checksum; npm-4 patch/provenance drops | ordinary npm clean; npm-4 patch/provenance drops | ordinary npm clean; npm-4 additionally loses patch/provenance, root version, and multi-version edge targets |
-| **yarn-classic** | needs manifests (root + members + dev/peer) | — | preamble/workspace synthesized | needs manifests for dev/peer | resolved-URL forms may drop |
-| **yarn-berry** | drops peer-virt, patch, conditions; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions, workspace; v10 peer-bearing inputs also lose virtual node/edge and peer-declaration payload shape; needs manifests | clean (v-to-v; v→v4 drops conditions) | peer virtualization is re-encoded; tarball integrity needs artifact evidence | drops peer-virt, patch, conditions |
-| **pnpm** | drops peer-virt, patch, catalog | drops peer-virt, patch, workspace; needs manifests | drops catalog; preamble synthesized | clean (v-to-v; v9↔v5/6 settings drop) | drops peer-virt, patch, catalog |
-| **bun** | clean | drops resolved-URL forms; needs manifests | preamble synthesized | clean | — |
-
-`lockgraph` is the lossless waypoint: any format → `lockgraph` → the same format
-round-trips graph-identical; it is the model itself serialized, not a PM lock.
-
-## Producer-extension preservation boundary
-
-Unknown project-level values are not assumed portable. Pinned native
-measurements establish three policies:
-
-- npm v1–v4, pnpm v5/v6/v9, and Bun text accept unknown structured top-level
-  values unchanged. Exact and same-format output preserve a deep-cloned,
-  format-local carrier and its source key placement. Cross-format and
-  detached-state paths drop no such key silently: each loss is reported as
-  `top-level:<key>`, and strict conversion fails closed.
-- Yarn Classic 1.22.22 accepts pre-entry global scalar directives. The measured
-  grammar is preserved verbatim on same-format output; a cross-format loss names
-  `global-directive:<key>`.
-- Every pinned Berry producer for wire versions 4–10 removes an unknown
-  `__metadata` subkey during mutable install. Immutable mode rejects the
-  unstripped input and accepts the repaired output. Non-strict conversion
-  therefore performs the producer-faithful repair and names
-  `__metadata.<key>`; strict conversion refuses the loss. Native measurement
-  also corrects the old opaque-passthrough assumption for `compressionLevel`:
-  every pinned generation removes that subkey too.
-
-Modeled output always wins if a later adapter claims a formerly unknown key.
-Lockgraph has no external forward-extension envelope and rejects unknown record
-tags with the tag and line number.
-
-Bit's implementation writes `bit.depsRequiringBuild` into pnpm locks
-([source](https://github.com/teambit/bit/blob/master/scopes/dependencies/pnpm/lynx.ts)).
-Until a committed Bit-produced lock artifact is available, this is cited as
-implementation evidence rather than an artifact-backed corpus claim.
+- [PAIRS.md](./PAIRS.md) — one recipe row per ordered format pair, all 380.
+- [API.md](./API.md) — signatures, `sources`, `guards` byte ceilings, `store`.
+- [ERRORS.md](./ERRORS.md) — every diagnostic code.
+- [spec/10-sources.md](../spec/10-sources.md) — the evidence ladder, registry
+  routing, and the artifact byte path.
+- [spec/pm/](../spec/pm/) — per-manager format specs and fidelity notes.

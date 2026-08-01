@@ -72,7 +72,7 @@ const marker = /<!-- readme-example id="([a-z0-9-]+)" mode="(?:typecheck|signatu
 const block = new RegExp(`^${marker.source}\\n\`\`\`ts\\n([\\s\\S]*?)^\`\`\`$`, 'gm')
 const lineAt = (text, index) => text.slice(0, index).split('\n').length
 
-const DOCS = ['README.md', 'docs/arch/API.md']
+const DOCS = ['README.md', 'docs/arch/API.md', 'docs/arch/CONVERT.md']
 const texts = new Map()
 for (const doc of DOCS) texts.set(doc, await readFile(join(root, doc), 'utf8'))
 const readme = [...texts.values()].join('\n')
@@ -119,7 +119,9 @@ const notApi = new Set(['lockgraph', 'npm', 'pnpm', 'yarn', 'bun', 'deno', 'fetc
   'format', 'input', 'graph', 'options', 'change', 'declare', 'kind', 'managerVersion',
   'removed', 'diagnostics', 'selected', 'rejected', 'applied', 'candidate', 'assessment',
   'config', 'url', 'authHeader', 'env', 'home', 'registry', 'files', 'manager', 'version',
-  'registryFor', 'authHeaderFor'])
+  'registryFor', 'authHeaderFor', 'install', 'snapshot', 'policy', 'frozen',
+  'dev', 'peer', 'dependencies', 'companions', 'set', 'unassessed', 'projectionDigest',
+  'compressionLevel'])
 const shipped = new Set(Object.keys(await import(`${root}/dist/index.js`)))
 for (const m of new Set([...prose.matchAll(/`([A-Za-z][A-Za-z0-9]*)`/g)].map((x) => x[1]))) {
   if (notApi.has(m) || shipped.has(m)) continue
