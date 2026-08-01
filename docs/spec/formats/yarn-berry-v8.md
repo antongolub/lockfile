@@ -119,7 +119,10 @@ this is only how yarn-berry v8 *carries* it.
   `<cacheKey>/<128-hex>` (e.g. `10c0/<hex>`), not raw hex. The cacheKey comes
   from a per-node captured prefix when present, else `__metadata.cacheKey` /
   the caller / the v8 default ([Emit](#emit), [Quirks](#quirks));
-  `parseBerryChecksum` returns it separately as sidecar attribution.
+  `parseBerryChecksum` returns it separately as sidecar attribution. A small
+  real-world v8 slice carries source-authored bare `<128-hex>` values despite
+  the generation default; same-generation emit preserves that exact spelling,
+  while minted and cross-generation entries still use the target prefix policy.
 - Converting **into** v8 from a tarball-only source (npm / pnpm / bun /
   yarn-classic) yields **no** `berry-zip` digest, so `checksum:` is **omitted**
   with `RECIPE_INTEGRITY_INCOMPLETE` rather than fabricated from a tarball
@@ -208,6 +211,9 @@ v8-specific deltas inherited on top of the shared contract are:
 - Inner `dependencies` / `optionalDependencies` emit quoted
   protocol-bearing ranges, unlike v4/v5/v6's bare form.
 - `checksum` values are `cacheKey/hash`, not raw sha512 hex.
+- Source-authored bare checksums are accepted and preserved only for the same
+  lock generation; their absence of a prefix is explicit sidecar attribution,
+  not a rule for newly-minted entries.
 - `conditions` is a **scalar** token (e.g. `os=darwin & cpu=arm64`),
   NOT a structured map — it is emitted bare and round-trips verbatim,
   matching the v5/v6 scalar sidecar shape. (A field-level round-trip

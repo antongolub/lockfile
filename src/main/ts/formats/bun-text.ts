@@ -53,6 +53,7 @@ import { locateAuthoritativeRootNode } from './_root-authority.ts'
 import {
   captureUnknownTopLevel,
   mergeUnknownTopLevel,
+  unknownKeySubjects,
   unknownTopLevelSubjects,
   type UnknownTopLevelState,
 } from './_unknown-top-level.ts'
@@ -134,7 +135,23 @@ interface BunTextNodeSidecar {
 interface BunTextWorkspaceSidecar {
   path: string
   manifest: BunTextWorkspaceManifest
+  /** Producer-tolerated, adapter-unknown keys of THIS entry. Same-format only. */
+  unknownKeys?: UnknownTopLevelState
 }
+
+// Keys of a `workspaces` entry this adapter models. Anything else (`bin`,
+// `optionalPeers`, whatever bun ships next) rides the verbatim carrier rather
+// than gaining a field: a modelled field would claim we can project the concept
+// to another lockfile, and for `bin` there is nothing to project — it means
+// nothing in a `deno.lock`.
+const KNOWN_WORKSPACE_MANIFEST_KEYS = [
+  'name',
+  'version',
+  'dependencies',
+  'devDependencies',
+  'optionalDependencies',
+  'peerDependencies',
+] as const
 
 interface BunTextPackageEntry {
   id: string
@@ -210,7 +227,15 @@ export function hasAdapterState(graph: Graph): boolean {
 }
 
 export function adapterStateSubjects(graph: Graph): readonly string[] {
-  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
+  const sidecar = sidecarByGraph.get(graph)
+  const subjects = [...unknownTopLevelSubjects(sidecar?.unknownTopLevel)]
+  // Per-workspace carriers are declared alongside the project-level ones: an
+  // unmodelled key survives a same-format replay but is a real loss the moment
+  // the graph is projected elsewhere, so it must be nameable there too.
+  for (const [path, entry] of sidecar?.workspaces ?? []) {
+    subjects.push(...unknownKeySubjects(entry.unknownKeys, `workspace[${path}]`))
+  }
+  return subjects
 }
 
 function rememberSidecar(graph: Graph, sidecar: BunTextSidecar): void {
@@ -381,6 +406,23 @@ function createBunParseContext(lf: BunTextLockfile): BunTextParseContext {
   }
 }
 
+// Snapshot each `workspaces` entry's unmodelled keys once, after every
+// registration path has contributed its manifest — a single capture site
+// cannot miss one of the three places an entry can be registered from.
+function captureWorkspaceUnknownKeys(
+  workspaces: Map<string, BunTextWorkspaceSidecar>,
+): Map<string, BunTextWorkspaceSidecar> {
+  const captured = new Map<string, BunTextWorkspaceSidecar>()
+  for (const [path, entry] of workspaces) {
+    const unknownKeys = captureUnknownTopLevel(
+      (entry.manifest ?? {}) as Readonly<Record<string, unknown>>,
+      KNOWN_WORKSPACE_MANIFEST_KEYS,
+    )
+    captured.set(path, unknownKeys === undefined ? entry : { ...entry, unknownKeys })
+  }
+  return captured
+}
+
 function sealBunGraph(context: BunTextParseContext, fidelity: BunTextFidelity): Graph {
   for (const diagnostic of context.diagnostics) {
     context.builder.diagnostic(diagnostic)
@@ -393,7 +435,7 @@ function sealBunGraph(context: BunTextParseContext, fidelity: BunTextFidelity): 
       exactPackageReplay: true,
       rootId: context.rootId,
       rootManifest: context.rootManifest,
-      workspaces: context.workspaceSidecar,
+      workspaces: captureWorkspaceUnknownKeys(context.workspaceSidecar),
       workspaceByPath: context.workspaceByPath,
       nodes: context.nodeSidecar,
       peerDeclarations: context.peerDeclarations,
@@ -661,11 +703,17 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
 
   // Build `workspaces` block: root + members.
   const workspacesBlock: Record<string, BunTextWorkspaceManifest> = {
-    '': buildWorkspaceManifest(graph, rootNode, sidecar?.workspaces.get('')?.manifest, emitDiagnostic),
+    '': buildWorkspaceManifest(
+      graph, rootNode, sidecar?.workspaces.get('')?.manifest, emitDiagnostic,
+      sidecar?.peerDeclarations, sidecar?.workspaces.get('')?.unknownKeys,
+    ),
   }
   for (const member of memberNodes) {
     const path = member.workspacePath!
-    workspacesBlock[path] = buildWorkspaceManifest(graph, member, sidecar?.workspaces.get(path)?.manifest, emitDiagnostic)
+    workspacesBlock[path] = buildWorkspaceManifest(
+      graph, member, sidecar?.workspaces.get(path)?.manifest, emitDiagnostic,
+      sidecar?.peerDeclarations, sidecar?.workspaces.get(path)?.unknownKeys,
+    )
   }
 
   // Build `packages` block: workspace members (1-elem tuples) then regular packages
@@ -732,18 +780,27 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
   const out: Record<string, unknown> = {
     lockfileVersion: 1,
   }
+  // Top-level schedule, measured across the corpus: `packages` is LAST in every
+  // one of the 173 real locks, and the reproducibility blocks sit between
+  // `workspaces` and it — `patchedDependencies` and `trustedDependencies`
+  // before `overrides`, never after `packages`.
   if (sidecar?.configVersion !== undefined) out.configVersion = sidecar.configVersion
   out.workspaces = workspacesBlock
+  // Both blocks are VERBATIM same-format carriers (spec: "round-trips
+  // verbatim"), and bun keeps the order the project authored — `trustedDependencies`
+  // is an allowlist, not a set to normalise. Sorting them here rewrote the
+  // producer's schedule; replay it instead. No determinism is lost: the values
+  // come from parse, and a graph without the sidecar emits no block at all.
+  if (sidecar?.patchedDependencies !== undefined && Object.keys(sidecar.patchedDependencies).length > 0) {
+    out.patchedDependencies = { ...sidecar.patchedDependencies }
+  }
+  if (sidecar?.trustedDependencies !== undefined && sidecar.trustedDependencies.length > 0) {
+    out.trustedDependencies = [...sidecar.trustedDependencies]
+  }
   if (overridesBlock !== undefined && Object.keys(overridesBlock).length > 0) {
     out.overrides = overridesBlock
   }
   out.packages = packagesBlock
-  if (sidecar?.patchedDependencies !== undefined && Object.keys(sidecar.patchedDependencies).length > 0) {
-    out.patchedDependencies = sortRecord(sidecar.patchedDependencies)
-  }
-  if (sidecar?.trustedDependencies !== undefined && sidecar.trustedDependencies.length > 0) {
-    out.trustedDependencies = [...sidecar.trustedDependencies].sort(cmpStr)
-  }
 
   const merged = mergeUnknownTopLevel(out, sidecar?.unknownTopLevel)
   const json = renderJsonc(merged)
@@ -1158,18 +1215,48 @@ export function buildWorkspaceManifest(
   workspaceNode: Node | undefined,
   sidecarManifest: BunTextWorkspaceManifest | undefined,
   emitDiagnostic: (d: Diagnostic) => void = () => undefined,
+  peerDeclarations?: Map<string, string>,
+  unknownKeys?: UnknownTopLevelState,
 ): BunTextWorkspaceManifest {
   // Workspace manifest emitted to the `workspaces` block. Pulls structural data
   // from the graph (edges out of the workspace node) and falls back to sidecar
   // for the name / version pin.
   const out: BunTextWorkspaceManifest = {}
   if (workspaceNode !== undefined) {
-    captureGraphWorkspaceManifest(out, graph, workspaceNode, emitDiagnostic)
+    captureGraphWorkspaceManifest(out, graph, workspaceNode, emitDiagnostic, sidecarManifest, peerDeclarations)
   } else if (sidecarManifest !== undefined) {
     captureSidecarWorkspaceManifest(out, sidecarManifest)
   }
 
-  return out
+  // Merge the verbatim carrier behind the modelled output, exactly as the
+  // project top level does: modelled fields win, and the source key schedule
+  // restores each unmodelled key to the position the producer wrote it in.
+  return mergeUnknownTopLevel(
+    out as Readonly<Record<string, unknown>>,
+    unknownKeys,
+  ) as BunTextWorkspaceManifest
+}
+
+// bun omits `name` / `version` from a `workspaces` entry when the project's
+// package.json carries none. Parse fills the canonical defaults (`''` and
+// `'0.0.0'`) so the node has an identity, which means re-emitting them would
+// ADD two lines the producer never wrote. Omit only when the parse-time
+// manifest also omitted the key AND the node still holds exactly the default
+// a reparse re-derives — so omission can never lose identity. With no
+// parse-time manifest (cross-format projection) nothing is known to have been
+// omitted, and both keys are emitted as before.
+function omitsSynthesizedName(
+  sidecarManifest: BunTextWorkspaceManifest | undefined,
+  node: Node,
+): boolean {
+  return sidecarManifest !== undefined && sidecarManifest.name === undefined && node.name === ''
+}
+
+function omitsSynthesizedVersion(
+  sidecarManifest: BunTextWorkspaceManifest | undefined,
+  node: Node,
+): boolean {
+  return sidecarManifest !== undefined && sidecarManifest.version === undefined && node.version === '0.0.0'
 }
 
 function captureGraphWorkspaceManifest(
@@ -1177,9 +1264,13 @@ function captureGraphWorkspaceManifest(
   graph: Graph,
   workspaceNode: Node,
   emitDiagnostic: (d: Diagnostic) => void,
+  sidecarManifest: BunTextWorkspaceManifest | undefined,
+  peerDeclarations: Map<string, string> | undefined,
 ): void {
-  out.name = workspaceNode.name
-  if (workspaceNode.workspacePath !== '') {
+  if (!omitsSynthesizedName(sidecarManifest, workspaceNode)) {
+    out.name = workspaceNode.name
+  }
+  if (workspaceNode.workspacePath !== '' && !omitsSynthesizedVersion(sidecarManifest, workspaceNode)) {
     out.version = workspaceNode.version
   }
   // Walk dep / dev / optional / peer edges and emit ranges.
@@ -1249,6 +1340,19 @@ function captureGraphWorkspaceManifest(
       'workspace',
     ),
   )
+  // Recover declarative `peerDependencies` stashed on the parse-time sidecar —
+  // the same recovery `buildInnerBlock` performs for a package's inner block.
+  // bun encodes peer-deps as DATA, not graph edges, so parse routes a workspace
+  // manifest's peer block into `peerDeclarations` and leaves no edge behind for
+  // the walk above to find. A graph peer edge (cross-format source) still wins;
+  // the sidecar only fills what the graph cannot carry.
+  for (const [key, range] of peerDeclarations ?? []) {
+    const sep = key.indexOf('|')
+    if (sep < 0 || key.slice(0, sep) !== workspaceNode.id) continue
+    const peerName = key.slice(sep + 1)
+    if (peerDependencies[peerName] === undefined) peerDependencies[peerName] = range
+  }
+
   if (Object.keys(dependencies).length > 0) out.dependencies = sortRecord(dependencies)
   if (Object.keys(devDependencies).length > 0) out.devDependencies = sortRecord(devDependencies)
   if (Object.keys(optionalDependencies).length > 0) out.optionalDependencies = sortRecord(optionalDependencies)
@@ -1341,6 +1445,19 @@ function renderArray(arr: unknown[]): string {
   return `[${arr.map(renderInlineValue).join(', ')}]`
 }
 
+// An array that is the value of a MULTI-LINE object (top-level
+// `trustedDependencies`, a workspace entry's `optionalPeers`) is written one
+// element per line with a trailing comma — the same always-trailing-comma style
+// the surrounding object uses. This is NOT the positional `packages` tuple,
+// which stays inline via `renderArray`, and not an array nested in an INLINE
+// object (a package's `os` / `cpu`), which bun pads on one line.
+function renderBlockArray(arr: unknown[], depth: number): string {
+  if (arr.length === 0) return '[]'
+  const indent = INDENT.repeat(depth + 1)
+  const closeIndent = INDENT.repeat(depth)
+  return `[\n${arr.map(v => `${indent}${renderInlineValue(v)},`).join('\n')}\n${closeIndent}]`
+}
+
 function renderInlineObject(obj: Record<string, unknown>): string {
   const keys = Object.keys(obj)
   if (keys.length === 0) return '{}'
@@ -1348,20 +1465,24 @@ function renderInlineObject(obj: Record<string, unknown>): string {
   return `{ ${parts.join(', ')} }`
 }
 
-// The one top-level block whose entries bun separates with a blank line. The
-// rule is unconditional, NOT a `configVersion` era: across the real-world
-// corpus every lock with two or more `packages` entries separates all of them
-// (the sole exception is a hand-authored turborepo test fixture, identifiable
-// by its 3-slot multi-line tuples and absent trailing commas), and the
-// committed `lockfiles/*/bun-text.lock` — an older, `configVersion`-less bun
-// generation — separates them too. `workspaces` is never separated.
-const BLANK_LINE_SEPARATED_BLOCK = 'packages'
+// The `packages` block is rendered unlike every other object, in two ways that
+// travel together: bun separates its entries with a blank line, and its values
+// are POSITIONAL TUPLES written inline rather than element-per-line lists.
+//
+// The blank line is unconditional, NOT a `configVersion` era: across the
+// real-world corpus every lock with two or more `packages` entries separates
+// all of them (the sole exception is a hand-authored turborepo test fixture,
+// identifiable by its 3-slot multi-line tuples and absent trailing commas),
+// and the committed `lockfiles/*/bun-text.lock` — an older,
+// `configVersion`-less bun generation — separates them too. `workspaces` is
+// never separated, and its array values are lists, not tuples.
+const PACKAGES_BLOCK = 'packages'
 
 function renderObject(
   obj: Record<string, unknown>,
   depth: number,
   isTopLevel: boolean,
-  separateEntries = false,
+  isPackagesBlock = false,
 ): string {
   const keys = Object.keys(obj)
   if (keys.length === 0) return '{}'
@@ -1374,13 +1495,13 @@ function renderObject(
   for (const key of keys) {
     const val = obj[key]
     const rendered = Array.isArray(val)
-      ? renderArray(val)
+      ? (isPackagesBlock ? renderArray(val) : renderBlockArray(val, depth + 1))
       : (val !== null && typeof val === 'object'
         ? renderObject(
           val as Record<string, unknown>,
           depth + 1,
           false,
-          isTopLevel && key === BLANK_LINE_SEPARATED_BLOCK,
+          isTopLevel && key === PACKAGES_BLOCK,
         )
         : renderInlineValue(val))
     entries.push(`${indent}${JSON.stringify(key)}: ${rendered},`)
@@ -1390,7 +1511,7 @@ function renderObject(
   }
   // One blank line BETWEEN entries only — never leading, trailing, or doubled,
   // so a single-entry block stays dense.
-  return `{\n${entries.join(separateEntries ? '\n\n' : '\n')}\n${closeIndent}}`
+  return `{\n${entries.join(isPackagesBlock ? '\n\n' : '\n')}\n${closeIndent}}`
 }
 
 // === Serialize helpers ======================================================

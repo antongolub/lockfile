@@ -156,6 +156,49 @@ this is only how bun-text *carries* it.
   same alias — a node also reached under its canonical name needs the two
   `packages` entries bun would write, which the one-entry-per-node emit shape
   cannot express.
+- A `workspaces` entry mirrors the project manifest and **omits what that
+  manifest omits**. `name` is absent for a project whose package.json has no
+  name, and `version` is absent for a member with no version — bun does not
+  substitute a placeholder. Parse fills the canonical defaults (`''` and
+  `'0.0.0'`) so the node has an identity, so emit must suppress exactly those
+  two synthesized values: writing them back would ADD lines the producer never
+  wrote. Suppression is identity-safe only because a reparse re-derives the
+  same defaults, and it applies only when a parse-time manifest is on hand to
+  prove the omission — a cross-format projection knows of no omission and emits
+  both keys. Entry key order is `name`, `version`, `bin`, `dependencies`,
+  `devDependencies`, `optionalDependencies`, `peerDependencies`,
+  `optionalPeers`; `name` leads in every corpus entry that has one, at every
+  `lockfileVersion` and `configVersion`.
+- A `workspaces` entry key this adapter does not model (`bin`, `optionalPeers`,
+  and whatever bun ships next) rides the same **verbatim carrier** as an unknown
+  project-level key — captured at parse, merged behind the modelled output at
+  emit, and restored to the position the producer wrote it in. It is
+  deliberately NOT given a modelled field: a modelled field would assert the
+  concept projects to other lockfiles, and `bin` has nothing to project — it
+  means nothing in a `deno.lock`. Like every verbatim carrier it is same-format
+  only, and each captured key is named as an adapter-state subject
+  (`workspace[<path>]:<key>`) so a cross-format projection declares it as a
+  loss rather than dropping it silently.
+- Top-level key schedule: `lockfileVersion`, `configVersion`, `workspaces`,
+  `patchedDependencies`, `trustedDependencies`, `overrides`, `packages`.
+  **`packages` is last in all 173 corpus locks**; the reproducibility blocks sit
+  between `workspaces` and it, never after. Both of those blocks replay in the
+  order the project authored them — they are verbatim carriers, and
+  `trustedDependencies` is an allowlist rather than a set to normalise, so
+  sorting them would rewrite the producer's schedule rather than replay it.
+- Arrays take their style from their container. A `packages` entry value is a
+  positional tuple and stays inline; an array valued by any other multi-line
+  object (top-level `trustedDependencies`, a workspace entry's `optionalPeers`)
+  is written one element per line with the same trailing comma the surrounding
+  object uses. A third form exists and is **not** reproduced: an array inside an
+  INLINE object — a package's `os` / `cpu` — which bun pads on one line as
+  `[ "linux", "darwin", ]`.
+- A `workspaces` entry's `peerDependencies` is DATA, not graph edges — parse
+  routes it to the same sidecar stash as a package inner block's peer block
+  (bun models no peer-virt nodes), so no `peer` edge is left behind. The
+  workspaces emit path therefore recovers it from that stash, exactly as the
+  inner-block path does; a graph `peer` edge from a cross-format source takes
+  precedence and the stash fills only what the graph cannot carry.
 - Entries of the top-level `packages` block are separated by **one blank
   line**; no other block is. There is no blank line before the first entry or
   after the last, never two in a row, and a single-entry block is dense. The

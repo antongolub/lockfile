@@ -60,10 +60,27 @@ export function mergeUnknownTopLevel(
   return ordered
 }
 
-export function unknownTopLevelSubjects(
+/**
+ * Subject labels for one captured carrier, `<scope>:<key>`, sorted by key.
+ *
+ * A verbatim-replayed key is still a DECLARED loss the moment the graph is
+ * projected to another format, so every captured key has to be nameable —
+ * silent preservation that turns into silent loss at the format boundary is
+ * the failure this reporting exists to prevent. `scope` distinguishes the
+ * carriers a format may hold at once (project top level, per-workspace
+ * manifest, …).
+ */
+export function unknownKeySubjects(
   state: UnknownTopLevelState | undefined,
+  scope: string,
 ): readonly string[] {
   return state === undefined
     ? []
-    : Object.keys(state.values).sort().map(key => `top-level:${key}`)
+    : Object.keys(state.values).sort().map(key => `${scope}:${key}`)
+}
+
+export function unknownTopLevelSubjects(
+  state: UnknownTopLevelState | undefined,
+): readonly string[] {
+  return unknownKeySubjects(state, 'top-level')
 }

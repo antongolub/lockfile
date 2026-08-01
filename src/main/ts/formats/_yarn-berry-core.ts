@@ -200,6 +200,11 @@ export interface YarnBerryFamilySidecar {
   // edge-reconstruction (a fresh, correct key); a cross-PM convert never carries it
   // (the WeakMap is berry-local), so the cross-format key is rebuilt from edges.
   entryKeyDescriptors?: Map<string, string[]>
+  // Prefix-era Berry versions accept both `<hex>` and `<cacheKey>/<hex>`.
+  // Preserve the source-authored bare spelling per parsed node when emitting
+  // the same lock generation. A cross-generation conversion follows the target
+  // generation's canonical prefix policy.
+  bareChecksums?: Map<string, number>
   metadata?: SymlMap
   unknownMetadataKeys?: readonly string[]
 }
@@ -283,6 +288,7 @@ interface YarnBerryParseContext {
   readonly rawPeerDependenciesMeta: Map<string, SymlMap>
   readonly rawUnresolvedDeps: Map<string, UnresolvedDepRef[]>
   readonly rawEntryKeyDescriptors: Map<string, string[]>
+  readonly rawBareChecksums: Map<string, number>
   readonly entries: YarnBerryParseEntry[]
   readonly specIndex: Map<string, string>
   readonly patchDescriptorIndex: Map<string, PatchDescriptorCandidate[]>
@@ -459,6 +465,7 @@ export function rebindAdapterState(
     ...(sourceSidecar.peerDependenciesMeta?.keys() ?? []),
     ...(sourceSidecar.unresolvedDeps?.keys() ?? []),
     ...(sourceSidecar.entryKeyDescriptors?.keys() ?? []),
+    ...(sourceSidecar.bareChecksums?.keys() ?? []),
   ])
   const invalidated = [...sourceSubjects].filter(id => target.getNode(id) === undefined).sort()
   rememberSidecar(target, pruned)
@@ -963,6 +970,7 @@ function createYarnBerryParseContext(
     rawPeerDependenciesMeta: new Map<string, SymlMap>(),
     rawUnresolvedDeps: new Map<string, UnresolvedDepRef[]>(),
     rawEntryKeyDescriptors: new Map<string, string[]>(),
+    rawBareChecksums: new Map<string, number>(),
     entries: [],
     specIndex: new Map<string, string>(),
     patchDescriptorIndex: new Map<string, PatchDescriptorCandidate[]>(),
@@ -1141,6 +1149,7 @@ function captureYarnBerryChecksum(
   }
   payload.integrity = integrity
   if (cacheKey !== undefined) payload.berryChecksumCacheKey = cacheKey
+  else context.rawBareChecksums.set(id, context.config.lockfileVersion)
 }
 
 /** Copy the string-valued executable map into the canonical tarball payload. */
@@ -1279,6 +1288,7 @@ function createYarnBerrySidecar(context: YarnBerryParseContext): YarnBerryFamily
   if (context.rawPeerDependenciesMeta.size > 0) sidecar.peerDependenciesMeta = context.rawPeerDependenciesMeta
   if (context.rawUnresolvedDeps.size > 0) sidecar.unresolvedDeps = context.rawUnresolvedDeps
   if (context.rawEntryKeyDescriptors.size > 0) sidecar.entryKeyDescriptors = context.rawEntryKeyDescriptors
+  if (context.rawBareChecksums.size > 0) sidecar.bareChecksums = context.rawBareChecksums
   if (context.metadata !== undefined) sidecar.metadata = context.metadata
   if (context.metadata !== undefined) {
     const unknownMetadataKeys = Object.keys(context.metadata)
@@ -2584,7 +2594,14 @@ function entryOfNode(
   // (dependencies, peerDependencies, dependenciesMeta, peerDependenciesMeta) keep
   // yarn's `Manifest.exportTo` order. There is deliberately NO `optionalDependencies`
   // block — optional deps fold into `dependencies` + `dependenciesMeta` (§1.4).
-  const checksum = checksumOfPayload(payload, config, cacheKey, node.id, emitDiagnostic)
+  const checksum = checksumOfPayload(
+    payload,
+    config,
+    cacheKey,
+    node.id,
+    sidecarByGraph.get(graph)?.bareChecksums?.get(node.id) === config.lockfileVersion,
+    emitDiagnostic,
+  )
   if (checksum !== undefined) entry['checksum'] = checksum
 
   // `conditions:` is a SCALAR token (`os=darwin & cpu=arm64`, possibly with
@@ -2866,6 +2883,7 @@ function checksumOfPayload(
   config: YarnBerryFamilyConfig,
   cacheKey: string | undefined,
   nodeId: string,
+  preserveBare: boolean,
   emitDiagnostic: (diagnostic: Diagnostic) => void,
 ): string | undefined {
   const integrity = payload?.integrity
@@ -2891,13 +2909,17 @@ function checksumOfPayload(
   //      is reproduced verbatim for EVERY generation — this is what keeps a
   //      yarn-2.0 v4 `2/<hex>` round-tripping (v4 has checksumPrefix=false yet
   //      a parsed prefix must survive) AND v8/v9 `10c0/<hex>` byte-faithful.
-  //   2. With no captured key but a prefix-era config (v8/v9/v10), fall back to
+  //   2. A parse-captured bare-spelling sidecar reproduces a source-authored
+  //      `<hex>` even in a prefix-era lock. Payload absence alone cannot encode
+  //      this: newly-created entries also have no per-node key.
+  //   3. With no captured spelling but a prefix-era config (v8/v9/v10), fall back to
   //      the global cacheKey (`__metadata.cacheKey` / options / default) — the
   //      cross-family-convert and post-`mutate()` paths where the per-node
   //      sidecar was never set.
-  //   3. Otherwise (bare-era v4/v5/v6/v7, no captured key) emit bare hex.
+  //   4. Otherwise (bare-era v4/v5/v6/v7, no captured key) emit bare hex.
   const perNodeCacheKey = payload?.berryChecksumCacheKey
   if (perNodeCacheKey !== undefined) return `${perNodeCacheKey}/${hex}`
+  if (preserveBare) return hex
   return config.checksumPrefix ? `${cacheKey ?? DEFAULT_CACHEKEY_V8_V9}/${hex}` : hex
 }
 
@@ -3442,12 +3464,14 @@ function pruneSidecar(sidecar: YarnBerryFamilySidecar, nextGraph: Graph): YarnBe
   const peerDependenciesMeta = retainLiveNodeMap(sidecar.peerDependenciesMeta, nextGraph)
   const unresolvedDeps = retainLiveNodeMap(sidecar.unresolvedDeps, nextGraph)
   const entryKeyDescriptors = retainLiveNodeMap(sidecar.entryKeyDescriptors, nextGraph)
+  const bareChecksums = retainLiveNodeMap(sidecar.bareChecksums, nextGraph)
   if (peerDependencies !== undefined) pruned.peerDependencies = peerDependencies
   if (conditions !== undefined) pruned.conditions = conditions
   if (dependenciesMeta !== undefined) pruned.dependenciesMeta = dependenciesMeta
   if (peerDependenciesMeta !== undefined) pruned.peerDependenciesMeta = peerDependenciesMeta
   if (unresolvedDeps !== undefined) pruned.unresolvedDeps = unresolvedDeps
   if (entryKeyDescriptors !== undefined) pruned.entryKeyDescriptors = entryKeyDescriptors
+  if (bareChecksums !== undefined) pruned.bareChecksums = bareChecksums
   if (sidecar.metadata !== undefined) pruned.metadata = sidecar.metadata
   if (sidecar.unknownMetadataKeys !== undefined) {
     pruned.unknownMetadataKeys = sidecar.unknownMetadataKeys
@@ -3736,12 +3760,14 @@ function remapSidecar(
   const peerDependenciesMeta = rekeyLiveNodeMap(sidecar.peerDependenciesMeta, nextNodes, nextGraph)
   const unresolvedDeps = rekeyLiveNodeMap(sidecar.unresolvedDeps, nextNodes, nextGraph)
   const entryKeyDescriptors = rekeyLiveNodeMap(sidecar.entryKeyDescriptors, nextNodes, nextGraph)
+  const bareChecksums = rekeyLiveNodeMap(sidecar.bareChecksums, nextNodes, nextGraph)
   if (peerDependencies !== undefined) remapped.peerDependencies = peerDependencies
   if (conditions !== undefined) remapped.conditions = conditions
   if (dependenciesMeta !== undefined) remapped.dependenciesMeta = dependenciesMeta
   if (peerDependenciesMeta !== undefined) remapped.peerDependenciesMeta = peerDependenciesMeta
   if (unresolvedDeps !== undefined) remapped.unresolvedDeps = unresolvedDeps
   if (entryKeyDescriptors !== undefined) remapped.entryKeyDescriptors = entryKeyDescriptors
+  if (bareChecksums !== undefined) remapped.bareChecksums = bareChecksums
   if (sidecar.metadata !== undefined) remapped.metadata = sidecar.metadata
   if (sidecar.unknownMetadataKeys !== undefined) {
     remapped.unknownMetadataKeys = sidecar.unknownMetadataKeys
@@ -3788,5 +3814,6 @@ function isEmptySidecar(sidecar: YarnBerryFamilySidecar): boolean {
     && sidecar.peerDependenciesMeta === undefined
     && sidecar.unresolvedDeps === undefined
     && sidecar.entryKeyDescriptors === undefined
+    && sidecar.bareChecksums === undefined
     && sidecar.metadata === undefined
 }

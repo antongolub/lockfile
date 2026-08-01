@@ -473,7 +473,7 @@ forcing a foreign prefix into a bare lock.
 
 #### 1.7.2 Structural `checksum` gaps — entries yarn never hashes
 
-Not every missing `checksum:` is a gap to fill. Two classes are **structurally
+Not every missing `checksum:` is a gap to fill. Three classes are **structurally
 absent by yarn's own construction**, and minting a value for them is a defect:
 
 - **Conditional locators.** Yarn accumulates a set of locators whose cache hash is
@@ -484,6 +484,13 @@ absent by yarn's own construction**, and minting a value for them is a defect:
   computation, defined below.
 - **`npm:` alias entries.** The alias entry is bare by design; the checksum lives
   on the aliased target.
+- **Soft local locators.** `link:` and `portal:` entries (and directory-valued
+  `file:` locators) are consumed in place rather than from Berry's zip cache.
+  Their canonical resolution may be `unknown` because the native locator is the
+  lossless authority; checksum preflight therefore uses Berry's native
+  `linkType` protocol discriminator, not the canonical resolution kind or a
+  `0.0.0-use.local` version heuristic. Unparseable locators stay `hard` and
+  fail closed.
 
 Filling either makes `yarn install --immutable` **strip the values back out** —
 exit 0, silently, leaving a dirty tree (measured: 290 → 386 → yarn → 290). The
@@ -861,7 +868,12 @@ validates a 128-hex body (`HEX128_RE`), and returns the `cacheKey` prefix
 **separately** as sidecar attribution; the prefix never enters an SRI and is
 reproduced verbatim on emit. (Note: a real yarn-2.0 v4 lock writes the
 **prefixed** `2/<hex>` form despite the v4 default being bare, so per-node
-prefix capture round-trips that too.)
+prefix capture round-trips that too.) Conversely, prefix-era locks exist with a
+source-authored bare checksum. The adapter records that spelling per node and
+source lock generation: same-generation emit preserves it, while a
+cross-generation conversion or newly-minted node follows the target
+generation's canonical prefix policy. Treating “no per-node prefix” as “always
+bare” would incorrectly suppress `10c0/` on new v8+ entries.
 
 ### 3.4 Omit, never fabricate
 

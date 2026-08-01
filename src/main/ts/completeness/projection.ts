@@ -12,7 +12,10 @@ import { targetProfileOf } from './targets.ts'
 import type { TargetRequest } from './types.ts'
 import { stripRegistrySha1Fragment } from '../recipe/resolution.ts'
 import { denoDeclarationRangeProjections } from '../formats/_deno-core.ts'
-import { yarnBerryChecksumFreeNodes } from '../formats/_yarn-berry-core.ts'
+import {
+  linkTypeOfResolution,
+  yarnBerryChecksumFreeNodes,
+} from '../formats/_yarn-berry-core.ts'
 
 // === PROJECTION MODEL =======================================================
 
@@ -314,6 +317,7 @@ function integrityPreflight(
       }
       const archiveBacked = node.workspacePath === undefined
         && payload?.resolution?.type !== 'directory'
+        && linkTypeOfResolution(payload?.nativeResolution) === 'hard'
       if (!archiveBacked) continue
       if (payload?.integrity !== undefined && emitBerryChecksum(payload.integrity) !== undefined) continue
       // Yarn's own writer omits `checksum` for an entry it never materialised,

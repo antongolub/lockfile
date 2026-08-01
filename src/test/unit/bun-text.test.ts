@@ -26,6 +26,7 @@ import {
   addBlockEdges,
   buildInnerBlock,
   buildWorkspaceManifest,
+  adapterStateSubjects,
   check,
   enrich,
   getBunOverridesCanonical,
@@ -65,6 +66,27 @@ const FIXTURES = [
 
 const parseFixtureGraph = (name: typeof FIXTURES[number]): Graph =>
   parse(fixture(`${name}/bun-text.lock`))
+
+// Verbatim `bun install --lockfile-only` output (pinned bun 1.3.14) for a
+// project whose root package.json has NO `name` and whose member has NO
+// `version`, both carrying a workspace-level `peerDependencies` block.
+const WORKSPACE_MANIFEST_FIXTURE = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../resources/fixtures/workspace-manifest/bun-1.3.14-unnamed-root-peers/bun.lock',
+  ),
+  'utf8',
+)
+
+// Same producer, a member carrying two keys this adapter does not model (`bin`,
+// `optionalPeers`) plus a top-level `trustedDependencies` block.
+const UNMODELLED_KEYS_FIXTURE = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../resources/fixtures/workspace-manifest/bun-1.3.14-unmodelled-keys/bun.lock',
+  ),
+  'utf8',
+)
 
 // Body of the top-level `packages` block, one element per line: entry lines
 // reduced to their leading `"<key>": [` and blank lines kept verbatim, so a
@@ -1011,6 +1033,122 @@ describe('stringify', () => {
     const out = stringify(parseFixtureGraph('workspaces-basic'))
     const block = out.slice(out.indexOf('"workspaces"'), out.indexOf('"packages"'))
     expect(block).not.toContain('\n\n')
+  })
+
+  // bun encodes peer-deps as DATA, not graph edges, so parse stashes a
+  // workspace manifest's `peerDependencies` on the sidecar exactly as it does
+  // for a package inner block. The workspaces emit path has to recover them
+  // from there — walking graph edges alone finds none.
+  it('mirrors a workspace manifest peerDependencies block back', () => {
+    const out = stringify(parse(WORKSPACE_MANIFEST_FIXTURE))
+    const ws = JSON.parse(out.replace(/,(\s*[}\]])/g, '$1')).workspaces
+    expect(ws['']?.peerDependencies).toEqual({ typescript: '^5' })
+    expect(ws['pkgs/a']?.peerDependencies).toEqual({ react: '^18' })
+  })
+
+  // A synthesized key is a projection ADDITION: bun omits `name` for a project
+  // whose package.json has none, and omits `version` likewise. Emitting the
+  // defaults parse filled in ("" / "0.0.0") invents lines the producer never
+  // wrote. Omission is only safe because reparsing re-derives those same
+  // defaults, so node identity is unchanged.
+  it('omits a workspace name the source manifest did not carry', () => {
+    const out = stringify(parse(WORKSPACE_MANIFEST_FIXTURE))
+    const ws = JSON.parse(out.replace(/,(\s*[}\]])/g, '$1')).workspaces
+    expect(Object.keys(ws[''])).not.toContain('name')
+    expect(Object.keys(ws['pkgs/a'])).toContain('name')
+  })
+
+  it('omits a workspace member version the source manifest did not carry', () => {
+    const out = stringify(parse(WORKSPACE_MANIFEST_FIXTURE))
+    const ws = JSON.parse(out.replace(/,(\s*[}\]])/g, '$1')).workspaces
+    expect(Object.keys(ws['pkgs/a'])).not.toContain('version')
+  })
+
+  it('keeps workspace name and version for a graph carrying no bun sidecar', () => {
+    // Cross-format projection: nothing recorded what the producer wrote, so
+    // identity must still be emitted rather than assumed absent.
+    const builder = newBuilder()
+    builder.addNode({
+      id: 'root@1.2.3', name: 'root', version: '1.2.3', peerContext: [], workspacePath: '',
+    })
+    builder.addNode({
+      id: 'member@4.5.6', name: 'member', version: '4.5.6', peerContext: [], workspacePath: 'pkgs/m',
+    })
+    const ws = JSON.parse(
+      stringify(builder.seal()).replace(/,(\s*[}\]])/g, '$1'),
+    ).workspaces
+    expect(ws['']?.name).toBe('root')
+    expect(ws['pkgs/m']?.name).toBe('member')
+    expect(ws['pkgs/m']?.version).toBe('4.5.6')
+  })
+
+  it('round-trips the unnamed-root workspace manifest fixture byte-identically', () => {
+    expect(stringify(parse(WORKSPACE_MANIFEST_FIXTURE))).toBe(WORKSPACE_MANIFEST_FIXTURE)
+  })
+
+  // Producer-tolerated, adapter-unknown keys inside a `workspaces` entry ride
+  // the same verbatim carrier as unknown TOP-LEVEL keys — replayed in the same
+  // format, declared as a loss at any format boundary. Modelling them would
+  // claim a cross-format meaning that `bin` in particular does not have.
+  it('replays an unmodelled workspace manifest key verbatim', () => {
+    const ws = JSON.parse(
+      stringify(parse(UNMODELLED_KEYS_FIXTURE)).replace(/,(\s*[}\]])/g, '$1'),
+    ).workspaces
+    expect(ws['pkgs/tool'].bin).toEqual({ tool: 'cli.js' })
+    expect(ws['pkgs/tool'].optionalPeers).toEqual(['react'])
+  })
+
+  it('keeps an unmodelled workspace manifest key in its source position', () => {
+    const ws = JSON.parse(
+      stringify(parse(UNMODELLED_KEYS_FIXTURE)).replace(/,(\s*[}\]])/g, '$1'),
+    ).workspaces
+    expect(Object.keys(ws['pkgs/tool']))
+      .toEqual(['name', 'version', 'bin', 'peerDependencies', 'optionalPeers'])
+  })
+
+  it('names every unmodelled workspace manifest key as an adapter-state subject', () => {
+    // Silent preservation must not become silent loss at the format boundary.
+    expect(adapterStateSubjects(parse(UNMODELLED_KEYS_FIXTURE)))
+      .toEqual(['workspace[pkgs/tool]:bin', 'workspace[pkgs/tool]:optionalPeers'])
+  })
+
+  it('emits trustedDependencies and patchedDependencies before packages', () => {
+    const keys = Object.keys(JSON.parse(
+      stringify(parse(UNMODELLED_KEYS_FIXTURE)).replace(/,(\s*[}\]])/g, '$1'),
+    ))
+    expect(keys).toEqual(['lockfileVersion', 'configVersion', 'workspaces', 'trustedDependencies', 'packages'])
+  })
+
+  // Both blocks are documented as round-tripping VERBATIM, and bun preserves
+  // the order the project authored. Sorting them is a rewrite, not a replay.
+  it('preserves the authored order of trustedDependencies and patchedDependencies', () => {
+    const out = stringify(parse(JSON.stringify({
+      lockfileVersion: 1,
+      workspaces: { '': { name: 'root', dependencies: { lodash: '^4' } } },
+      trustedDependencies: ['zulu', 'alpha', 'mike'],
+      patchedDependencies: { 'zeta@1.0.0': 'patches/z.patch', 'alpha@1.0.0': 'patches/a.patch' },
+      packages: { lodash: ['lodash@4.17.21', '', {}, ''] },
+    })))
+    const lock = JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'))
+    expect(lock.trustedDependencies).toEqual(['zulu', 'alpha', 'mike'])
+    expect(Object.keys(lock.patchedDependencies)).toEqual(['zeta@1.0.0', 'alpha@1.0.0'])
+  })
+
+  // bun renders an array multi-line when it is a value of a MULTI-LINE object,
+  // and inline when it is a positional `packages` tuple.
+  it('renders an array in a multi-line object across lines with a trailing comma', () => {
+    const out = stringify(parse(UNMODELLED_KEYS_FIXTURE))
+    expect(out).toContain('"trustedDependencies": [\n    "ms",\n  ],')
+    expect(out).toContain('"optionalPeers": [\n        "react",\n      ],')
+  })
+
+  it('keeps the positional packages tuple inline', () => {
+    const out = stringify(parse(UNMODELLED_KEYS_FIXTURE))
+    expect(out).toContain('"tool": ["tool@workspace:pkgs/tool"],')
+  })
+
+  it('round-trips the unmodelled-keys fixture byte-identically', () => {
+    expect(stringify(parse(UNMODELLED_KEYS_FIXTURE))).toBe(UNMODELLED_KEYS_FIXTURE)
   })
 
   it('replays every producer-authored bun-text fixture byte-identically', () => {
