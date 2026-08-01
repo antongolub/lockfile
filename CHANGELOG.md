@@ -1,3 +1,12 @@
+## [0.6.3](https://github.com/lockgraph/lockgraph/compare/v0.6.2...v0.6.3) (2026-08-01)
+
+### Fixes & improvements
+* fix: emit pnpm locks that pnpm can install ([691ec26](https://github.com/lockgraph/lockgraph/commit/691ec26f7fbcd83a160ee3b40b66264c0768334f))
+* fix: read the lockfile shapes producers actually write ([ca9757f](https://github.com/lockgraph/lockgraph/commit/ca9757f980c2f8f14cda5bf43a07a4963ba0eae2))
+* fix: make real-world lockfiles round-trip across five formats ([e2329ea](https://github.com/lockgraph/lockgraph/commit/e2329ea7a1c1b532e32862ae6226dd9292cb3b27))
+* fix: make real-world lockfiles round-trip across five formats ([3081102](https://github.com/lockgraph/lockgraph/commit/3081102b3553cddd05e6cce4508c37ed7ddda2b3))
+* fix(deno): match Deno's own bytes for modified lock ([8956d7d](https://github.com/lockgraph/lockgraph/commit/8956d7dad9fed08cb741cad6d8e49586ac276025))
+
 ## [0.6.2](https://github.com/lockgraph/lockgraph/compare/v0.6.1...v0.6.2) (2026-08-01)
 
 ### Fixes & improvements
