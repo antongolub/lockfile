@@ -191,6 +191,7 @@ describe('0.6 operation spine — public declaration', () => {
       'modify',
       'parse',
       'prepareFrozen',
+      'refurbish',
       'removeUnreachable',
       'resolveRegistry',
       'selectConstrained',
