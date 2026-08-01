@@ -504,6 +504,14 @@ describe('parse', () => {
     expect(graph.diagnostics().map(d => d.code)).toContain('PNPM_BAD_ENTRY')
   })
 
+  it('names the unparseable packages key as the PNPM_BAD_ENTRY subject', () => {
+    const graph = parse(
+      V5('specifiers: {}\n\npackages:\n\n  bad-key-no-slash:\n    resolution: {integrity: sha512-x}\n    dev: false\n'),
+    )
+    const bad = graph.diagnostics().filter(d => d.code === 'PNPM_BAD_ENTRY')
+    expect(bad.map(d => d.subject)).toEqual(['bad-key-no-slash'])
+  })
+
   it('warns PNPM_UNRESOLVED_DEP when an importer `link:` points at an unknown workspace', () => {
     const graph = parse(
       V5('specifiers:\n  x: link:../nowhere\n\ndependencies:\n  x: link:../nowhere\n\npackages: {}\n'),

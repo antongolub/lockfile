@@ -108,6 +108,17 @@ this is only how npm-2 *carries* it.
   for npm to skip optional/incompatible installs.
 - Workspaces appear under their on-disk path (`packages/foo`) **and** as
   symlinks at `node_modules/<name>` with `link: true, resolved: "packages/foo"`.
+- The root entry's `workspaces` field has **two** legitimate spellings, because
+  npm copies it out of the root manifest verbatim and `@npmcli/map-workspaces`
+  reads either: the array form `["packages/*"]`, and the object form
+  `{ "packages": ["packages/*"], "nohoist": [...] }`. npm's own arborist test
+  fixtures use both. Whichever is present is carried and replayed as written —
+  normalising the object form to its `packages` array would emit a root entry
+  that differs from the one npm writes. Neither form is what names workspace
+  members in the lock; that is the `link: true` entries above. A `workspaces`
+  value that is neither an array nor an object is dropped with
+  `NPM_BAD_ROOT_WORKSPACES`, reported against the root package name (the root
+  entry's own key is the empty string).
 - An ordinary registry package installed under an npm-alias path
   (`node_modules/<alias>`) keeps its canonical package identity in the entry's
   `name` field. The emitter derives that requirement from the actual planned

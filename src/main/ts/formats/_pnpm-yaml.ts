@@ -26,6 +26,9 @@
 //   - scalars: bare strings, quoted strings (`'9.0'`, `'>=4'`), booleans
 //   - keys may be bare (`react`), quoted (`'@types/node@20.11.30'`), or
 //     contain `@`, `(`, `)`, `/` characters (packages keys)
+//   - explicit keys (`? <key>` / `: <value>`) — the form YAML 1.2 requires, and
+//     pnpm's emitter falls back to, once a key exceeds the 1024-character
+//     implicit-key limit (see `IMPLICIT_KEY_LIMIT`)
 //   - 2-space indent, LF newlines
 //
 // This module is not a general-purpose YAML 1.2 implementation. Supported
@@ -39,6 +42,19 @@ export interface YamlMap { [k: string]: unknown }
 
 const FLOW_MAP_TAG = Symbol.for('lockgraph/_pnpm-yaml/flow-map')
 const QUOTED_TAG = Symbol.for('lockgraph/_pnpm-yaml/quoted')
+
+/**
+ * YAML 1.2 caps an IMPLICIT mapping key (`<key>: <value>` on one line) at 1024
+ * characters. A longer key must be written in the EXPLICIT form — `? <key>` on
+ * one line, `: <value>` on the next. pnpm's emitter applies the rule to the
+ * SERIALIZED key, quotes included, and deeply nested peer contexts combined with
+ * `patch_hash=` segments reach it in practice (e.g. expo/expo's
+ * `@shopify/react-native-skia@2.6.2(patch_hash=…)` snapshot key, 1043 emitted
+ * characters). Producer-authored corpus evidence: across 76 pnpm locks the
+ * longest implicit key is 1007 characters and the sole explicit key is 1043 —
+ * no implicit key exceeds the limit, and no explicit key falls under it.
+ */
+const IMPLICIT_KEY_LIMIT = 1024
 
 export interface YamlFlowMap {
   readonly [FLOW_MAP_TAG]: true
@@ -147,8 +163,18 @@ interface YamlReader {
   pos: number
 }
 
-function readBlockMap(reader: YamlReader, baseIndent: number): YamlMap {
+/**
+ * Read a block map whose entries sit at `baseIndent`.
+ *
+ * `inlineFirstEntry` seeds the map with one entry whose `<key>: <value>` text
+ * was already lifted off an earlier line — the explicit-key form writes the
+ * value mapping's first entry on the `: ` line itself (see
+ * `readExplicitKeyValue`). Passing it here keeps ONE entry grammar rather than
+ * a second, near-duplicate one.
+ */
+function readBlockMap(reader: YamlReader, baseIndent: number, inlineFirstEntry?: string): YamlMap {
   const out: YamlMap = {}
+  if (inlineFirstEntry !== undefined) readMapEntry(reader, baseIndent, inlineFirstEntry, out)
   while (reader.pos < reader.lines.length) {
     const line = reader.lines[reader.pos]
     if (line === undefined) { reader.pos++; continue }
@@ -160,43 +186,107 @@ function readBlockMap(reader: YamlReader, baseIndent: number): YamlMap {
       continue
     }
     const content = line.slice(indent)
-    const colonIdx = findKeyColon(content)
-    if (colonIdx < 0) {
+    // YAML explicit key — `? <key>` here, `: <value>` on the following line.
+    // pnpm writes a key this way once it passes `IMPLICIT_KEY_LIMIT`; reading it
+    // as an ordinary line drops the key AND yields a bogus `''` entry from the
+    // `: ` line, so the package silently vanishes from the map.
+    if (content === '?' || content.startsWith('? ')) {
       reader.pos++
+      out[unquoteKey(stripInlineComment(content.slice(1)).trim())] =
+        readExplicitKeyValue(reader, baseIndent)
       continue
     }
-    const rawKey = content.slice(0, colonIdx).trimEnd()
-    const key = unquoteKey(rawKey)
-    const rest = content.slice(colonIdx + 1)
-    const restClean = stripInlineComment(rest).trimEnd()
-    const restValue = restClean.replace(/^ +/, '')
-
     reader.pos++
-    if (restValue === '') {
-      // The child is either a nested block map or a block SEQUENCE (`- item`
-      // lines). Peek the next non-blank line: a `- `-led item belongs to this
-      // key whether indented DEEPER than the key (pnpm input style, e.g.
-      // `transitivePeerDependencies:` with items at +2) or at the SAME indent
-      // as the key (this codec's own emit style for `cpu`/`os`/`libc`). Both
-      // are valid YAML; without recognising them a block sequence reads back as
-      // `{}` and the list is silently dropped (breaking re-parse round-trip).
-      out[key] = peekIsBlockSequence(reader, baseIndent)
-        ? readBlockSequence(reader, baseIndent)
-        : readBlockMap(reader, baseIndent + 2)
-    } else if (restValue === '|' || restValue === '>') {
-      while (reader.pos < reader.lines.length) {
-        const next = reader.lines[reader.pos]
-        if (next === undefined) break
-        const ind = leadingSpaces(next)
-        if (next.trim().length > 0 && ind <= baseIndent) break
-        reader.pos++
-      }
-      out[key] = ''
-    } else {
-      out[key] = parseInlineValue(restValue)
-    }
+    readMapEntry(reader, baseIndent, content, out)
   }
   return out
+}
+
+/**
+ * Read one block-map entry into `out`. `content` is the entry's `<key>: <rest>`
+ * text with indentation stripped, and its line has ALREADY been consumed;
+ * any continuation (nested block map, block sequence, block scalar) is read
+ * from `reader`. A line with no key colon contributes nothing.
+ */
+function readMapEntry(reader: YamlReader, baseIndent: number, content: string, out: YamlMap): void {
+  const colonIdx = findKeyColon(content)
+  if (colonIdx < 0) return
+  const rawKey = content.slice(0, colonIdx).trimEnd()
+  const key = unquoteKey(rawKey)
+  const rest = content.slice(colonIdx + 1)
+  const restClean = stripInlineComment(rest).trimEnd()
+  const restValue = restClean.replace(/^ +/, '')
+
+  if (restValue === '') {
+    // The child is either a nested block map or a block SEQUENCE (`- item`
+    // lines). Peek the next non-blank line: a `- `-led item belongs to this
+    // key whether indented DEEPER than the key (pnpm input style, e.g.
+    // `transitivePeerDependencies:` with items at +2) or at the SAME indent
+    // as the key (this codec's own emit style for `cpu`/`os`/`libc`). Both
+    // are valid YAML; without recognising them a block sequence reads back as
+    // `{}` and the list is silently dropped (breaking re-parse round-trip).
+    out[key] = peekIsBlockSequence(reader, baseIndent)
+      ? readBlockSequence(reader, baseIndent)
+      : readBlockMap(reader, baseIndent + 2)
+  } else if (restValue === '|' || restValue === '>') {
+    while (reader.pos < reader.lines.length) {
+      const next = reader.lines[reader.pos]
+      if (next === undefined) break
+      const ind = leadingSpaces(next)
+      if (next.trim().length > 0 && ind <= baseIndent) break
+      reader.pos++
+    }
+    out[key] = ''
+  } else {
+    out[key] = parseInlineValue(restValue)
+  }
+}
+
+/**
+ * Read the value half of an explicit-key entry — the `: <value>` line sitting at
+ * the key's own indent, directly after `? <key>`.
+ *
+ * pnpm's emitter writes the value one level deeper than the key and, when that
+ * value is a mapping, puts its FIRST entry on the `: ` line:
+ *
+ *     ? '<over-long key>'
+ *     : dependencies:
+ *         canvaskit-wasm: 0.41.0
+ *       optionalDependencies:
+ *         react-native: 0.86.0(…)
+ *
+ * A `? <key>` with no `: ` line is a YAML key with a null value.
+ */
+function readExplicitKeyValue(reader: YamlReader, baseIndent: number): unknown {
+  while (reader.pos < reader.lines.length) {
+    const line = reader.lines[reader.pos]
+    if (line !== undefined && !isBlankOrComment(line)) break
+    reader.pos++
+  }
+  const line = reader.lines[reader.pos]
+  if (line === undefined) return null
+  const indent = leadingSpaces(line)
+  const content = line.slice(indent)
+  if (indent !== baseIndent || (content !== ':' && !content.startsWith(': '))) return null
+
+  reader.pos++
+  const restValue = stripInlineComment(content.slice(1)).trimEnd().replace(/^ +/, '')
+  if (restValue === '') {
+    return peekIsBlockSequence(reader, baseIndent)
+      ? readBlockSequence(reader, baseIndent)
+      : readBlockMap(reader, baseIndent + 2)
+  }
+  // A flow value (`{}`, `{a: 1}`, `[…]`) or a quoted scalar is the WHOLE value;
+  // anything else carrying a key colon is the value mapping's first entry.
+  if (!isFlowOrQuotedStart(restValue) && findKeyColon(restValue) >= 0) {
+    return readBlockMap(reader, baseIndent + 2, restValue)
+  }
+  return parseInlineValue(restValue)
+}
+
+function isFlowOrQuotedStart(value: string): boolean {
+  const c = value[0]
+  return c === '{' || c === '[' || c === "'" || c === '"'
 }
 
 /**
@@ -425,46 +515,97 @@ function emitBlockMap(lines: string[], map: YamlMap, depth: number, sectionKey?:
     const [key, value] = pair
     const emittedKey = emitScalarKey(key)
     if (isTopSubsection) lines.push('')
-    if (value === undefined || value === null) {
-      lines.push(`${indent}${emittedKey}:`)
+    // A key past YAML's implicit limit MUST use the explicit form, or a strict
+    // reader (pnpm's own) rejects the file. Emit the entry through the ordinary
+    // path and re-head it — one emit grammar, and the layout matches pnpm's.
+    if (emittedKey.length > IMPLICIT_KEY_LIMIT) {
+      const entryLines: string[] = []
+      emitBlockMapEntry(entryLines, emittedKey, value, indent, depth)
+      lines.push(...toExplicitKeyEntry(entryLines, emittedKey, indent))
       continue
     }
-    if (isFlowMap(value)) {
-      if (Object.keys(value.entries).length === 0) {
-        lines.push(`${indent}${emittedKey}: {}`)
-      } else {
-        lines.push(`${indent}${emittedKey}: ${emitFlowMap(value.entries)}`)
-      }
-      continue
-    }
-    if (isQuotedScalar(value)) {
-      lines.push(`${indent}${emittedKey}: ${emitQuoted(value.value)}`)
-      continue
-    }
-    if (isPlainObject(value)) {
-      const obj = value as YamlMap
-      const objEntries = Object.entries(obj)
-      if (objEntries.length === 0) {
-        lines.push(`${indent}${emittedKey}: {}`)
-      } else {
-        lines.push(`${indent}${emittedKey}:`)
-        emitBlockMap(lines, obj, depth + 1)
-      }
-    } else if (Array.isArray(value)) {
-      if (value.length === 0) {
-        lines.push(`${indent}${emittedKey}: []`)
-      } else {
-        lines.push(`${indent}${emittedKey}:`)
-        for (const item of value) {
-          lines.push(`${indent}- ${emitScalar(String(item))}`)
-        }
-      }
-    } else if (typeof value === 'boolean') {
-      lines.push(`${indent}${emittedKey}: ${value}`)
-    } else {
-      lines.push(`${indent}${emittedKey}: ${emitScalar(String(value))}`)
-    }
+    emitBlockMapEntry(lines, emittedKey, value, indent, depth)
   }
+}
+
+/** Emit one `<key>: <value>` block-map entry (key already serialized). */
+function emitBlockMapEntry(
+  lines: string[],
+  emittedKey: string,
+  value: unknown,
+  indent: string,
+  depth: number,
+): void {
+  if (value === undefined || value === null) {
+    lines.push(`${indent}${emittedKey}:`)
+    return
+  }
+  if (isFlowMap(value)) {
+    if (Object.keys(value.entries).length === 0) {
+      lines.push(`${indent}${emittedKey}: {}`)
+    } else {
+      lines.push(`${indent}${emittedKey}: ${emitFlowMap(value.entries)}`)
+    }
+    return
+  }
+  if (isQuotedScalar(value)) {
+    lines.push(`${indent}${emittedKey}: ${emitQuoted(value.value)}`)
+    return
+  }
+  if (isPlainObject(value)) {
+    const obj = value as YamlMap
+    const objEntries = Object.entries(obj)
+    if (objEntries.length === 0) {
+      lines.push(`${indent}${emittedKey}: {}`)
+    } else {
+      lines.push(`${indent}${emittedKey}:`)
+      emitBlockMap(lines, obj, depth + 1)
+    }
+  } else if (Array.isArray(value)) {
+    if (value.length === 0) {
+      lines.push(`${indent}${emittedKey}: []`)
+    } else {
+      lines.push(`${indent}${emittedKey}:`)
+      for (const item of value) {
+        lines.push(`${indent}- ${emitScalar(String(item))}`)
+      }
+    }
+  } else if (typeof value === 'boolean') {
+    lines.push(`${indent}${emittedKey}: ${value}`)
+  } else {
+    lines.push(`${indent}${emittedKey}: ${emitScalar(String(value))}`)
+  }
+}
+
+/**
+ * Rewrite an emitted `<key>: <value>` entry into YAML's explicit-key form.
+ *
+ * The key line becomes `? <key>`; the entry's first VALUE line moves onto a
+ * `: ` line at the key's own indent — an inline scalar/flow value directly, or
+ * else the first line of the nested block, which pnpm likewise writes there:
+ *
+ *     ? '<over-long key>'
+ *     : dependencies:
+ *         canvaskit-wasm: 0.41.0
+ *       optionalDependencies:
+ *         react-native: 0.86.0(…)
+ *
+ * A block SEQUENCE value sits at the key's own indent rather than one level
+ * deeper (this codec's `cpu`/`os`/`libc` style), so it has no line to lift and
+ * stays put under a bare `:`.
+ */
+function toExplicitKeyEntry(entryLines: string[], emittedKey: string, indent: string): string[] {
+  const keyLine = `${indent}? ${emittedKey}`
+  const head = entryLines[0] ?? `${indent}${emittedKey}:`
+  const inline = head.slice(`${indent}${emittedKey}:`.length).replace(/^ /, '')
+  const rest = entryLines.slice(1)
+  if (inline !== '') return [keyLine, `${indent}: ${inline}`, ...rest]
+  const childIndent = `${indent}  `
+  const firstChild = rest[0]
+  if (firstChild !== undefined && firstChild.startsWith(childIndent)) {
+    return [keyLine, `${indent}: ${firstChild.slice(childIndent.length)}`, ...rest.slice(1)]
+  }
+  return [keyLine, `${indent}:`, ...rest]
 }
 
 function emitFlowMap(obj: YamlMap): string {

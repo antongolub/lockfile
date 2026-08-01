@@ -15,8 +15,7 @@ import { berryCacheKeyReproducible, computeBerryChecksum } from '../recipe/berry
 import { computeBerryChecksumViaLibzip } from '../recipe/berry-pack-libzip.ts'
 import {
   isBareYarnBerryNpmAliasNode,
-  rawConditionsScalarOfNode,
-  rawDependenciesMetaBlockOfNode,
+  yarnBerryChecksumFreeNodes,
 } from '../formats/_yarn-berry-core.ts'
 import {
   enrichChecksumDeferred,
@@ -124,156 +123,6 @@ const PREFIX_ERA_MIN_LOCKFILE_VERSION = 8
 const isPrefixEraFormat = (format: string): boolean => {
   const m = /^yarn-berry-v(\d+)$/.exec(format)
   return m !== null && Number(m[1]) >= PREFIX_ERA_MIN_LOCKFILE_VERSION
-}
-
-/** Whether Yarn propagates optional-build status across this dependency edge.
- * Berry folds optionalDependencies into `dependencies` and records the bit in
- * the parent's dependenciesMeta sidecar; completion/conversion may instead
- * retain an explicit canonical `optional` edge. */
-function isOptionalBuildEdge(graph: Graph, edge: Edge): boolean {
-  if (edge.kind === 'optional') return true
-  const dst = graph.getNode(edge.dst)
-  if (dst === undefined) return false
-  const dependencyName = edge.attrs?.alias ?? dst.name
-  const rawMeta = rawDependenciesMetaBlockOfNode(graph, edge.src)?.[dependencyName]
-  return rawMeta !== null
-    && typeof rawMeta === 'object'
-    && rawMeta['optional'] === 'true'
-}
-
-/** Yarn's optionalBuilds set contains packages reachable only through a path
- * that has become optional. Its delete-on-any-required-path behavior is
- * equivalent to finding every node reachable from a workspace through only
- * non-optional edges. */
-function nonOptionalReachableNodes(graph: Graph): ReadonlySet<NodeId> {
-  const nodes = [...graph.nodes()]
-  const workspaceRoots = nodes.filter(node => node.workspacePath !== undefined).map(node => node.id)
-  const queue = workspaceRoots.length > 0 ? workspaceRoots : [...graph.roots()]
-  const reachable = new Set<NodeId>()
-  for (let cursor = 0; cursor < queue.length; cursor++) {
-    const nodeId = queue[cursor]!
-    if (reachable.has(nodeId)) continue
-    reachable.add(nodeId)
-    for (const edge of graph.out(nodeId)) {
-      if (!isOptionalBuildEdge(graph, edge) && !reachable.has(edge.dst)) queue.push(edge.dst)
-    }
-  }
-  return reachable
-}
-
-/** Yarn 2.x / 3.1.x checked `accessibleLocators` before deleting a locator from
- * `optionalBuilds`. Consequently the first path to a locator wins: a later
- * required path cannot promote a node first reached through an optional path.
- * Lockfile v4/v5 are the generations with that traversal. Later generations
- * delete before the accessibility guard, which is the any-required-path set
- * returned by {@link nonOptionalReachableNodes}. */
-function firstVisitRequiredNodes(graph: Graph): ReadonlySet<NodeId> {
-  const nodes = [...graph.nodes()]
-  const workspaceRoots = nodes.filter(node => node.workspacePath !== undefined).map(node => node.id)
-  const roots = workspaceRoots.length > 0 ? workspaceRoots : [...graph.roots()]
-  const accessible = new Set<NodeId>()
-  const required = new Set<NodeId>()
-
-  for (const root of roots) {
-    const stack: Array<{ id: NodeId; optional: boolean }> = [{ id: root, optional: false }]
-    while (stack.length > 0) {
-      const current = stack.pop()!
-      if (accessible.has(current.id)) continue
-      accessible.add(current.id)
-      if (!current.optional) required.add(current.id)
-      const edges = graph.out(current.id)
-      for (let index = edges.length - 1; index >= 0; index--) {
-        const edge = edges[index]!
-        stack.push({
-          id: edge.dst,
-          optional: current.optional || isOptionalBuildEdge(graph, edge),
-        })
-      }
-    }
-  }
-  return required
-}
-
-function ordinaryRequiredNodes(graph: Graph, format: string): ReadonlySet<NodeId> {
-  const match = /^yarn-berry-v(\d+)$/.exec(format)
-  return match !== null && Number(match[1]) <= 5
-    ? firstVisitRequiredNodes(graph)
-    : nonOptionalReachableNodes(graph)
-}
-
-// === BERRY LOCATOR IDENTITY =================================================
-
-function defaultBerryNpmLocator(node: Node): string {
-  return `${node.name}@npm:${node.version}`
-}
-
-function nativeOrDefaultBerryLocator(graph: Graph, node: Node): string {
-  return graph.tarballOf(node.id)?.nativeResolution ?? defaultBerryNpmLocator(node)
-}
-
-/** Decode the source locator embedded in a Berry `patch:` resolution. Patch is
- * one of the two concrete resolvers that returns non-empty
- * `getResolutionDependencies`; its source package is retained even when no
- * ordinary dependency edge reaches it. */
-function patchSourceLocator(node: Node, nativeResolution: string | undefined): string | undefined {
-  if (node.patch === undefined || nativeResolution === undefined) return undefined
-  const prefix = `${node.name}@patch:`
-  if (!nativeResolution.startsWith(prefix)) return undefined
-  const hash = nativeResolution.indexOf('#', prefix.length)
-  if (hash < 0) return undefined
-  try {
-    return decodeURIComponent(nativeResolution.slice(prefix.length, hash))
-  } catch {
-    return undefined
-  }
-}
-
-function jsrInnerName(name: string): string | undefined {
-  if (!name.startsWith('@')) return `@jsr/${name}`
-  const slash = name.indexOf('/')
-  if (slash <= 1 || slash === name.length - 1) return undefined
-  return `@jsr/${name.slice(1, slash)}__${name.slice(slash + 1)}`
-}
-
-/** Reconstruct Yarn's resolution-dependency locator set from lock-visible
- * resolver pairs. Across the bundled Berry generations every concrete
- * resolver returns an empty set except:
- *
- * - `PatchResolver` -> its embedded source descriptor;
- * - `JsrResolver` (Yarn 4.13+) -> the npm-backed `@jsr/*` inner descriptor.
- *
- * Alias/lockfile/multi resolvers only delegate to those concrete resolvers;
- * git, tarball, exec, file, portal, link, npm, workspace, and virtual do not
- * add resolution dependencies. A candidate is included only on an exact
- * lock-visible locator match, so an ambiguous same-name/version source fails
- * closed rather than minting a checksum Yarn would remove. */
-function resolutionDependencyNodes(graph: Graph): ReadonlySet<NodeId> {
-  const dependencies = new Set<NodeId>()
-  for (const owner of graph.nodes()) {
-    const native = graph.tarballOf(owner.id)?.nativeResolution
-    const patchSource = patchSourceLocator(owner, native)
-    if (patchSource !== undefined) {
-      for (const id of graph.byName(owner.name)) {
-        const candidate = graph.getNode(id)
-        if (candidate === undefined || candidate.patch !== undefined) continue
-        if (candidate.version !== owner.version) continue
-        if (nativeOrDefaultBerryLocator(graph, candidate) === patchSource) dependencies.add(id)
-      }
-    }
-
-    if (native !== `${owner.name}@jsr:${owner.version}`) continue
-    const innerName = jsrInnerName(owner.name)
-    if (innerName === undefined) continue
-    for (const id of graph.byName(innerName)) {
-      const candidate = graph.getNode(id)
-      if (candidate === undefined || candidate.patch !== undefined) continue
-      if (candidate.version !== owner.version) continue
-      if (nativeOrDefaultBerryLocator(graph, candidate) === `${innerName}@npm:${owner.version}`) {
-        dependencies.add(id)
-      }
-    }
-  }
-  return dependencies
 }
 
 /** The cacheKey to recompute against, or `undefined` when it can't be inferred
@@ -618,8 +467,7 @@ export async function refurbish(
   // it. So a non-reproducible node is still a `fetch` candidate when an oracle exists
   // (the resolved step asks it first, and DEFERS only if it can't supply).
   const canSupply = berryChecksums !== undefined
-  const ordinaryRequired = ordinaryRequiredNodes(graph, format)
-  const resolutionDependencies = resolutionDependencyNodes(graph)
+  const checksumFree = yarnBerryChecksumFreeNodes(graph, format)
   const cands: Cand[] = []
   for (const node of graph.nodes()) {
     if (seed !== undefined && !seed.has(node.id)) continue
@@ -633,16 +481,10 @@ export async function refurbish(
     if (existingBerry !== undefined
       && (payload.berryChecksumCacheKey === undefined
         || payload.berryChecksumCacheKey === cacheKey)) continue
-    // Source rule, invariant across Berry generations: a conditioned package
-    // stays checksum-null iff it remains in `optionalBuilds` after ordinary
-    // traversal. Resolution-dependency packages are removed from that set
-    // before traversal (notably the bare npm source beneath fsevents' builtin
-    // patch, and Yarn 4.13+'s npm-backed JSR inner package), so either signal
-    // makes the gap fillable. The patched/wrapper locator itself remains bare.
-    const conditioned = rawConditionsScalarOfNode(graph, node.id) !== undefined
-    if (conditioned
-      && !ordinaryRequired.has(node.id)
-      && !resolutionDependencies.has(node.id)) continue
+    // Yarn's own writer leaves this entry checksum-null (the conditioned ∩
+    // optionalBuilds − resolutionDependencies source rule); filling the gap
+    // would only be deleted again on the next install.
+    if (checksumFree.has(node.id)) continue
     // Alias-only npm entries are bare by design; their resolved target locator
     // carries the checksum in every Berry generation.
     if (isBareYarnBerryNpmAliasNode(graph, node.id)) continue

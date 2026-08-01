@@ -45,11 +45,27 @@ describe('parse', () => {
     expect(graph.diagnostics().map(d => d.code)).toContain('PNPM_BAD_ENTRY')
   })
 
+  it('names the unparseable v9 snapshot key as the PNPM_BAD_ENTRY subject', () => {
+    // No NodeId exists for an entry that cannot be parsed — without the key as
+    // subject the warning identifies nothing.
+    const graph = parseV9(V9('importers:\n\n  .: {}\n\npackages: {}\n\nsnapshots:\n\n  no-at-sign: {}\n'))
+    const bad = graph.diagnostics().filter(d => d.code === 'PNPM_BAD_ENTRY')
+    expect(bad.map(d => d.subject)).toEqual(['no-at-sign'])
+  })
+
   it('warns PNPM_BAD_ENTRY on a v6 packages key that has no `@` after slash-strip', () => {
     const graph = parseV6(
       V6('dependencies:\n  lodash: 4.17.21\n\npackages:\n\n  /no-at-sign-here:\n    resolution: {integrity: sha512-x}\n    dev: false\n'),
     )
     expect(graph.diagnostics().map(d => d.code)).toContain('PNPM_BAD_ENTRY')
+  })
+
+  it('names the unparseable v6 packages key as the PNPM_BAD_ENTRY subject', () => {
+    const graph = parseV6(
+      V6('dependencies:\n  lodash: 4.17.21\n\npackages:\n\n  /no-at-sign-here:\n    resolution: {integrity: sha512-x}\n    dev: false\n'),
+    )
+    const bad = graph.diagnostics().filter(d => d.code === 'PNPM_BAD_ENTRY')
+    expect(bad.map(d => d.subject)).toEqual(['/no-at-sign-here'])
   })
 
   it('rethrows a GraphError seal failure as a PARSE_FAILED LockfileError (v9)', () => {

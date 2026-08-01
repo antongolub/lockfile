@@ -218,6 +218,16 @@ export type NpmFamilyOptimizeOptions = {}
 
 // === JSON entry schemas =====================================================
 
+/** The root manifest's `workspaces` field, which npm copies into `packages[""]`
+ *  verbatim. npm accepts BOTH spellings and `@npmcli/map-workspaces` reads
+ *  either: the array form `["a", "b"]`, and the object form
+ *  `{ "packages": ["a"], "nohoist": [...] }` inherited from the yarn-1 era.
+ *  Both are carried as written — normalising the object form to its `packages`
+ *  array would re-emit a lock that differs from the one npm itself writes. */
+export type NpmWorkspacesField =
+  | string[]
+  | Readonly<{ packages?: string[], [key: string]: unknown }>
+
 // JSON-shape of an npm `packages` entry.
 export interface NpmEntry {
   name?: string
@@ -239,7 +249,7 @@ export interface NpmEntry {
   engines?: Record<string, string>
   funding?: unknown
   license?: string
-  workspaces?: string[]
+  workspaces?: NpmWorkspacesField
   bundleDependencies?: string[] | boolean
   hasInstallScript?: boolean
   hasShrinkwrap?: boolean
@@ -287,7 +297,7 @@ export interface NpmRootMeta {
   name?: string
   version?: string
   requires?: boolean
-  workspaces?: string[]
+  workspaces?: NpmWorkspacesField
   bundleDependencies?: string[] | boolean
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>

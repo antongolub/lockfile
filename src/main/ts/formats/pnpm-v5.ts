@@ -478,6 +478,7 @@ function addPnpmV5PackageNodes(context: PnpmV5ParseContext): void {
       context.diagnostics.push({
         code: 'PNPM_BAD_ENTRY',
         severity: 'warning',
+        subject: pkgKey,
         message: `pnpm-v5 packages key ${JSON.stringify(pkgKey)} not parseable`,
       })
       continue

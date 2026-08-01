@@ -185,6 +185,41 @@ If an adapter cannot associate a suffix peer with one unique npm package, it
 keeps the native suffix, emits a diagnostic, and declines any mutation that
 would require inventing the missing association.
 
+### Mutual peer cycles unroll to arbitrary depth
+
+When two packages peer-depend on each other, Deno writes one native id per turn
+of the cycle, marking each nesting level with one more underscore:
+
+```text
+@aws-sdk/client-sso-oidc@3.623.0_@aws-sdk+client-sts@3.623.0__@aws-sdk+client-sso-oidc@3.623.0
+@aws-sdk/client-sso-oidc@3.623.0_@aws-sdk+client-sts@3.623.0__@aws-sdk+client-sso-oidc@3.623.0___@aws-sdk+client-sts@3.623.0
+```
+
+One corpus lock carries **357** native ids mentioning `client-sts` for a single
+pair of mutually peer-dependent packages. The canonical NodeId keys the peer
+context by resolved base `name@version`, which is depth-insensitive, so every
+unrolling of one base projects onto one node.
+
+Measured over all 3678 scraped locks: 167 locks contain a base with more than one
+unrolling, 513 base groups have more than one native id, and in **513 of 513**
+every unrolling of the group carries the same integrity. Zero exceptions. A
+deeper unrolling never denotes a different artifact, so the unrollings collapse
+onto a single node.
+
+Identical integrity is the **condition**, not a corollary. Two native ids that
+project onto one node while carrying different integrity — or while either
+proves no integrity at all — are different artifacts, and the parse refuses,
+naming both ids and both integrity values. Ordinary peer-context identity is
+untouched: a package resolved under two genuinely different peer sets has two
+different canonical NodeIds and therefore stays two nodes, even when both
+resolutions install the very same bytes.
+
+Every native id stays in the sidecar, so same-format replay reproduces each
+unrolling verbatim. The collapse is parse-side identity only: one node cannot
+rebuild the distinct dependency blocks of the unrollings it stands for, so a
+collapsed graph marks its native state unrepresentable and any emit other than
+the byte-exact replay fails with `IRREDUCIBLE_LOSS`.
+
 ### The suffix is an opaque map key
 
 Deno parses the suffix, uses the whole string as a map key, and never checks it
@@ -316,28 +351,36 @@ hiding them behind one schema-ambiguous declaration.
 ## Corpus and tests
 
 The measured corpus contains **3581 real lockfiles** scraped from public
-repositories, spanning all four generations. **3536 of them replay
+repositories, spanning all four generations. **3550 of them replay
 byte-identically.** Three are merge-conflicted and therefore not strict JSON, one
-is the pre-v2 flat URL-to-hash map with no `version` key, and 41 are refused on
+is the pre-v2 flat URL-to-hash map with no `version` key, and 27 are refused on
 parse. The gate asserts this as a property rather than a file count — the corpus
 is gitignored scratch that grows whenever it is re-scraped, so an exact count
 would only be green for whoever scraped last.
 
-The 41 refusals are known and classified; a refusal outside these classes fails
+The 27 refusals are known and classified; a refusal outside these classes fails
 the gate:
 
 | refusal | files | status |
 | --- | --: | --- |
 | `seal failed: peer edges` | 15 | open — peer-edge reconstruction |
-| native npm ids collapse onto one canonical NodeId | 14 | open — two ids differing only by peer suffix map onto one canonical id |
 | entry with neither integrity nor an explicit tarball | 5 | **our defect** — Deno writes `{}` for a patched package; its printer declares `integrity` optional for exactly that case |
 | specifier references an npm package absent from the file | 4 | open — likely genuinely malformed input, unconfirmed |
 | jsr integrity not lowercase SHA-256 hex | 2 | open |
 | npm integrity not canonical | 1 | open |
 
-Twenty-nine of the forty-one are peer-related, which is the same collision the
-conversion direction has to solve: two native ids that differ only by their peer
-suffix are distinct packages, and collapsing them loses a resolution.
+A sixth class — 14 files whose native npm ids collapsed onto one canonical
+NodeId — is gone: those ids are cycle unrollings of one artifact and now share
+one node (see *[Mutual peer cycles unroll to arbitrary
+depth](#mutual-peer-cycles-unroll-to-arbitrary-depth)*). All fifteen remaining
+seal failures are unaffected by that rule — the same fifteen files before and
+after — and in five of them the node that fails has a single native id in the
+whole lock, so the class is a distinct defect rather than a residue of the
+collapse. One measured instance: an aliased optional peer
+(`ajv-formats@3.0.1_@redocly+ajv@8.18.1` with `optionalPeers:
+["ajv@npm:@redocly/ajv@8.18.1"]`) contributes both an aliased and an unaliased
+peer edge to the same target, so the node carries two peer edges where its
+peerContext records one base.
 
 The unit and interop suites cover:
 

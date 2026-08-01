@@ -66,6 +66,18 @@ const FIXTURES = [
 const parseFixtureGraph = (name: typeof FIXTURES[number]): Graph =>
   parse(fixture(`${name}/bun-text.lock`))
 
+// Body of the top-level `packages` block, one element per line: entry lines
+// reduced to their leading `"<key>": [` and blank lines kept verbatim, so a
+// separator assertion reads as the shape it is checking.
+const packagesBlockLines = (lock: string): string[] => {
+  const lines = lock.split('\n')
+  const open = lines.findIndex(l => /^ {2}"packages"\s*:\s*\{/.test(l))
+  expect(open, 'top-level `packages` block').toBeGreaterThanOrEqual(0)
+  const close = lines.findIndex((l, i) => i > open && /^ {2}\},?\s*$/.test(l))
+  return lines.slice(open + 1, close)
+    .map(l => l.trim() === '' ? '' : /^ {4}("[^"]*":\s*\[)/.exec(l)?.[1] ?? l)
+}
+
 // === Cross-version isolation ================================================
 
 describe('bun-text — discriminant and isolation (§A cross-version)', () => {
@@ -964,6 +976,51 @@ describe('stringify', () => {
     // overrides sits between workspaces and packages.
     expect(out.indexOf('"overrides"')).toBeGreaterThan(out.indexOf('"workspaces"'))
     expect(out.indexOf('"overrides"')).toBeLessThan(out.indexOf('"packages"'))
+  })
+
+  // bun separates consecutive `packages` entries with one blank line, and only
+  // that block. Measured across the real-world corpus and both producer
+  // generations of the committed fixtures — it is NOT gated on `configVersion`.
+  it('separates consecutive packages entries with exactly one blank line', () => {
+    const out = stringify(parseFixtureGraph('simple'))
+    expect(packagesBlockLines(out)).toEqual([
+      '"lodash": [',
+      '',
+      '"ms": [',
+    ])
+  })
+
+  it('writes no blank line before the first or after the last packages entry', () => {
+    const lines = packagesBlockLines(stringify(parseFixtureGraph('peers-multi')))
+    expect(lines.at(0)).not.toBe('')
+    expect(lines.at(-1)).not.toBe('')
+    // Every gap is exactly one blank line — never two.
+    expect(stringify(parseFixtureGraph('peers-multi'))).not.toContain('\n\n\n')
+  })
+
+  it('leaves a single-entry packages block dense', () => {
+    const out = stringify(parse(JSON.stringify({
+      lockfileVersion: 1,
+      workspaces: { '': { name: 'root', dependencies: { lodash: '^4' } } },
+      packages: { lodash: ['lodash@4.17.21', '', {}, ''] },
+    })))
+    expect(packagesBlockLines(out)).toEqual(['"lodash": ['])
+  })
+
+  it('leaves the workspaces block dense', () => {
+    const out = stringify(parseFixtureGraph('workspaces-basic'))
+    const block = out.slice(out.indexOf('"workspaces"'), out.indexOf('"packages"'))
+    expect(block).not.toContain('\n\n')
+  })
+
+  it('replays every producer-authored bun-text fixture byte-identically', () => {
+    // These are real `bun install --lockfile-only` output (see fixtures/_gen.mjs).
+    // `yarn-crlf` is excluded: it is the CRLF line-ending case, which stringify
+    // only reproduces under an explicit `lineEnding` option.
+    for (const name of FIXTURES.filter(n => n !== 'yarn-crlf')) {
+      const src = fixture(`${name}/bun-text.lock`)
+      expect(stringify(parse(src)), name).toBe(src)
+    }
   })
 })
 

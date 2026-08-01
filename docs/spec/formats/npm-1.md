@@ -118,6 +118,14 @@ Mostly self-contained: the lockfile encodes the full hoisted tree.
 - `requires: true` at the root is a marker, not a value.
 - `optional: true` is *inherited* down the subtree without being re-emitted —
   detection is non-local.
+- `"resolved": false` is npm 5/6's own marker for "no resolution URL known".
+  It is written for the bundled dependencies of an optional package — the
+  `fsevents` subtree is the usual carrier — and is the only non-string
+  `resolved` shape observed across a 1828-lock real-world corpus. Parse treats
+  it as absent, exactly as npm's reader does, and does not re-emit it; the
+  entry's `integrity` beside it is retained. Any other non-string `resolved` is
+  also treated as absent but reports `NPM_BAD_ENTRY` against the entry's
+  install path.
 - An entry in `requires` that cannot bind to any installed node is not an edge,
   but it is still a native declaration. Parse emits `NPM_UNRESOLVED_DEP` and
   retains the owner, dependency name, and range; stringify merges that fact

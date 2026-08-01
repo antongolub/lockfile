@@ -1,0 +1,18 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "f",
+      "dependencies": {
+        "chalk": "5.3.0",
+        "pm-x": "npm:@yarnpkg/cli-dist@4.17.1",
+      },
+    },
+  },
+  "packages": {
+    "chalk": ["chalk@5.3.0", "", {}, "sha512-dLitG79d+GV1Nb/VYcCDFivJeK1hiukt9QjRNVOsUtTy1rR1YJsmpGGTZ3qJos+uw7WmWF4wUwBd9jxjocFC2w=="],
+
+    "pm-x": ["@yarnpkg/cli-dist@4.17.1", "", { "bin": { "yarn": "bin/yarn.js", "yarnpkg": "bin/yarn.js" } }, "sha512-2tiSQuJNl/L3QwTdrq6lKWDpkcnp9MGvCT/rIldHcbu3SWfnLdmehvt3eulX1hT7FFt1Gjfq3CesF+kvhFip6g=="],
+  }
+}

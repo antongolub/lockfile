@@ -362,7 +362,7 @@ function addNpm1TreeEntry(
     })
     return
   }
-  const identity = npm1EntryIdentity(declaredName, entry.version, entry, frame.parentPath)
+  const identity = npm1EntryIdentity(context, declaredName, entry.version, entry, frame.parentPath)
   addNpm1EntryNode(context, declaredName, entry, identity)
   const flags = updateNpm1EntrySidecar(context, entry, identity, frame)
   addNpm1EntryEdges(context, frame.deps!, entry, identity)
@@ -377,12 +377,17 @@ function addNpm1TreeEntry(
 }
 
 function npm1EntryIdentity(
+  context: Npm1ParseContext,
   declaredName: string,
   version: string,
   entry: Npm1Entry,
   parentPath: string,
 ): Npm1EntryIdentity {
-  const resolved = entry.resolved ?? (isUrlLikeVersion(version) ? version : undefined)
+  const installPath = parentPath === ''
+    ? `node_modules/${declaredName}`
+    : `${parentPath}/node_modules/${declaredName}`
+  const resolved = npm1ResolvedField(context, entry, installPath)
+    ?? (isUrlLikeVersion(version) ? version : undefined)
   const source = resolved !== undefined
     ? sourceDiscriminatorOf(parseResolutionRecipe(resolved, { sourceKind: 'npm-resolved' }))
     : undefined
@@ -391,9 +396,7 @@ function npm1EntryIdentity(
     version,
     resolved,
     source,
-    installPath: parentPath === ''
-      ? `node_modules/${declaredName}`
-      : `${parentPath}/node_modules/${declaredName}`,
+    installPath,
   }
 }
 
@@ -603,6 +606,33 @@ function collectRequires(entry: Npm1Entry): Record<string, string> | undefined {
     }
     return Object.keys(out).length > 0 ? out : undefined
   }
+  return undefined
+}
+
+// The `resolved` field of a nested npm-1 entry, narrowed to the string the
+// resolution recipe can parse. npm 5/6 wrote `"resolved": false` for the
+// BUNDLED dependencies of an optional package (the `fsevents` subtree is the
+// classic carrier) — its own marker for "no resolution URL known", and the only
+// non-string shape the real-world corpus carries. Treat it exactly as npm's own
+// reader does, i.e. as absent; the sibling `packages`-format adapter already
+// drops any non-string `resolved` the same way (see `_npm-core.ts`). Anything
+// else is not an npm shape, so it is reported against the offending entry
+// rather than silently swallowed — and never handed to the recipe parser, which
+// assumes a string.
+function npm1ResolvedField(
+  context: Npm1ParseContext,
+  entry: Npm1Entry,
+  installPath: string,
+): string | undefined {
+  const raw: unknown = entry.resolved
+  if (typeof raw === 'string') return raw
+  if (raw === undefined || raw === null || raw === false) return undefined
+  context.diagnostics.push({
+    code: 'NPM_BAD_ENTRY',
+    severity: 'warning',
+    subject: installPath,
+    message: `npm-1 entry ${JSON.stringify(installPath)} has a non-string "resolved" (${typeof raw}); treated as absent`,
+  })
   return undefined
 }
 
@@ -1006,7 +1036,7 @@ function buildEntry(
       entry.version = resolutionStr
     } else if (isHttpUrl(resolutionStr) && isHttpUrl(node.version)) {
       entry.version = node.version
-    } else {
+    } else if (resolutionStr !== entry.version) {
       entry.resolved = stripRegistrySha1Fragment(resolutionStr)
     }
   }

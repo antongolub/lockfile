@@ -1058,8 +1058,10 @@ function registerNpmNodes(context: DenoParseContext): void {
     }
     const peerContext = [...peerContextByBase.values()].sort(compareStrings)
     const nodeId = serializeNodeId(parsed.name, parsed.version, peerContext)
-    if (context.nativeByNode.has(nodeId)) {
-      throw failure(`deno adapter: native npm ids collapse onto canonical NodeId ${nodeId}`)
+    const retainedNativeId = context.nativeByNode.get(nodeId)
+    if (retainedNativeId !== undefined) {
+      collapseUnrolledNative(context, nodeId, retainedNativeId, nativeId, entry)
+      continue
     }
     const node: Node = {
       id: nodeId,
@@ -1072,6 +1074,54 @@ function registerNpmNodes(context: DenoParseContext): void {
     context.nodeByNative.set(nativeId, nodeId)
     recordTarball(context, node, parsed, nativeId, entry)
   }
+}
+
+/**
+ * Deno unrolls a mutual peer-dependency cycle to arbitrary depth, writing one
+ * native npm id per unrolling of the same pair (one scraped lock carries 357
+ * ids for a single `client-sts`/`client-sso-oidc` pair). The canonical NodeId
+ * keys the peer context by resolved base `name@version`, so every unrolling of
+ * one base projects onto one node. Across the whole scraped corpus every
+ * unrolling of a base was measured to carry the SAME integrity — 513 of 513
+ * groups, zero exceptions — so the unrollings are one artifact and binding them
+ * to one node loses nothing. The native ids all stay in `nodeByNative`, so
+ * same-format replay still reproduces every one of them verbatim.
+ *
+ * Identical integrity is the CONDITION, not a corollary: two native ids that
+ * project onto one node while carrying different integrity — or while one of
+ * them proves no integrity at all — are different artifacts, and collapsing
+ * them would silently discard one. Those still refuse, naming both ids.
+ *
+ * Only the parse-side identity is collapsed. A single node cannot rebuild the
+ * distinct dependency blocks of the unrollings it stands for, so any emit that
+ * is not the byte-exact replay is refused through `unrepresentable`.
+ */
+function collapseUnrolledNative(
+  context: DenoParseContext,
+  nodeId: string,
+  retainedNativeId: string,
+  nativeId: string,
+  entry: DenoNpmPackageEntry,
+): void {
+  const retained = context.layout.npm[retainedNativeId]?.integrity
+  if (retained === undefined || entry.integrity === undefined || retained !== entry.integrity) {
+    throw failure(
+      `deno adapter: native npm ids ${retainedNativeId} and ${nativeId} collapse onto canonical `
+        + `NodeId ${nodeId} but are not the same artifact: integrity `
+        + `${retained ?? '<none>'} vs ${entry.integrity ?? '<none>'}`,
+    )
+  }
+  context.nodeByNative.set(nativeId, nodeId)
+  context.diagnostics.push({
+    code: 'DENO_PEER_CYCLE_UNROLLING_COLLAPSED',
+    subject: nodeId,
+    severity: 'warning',
+    message: `deno adapter: native npm id ${nativeId} unrolls the same peer cycle as `
+      + `${retainedNativeId} and carries the same integrity, so both project onto ${nodeId}`,
+  })
+  context.unrepresentable.push(
+    `peer-cycle unrolling ${nativeId} shares node ${nodeId} with ${retainedNativeId}`,
+  )
 }
 
 function recordTarball(
@@ -1097,7 +1147,10 @@ function recordTarball(
       throw failure(`deno adapter: npm ${nativeId} integrity must be canonical SHA-512 SRI`)
     }
     payload.integrity = integrity
-  } else if (entry.tarball === undefined) {
+  } else if (
+    entry.tarball === undefined
+    && !hasSourceAuthoritativeV5PatchAbsence(context.layout, parsed)
+  ) {
     throw failure(`deno adapter: npm ${nativeId} is missing both integrity and explicit tarball`)
   }
   if (entry.os !== undefined) payload.os = validateStringArray(entry.os, `npm.${nativeId}.os`)
@@ -1105,12 +1158,15 @@ function recordTarball(
   if (entry.deprecated === true) payload.deprecated = 'deprecated'
   if (entry.scripts === true) payload.hasInstallScript = true
   if (entry.bin === true) payload.bin = ''
-  if (parsed.peers.length > 0) {
+  const optionalPeers = optionalPeerDeclarations(context, entry)
+  const optionalPeerBases = resolvedOptionalPeerBases(context, optionalPeers)
+  const requiredPeers = parsed.peers.filter(peer =>
+    !optionalPeerBases.has(serializeNodeId(peer.name, peer.version, [])))
+  if (requiredPeers.length > 0) {
     payload.peerDependencies = Object.fromEntries(
-      parsed.peers.map(peer => [peer.name, peer.version]),
+      requiredPeers.map(peer => [peer.name, peer.version]),
     )
   }
-  const optionalPeers = optionalPeerDeclarations(context, entry)
   if (optionalPeers.length > 0) {
     payload.peerDependencies = {
       ...payload.peerDependencies,
@@ -1123,6 +1179,18 @@ function recordTarball(
   context.builder.setTarball({ name: node.name, version: node.version }, payload)
 }
 
+function hasSourceAuthoritativeV5PatchAbsence(
+  layout: DenoLayout,
+  parsed: DenoNpmPackageId,
+): boolean {
+  if (layout.version !== '5') return false
+  const workspace = layout.document.workspace
+  if (!isObject(workspace) || !isObject(workspace.links)) return false
+  // Workspace links identify the base package; peer suffixes identify only one
+  // resolution of it and therefore must not participate in this match.
+  return isObject(workspace.links[`npm:${parsed.name}@${parsed.version}`])
+}
+
 function addNpmEdges(context: DenoParseContext): void {
   for (const [nativeId, entry] of Object.entries(context.layout.npm).sort(compareEntries)) {
     const srcId = context.nodeByNative.get(nativeId)!
@@ -1133,7 +1201,8 @@ function addNpmEdges(context: DenoParseContext): void {
     }))
     addDependencyBlock(context, srcId, entry.dependencies, 'dep', false, peerNativeIds)
     addDependencyBlock(context, srcId, entry.optionalDependencies, 'optional', true)
-    for (const declaration of optionalPeerDeclarations(context, entry)) {
+    const optionalPeers = optionalPeerDeclarations(context, entry)
+    for (const declaration of optionalPeers) {
       if (declaration.nativeId === undefined) continue
       const dstId = context.nodeByNative.get(declaration.nativeId)
       const target = context.parsedByNative.get(declaration.nativeId)
@@ -1145,7 +1214,7 @@ function addNpmEdges(context: DenoParseContext): void {
       addEdgeOnce(context, srcId, dstId, 'peer', attrs)
     }
 
-    const seenPeerBases = new Set<string>()
+    const seenPeerBases = resolvedOptionalPeerBases(context, optionalPeers)
     for (const peer of parsed.peers) {
       const peerBase = serializeNodeId(peer.name, peer.version, [])
       if (seenPeerBases.has(peerBase)) continue
@@ -1167,6 +1236,22 @@ function addNpmEdges(context: DenoParseContext): void {
       addEdgeOnce(context, srcId, dstId, 'peer', { range: peer.version })
     }
   }
+}
+
+function resolvedOptionalPeerBases(
+  context: DenoParseContext,
+  declarations: readonly DenoOptionalPeerDeclaration[],
+): Set<string> {
+  const bases = new Set<string>()
+  for (const declaration of declarations) {
+    const target = declaration.nativeId === undefined
+      ? undefined
+      : context.parsedByNative.get(declaration.nativeId)
+    if (target !== undefined) {
+      bases.add(serializeNodeId(target.name, target.version, []))
+    }
+  }
+  return bases
 }
 
 function optionalPeerDeclarations(

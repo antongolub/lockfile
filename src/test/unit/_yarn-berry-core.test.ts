@@ -27,6 +27,7 @@ import {
   binBlockOfNode,
   workspaceSpecOfEntry,
   nameFromResolutionLocator,
+  yarnBerryChecksumFreeNodes,
 } from '../../main/ts/formats/_yarn-berry-core.ts'
 
 const BERRY_V9_HEAD =
@@ -232,6 +233,100 @@ describe('irreducibleCollisionMessage', () => {
     const current = { key: 'pkg@npm:1.0.0::b', value: { version: '1.0.0', resolution: 'pkg@npm:1.0.0::__archiveUrl=y' }, specs: [{ name: 'pkg', protocol: 'npm', spec: '', raw: '' }] }
     const msg = irreducibleCollisionMessage('pkg@1.0.0', 'pkg@npm:1.0.0::b', [prior, current])
     expect(msg).toContain('bind modifier')
+  })
+})
+
+describe('yarnBerryChecksumFreeNodes', () => {
+  const conditionedLock = (optional: boolean): string =>
+    BERRY_V9_HEAD
+      + '"cond@npm:1.0.0":\n'
+      + '  version: 1.0.0\n'
+      + '  resolution: "cond@npm:1.0.0"\n'
+      + '  conditions: os=darwin\n'
+      + '  languageName: node\n'
+      + '  linkType: hard\n\n'
+      + '"root@workspace:.":\n'
+      + '  version: 0.0.0-use.local\n'
+      + '  resolution: "root@workspace:."\n'
+      + '  dependencies:\n'
+      + '    cond: "npm:1.0.0"\n'
+      + (optional ? '  dependenciesMeta:\n    cond:\n      optional: true\n' : '')
+      + '  languageName: unknown\n'
+      + '  linkType: soft\n'
+
+  it('holds a conditioned package only an optional path reaches', () => {
+    const graph = parseV9(conditionedLock(true))
+    expect([...yarnBerryChecksumFreeNodes(graph, 'yarn-berry-v9')]).toEqual(['cond@1.0.0'])
+  })
+
+  it('omits the same package once a non-optional path reaches it', () => {
+    const graph = parseV9(conditionedLock(false))
+    expect([...yarnBerryChecksumFreeNodes(graph, 'yarn-berry-v9')]).toEqual([])
+  })
+
+  it('omits an unconditioned package an optional path reaches', () => {
+    const graph = parseV9(
+      BERRY_V9_HEAD
+      + '"plain@npm:1.0.0":\n'
+      + '  version: 1.0.0\n'
+      + '  resolution: "plain@npm:1.0.0"\n'
+      + '  languageName: node\n'
+      + '  linkType: hard\n\n'
+      + '"root@workspace:.":\n'
+      + '  version: 0.0.0-use.local\n'
+      + '  resolution: "root@workspace:."\n'
+      + '  dependencies:\n'
+      + '    plain: "npm:1.0.0"\n'
+      + '  dependenciesMeta:\n    plain:\n      optional: true\n'
+      + '  languageName: unknown\n'
+      + '  linkType: soft\n',
+    )
+    expect([...yarnBerryChecksumFreeNodes(graph, 'yarn-berry-v9')]).toEqual([])
+  })
+
+  it('omits the patch source locator, which Yarn removes from optionalBuilds', () => {
+    const graph = parseV9(
+      BERRY_V9_HEAD
+      + '"fsevents@npm:2.3.3":\n'
+      + '  version: 2.3.3\n'
+      + '  resolution: "fsevents@npm:2.3.3"\n'
+      + `  checksum: 10c0/${'cd'.repeat(64)}\n`
+      + '  conditions: os=darwin\n'
+      + '  languageName: node\n'
+      + '  linkType: hard\n\n'
+      + '"fsevents@patch:fsevents@npm%3A2.3.3#optional!builtin<compat/fsevents>":\n'
+      + '  version: 2.3.3\n'
+      + '  resolution: "fsevents@patch:fsevents@npm%3A2.3.3#optional!builtin<compat/fsevents>::version=2.3.3&hash=df0bf1"\n'
+      + '  conditions: os=darwin\n'
+      + '  languageName: node\n'
+      + '  linkType: hard\n\n'
+      + '"root@workspace:.":\n'
+      + '  version: 0.0.0-use.local\n'
+      + '  resolution: "root@workspace:."\n'
+      + '  dependencies:\n'
+      + '    fsevents: "npm:2.3.3"\n'
+      + '  dependenciesMeta:\n    fsevents:\n      optional: true\n'
+      + '  languageName: unknown\n'
+      + '  linkType: soft\n',
+    )
+    const free = yarnBerryChecksumFreeNodes(graph, 'yarn-berry-v9')
+    expect(free.has('fsevents@2.3.3')).toBe(false)
+    expect([...free].every(id => id.includes('+patch='))).toBe(true)
+    expect(free.size).toBe(1)
+  })
+
+  it('holds nothing for a graph with no parsed yarn-berry conditions', () => {
+    const b = newBuilder()
+    const root = serializeNodeId('root', '0.0.0', [])
+    const dep = serializeNodeId('dep', '1.0.0', [])
+    b.addNode({ id: root, name: 'root', version: '0.0.0', peerContext: [], workspacePath: '' })
+    b.addNode({ id: dep, name: 'dep', version: '1.0.0', peerContext: [], })
+    b.addEdge(root, dep, 'optional', { range: '1.0.0' })
+    b.setTarball({ name: 'dep', version: '1.0.0' }, {
+      os: ['darwin'],
+      resolution: { type: 'tarball', url: 'https://registry.npmjs.org/dep/-/dep-1.0.0.tgz' },
+    })
+    expect(yarnBerryChecksumFreeNodes(b.seal(), 'yarn-berry-v9').size).toBe(0)
   })
 })
 

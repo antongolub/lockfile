@@ -1,0 +1,153 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+patchedDependencies:
+  '@shopify/react-native-skia@2.6.2':
+    hash: ba884424a75156115606f768b005e5af9a39e9836f1acbc8e70c5d2fd5d13044
+    path: patches/@shopify__react-native-skia@2.6.2.patch
+  react-native-reanimated:
+    hash: f1adeb1c26dfb66311eb34b353a16b2ae27f5a95a65e9d52e683a60af0e8b18e
+    path: patches/react-native-reanimated.patch
+  react-native-worklets:
+    hash: b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec
+    path: patches/react-native-worklets.patch
+
+importers:
+
+  .:
+    dependencies:
+      '@shopify/react-native-skia':
+        specifier: 2.6.2
+        version: 2.6.2(patch_hash=ba884424a75156115606f768b005e5af9a39e9836f1acbc8e70c5d2fd5d13044)(react-native-reanimated@4.5.1(patch_hash=f1adeb1c26dfb66311eb34b353a16b2ae27f5a95a65e9d52e683a60af0e8b18e)(react-native-worklets@0.10.1(patch_hash=b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec)(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+
+packages:
+
+  '@babel/core@7.29.7':
+    resolution: {integrity: sha512-RgHBCvtjbOK2gXSNBNIkNoEc9qoVEtau3hj8gEqKQuL3HZAibKarWFEI3Lfm6EYKkLalOh8eSrj9b+ch9H/VBA==}
+    engines: {node: '>=6.9.0'}
+
+  '@react-native/jest-preset@0.86.0':
+    resolution: {integrity: sha512-KA+xpIP3DvJy7PQJ9c6ZdEKkOPChl+Rk/rV2MhQACEAzfhWU84407KZQv4ccyO3B4caD0gPrFjE96a4P993nsQ==}
+    engines: {node: '>= 20.19.4'}
+    peerDependencies:
+      react: ^19.2.3
+
+  '@react-native/metro-config@0.86.0':
+    resolution: {integrity: sha512-7v+xbTeEci9ZcQ/Z1OqI4RXcqN69wSMDYL5BAMvOReZ7U04+aDQ0/SQhClYPn6x2/RxM4WzMKSAuNyLKqvYVtw==}
+    engines: {node: ^20.19.4 || ^22.13.0 || ^24.3.0 || >= 25.0.0}
+
+  '@shopify/react-native-skia@2.6.2':
+    resolution: {integrity: sha512-NzZ3+MRedZAUhguWw9DTCpWFd09Bq+tdGWhimGfJLGckuyoWGyimTiNTmaO2DeeivHTnGdv+eXbw7j/AV3LkRQ==}
+    hasBin: true
+    peerDependencies:
+      react: '>=19.0'
+      react-native: 0.86.0
+      react-native-reanimated: 4.5.1
+    peerDependenciesMeta:
+      react-native:
+        optional: true
+      react-native-reanimated:
+        optional: true
+
+  '@types/react@19.2.14':
+    resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
+
+  canvaskit-wasm@0.41.0:
+    resolution: {integrity: sha512-cnbL02NFB3yOYMF/MtxViZHgD1vh55Pvy+zR8q4JuFvyCPejZP3eClkt2GuZ0S7jOmGMCJXaHBasbMChbR9JZg==}
+
+  react-native-reanimated@4.5.1:
+    resolution: {integrity: sha512-RnMvtDuR+68ig864gAvZCOdZehqhC5rFmMo0kn+ARfgVSTvFeF6IFLBVgMPUu0KwihaapEyW24WRi6nEyy1kSA==}
+    peerDependencies:
+      react: '*'
+      react-native: 0.86.0
+      react-native-worklets: 0.10.1
+
+  react-native-skia-android@147.1.0:
+    resolution: {integrity: sha512-pWA0M0G74AhjEop0HLCkjWJMup2HJxOmuUjfPt6kSDhYeWKVx8AEzWh0Fh19ah78zE/s4hD0Of0Tyem5shhiTg==}
+
+  react-native-skia-apple-ios@147.1.0:
+    resolution: {integrity: sha512-cr4rWe4Bf0H0TTutUp5cgHt5/Felttl1bh4BAAAsgAeL2F10FAK9urX8spjUshzMwjqXD7rNOWuFzU6ZcNlGKw==}
+
+  react-native-skia-apple-macos@147.1.0:
+    resolution: {integrity: sha512-Qbv0Y7LgawtRKuGk8gnGeh8nDWwNiu03LcX0mVaQzBBbxFDYvqejanA+AkO3p8gsQb+fsXRc9DAk+U8cBnzZvA==}
+
+  react-native-skia-apple-tvos@147.1.0:
+    resolution: {integrity: sha512-b+4vILXHPu++t8H41PHLBVsTab2LPqwXNdzgdScyl4+Cu8Ta34aUQW3T469cB0ogAMPdu//KV00w4YVpDZoRUQ==}
+
+  react-native-worklets@0.10.1:
+    resolution: {integrity: sha512-62mRM19bDpfpdI8HLkEErcdOsrAPDtE9lA/sw+5lLRpzBHNhxaoj9QyY2KjXqUmirelxkX4zuPGTC3VdA0feJA==}
+    peerDependencies:
+      '@babel/core': '*'
+      '@react-native/metro-config': '*'
+      react: '*'
+      react-native: 0.86.0
+
+  react-native@0.86.0:
+    resolution: {integrity: sha512-17ALh/dd6AO4pgOVmOO5Axll5PbErEo3XFyLokyzW6usyi+OShIEPwUW26wLPlhVifgSOIfECCH0WN+0IqtJ1w==}
+    engines: {node: ^20.19.4 || ^22.13.0 || ^24.3.0 || >= 25.0.0}
+    hasBin: true
+    peerDependencies:
+      '@react-native/jest-preset': 0.86.0
+      '@types/react': ^19.1.1
+      react: ^19.2.3
+    peerDependenciesMeta:
+      '@react-native/jest-preset':
+        optional: true
+      '@types/react':
+        optional: true
+
+  react-reconciler@0.31.0:
+    resolution: {integrity: sha512-7Ob7Z+URmesIsIVRjnLoDGwBEG/tVitidU0nMsqX/eeJaLY89RISO/10ERe0MqmzuKUUB1rmY+h1itMbUHg9BQ==}
+    engines: {node: '>=0.10.0'}
+    peerDependencies:
+      react: ^19.0.0
+
+  react@19.2.3:
+    resolution: {integrity: sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA==}
+    engines: {node: '>=0.10.0'}
+
+snapshots:
+
+  '@babel/core@7.29.7': {}
+
+  '@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3)': {}
+
+  '@react-native/metro-config@0.86.0(@babel/core@7.29.7)': {}
+
+  ? '@shopify/react-native-skia@2.6.2(patch_hash=ba884424a75156115606f768b005e5af9a39e9836f1acbc8e70c5d2fd5d13044)(react-native-reanimated@4.5.1(patch_hash=f1adeb1c26dfb66311eb34b353a16b2ae27f5a95a65e9d52e683a60af0e8b18e)(react-native-worklets@0.10.1(patch_hash=b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec)(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)'
+  : dependencies:
+      canvaskit-wasm: 0.41.0
+      react: 19.2.3
+      react-native-skia-android: 147.1.0
+      react-native-skia-apple-ios: 147.1.0
+      react-native-skia-apple-macos: 147.1.0
+      react-native-skia-apple-tvos: 147.1.0
+      react-reconciler: 0.31.0(react@19.2.3)
+    optionalDependencies:
+      react-native: 0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
+      react-native-reanimated: 4.5.1(patch_hash=f1adeb1c26dfb66311eb34b353a16b2ae27f5a95a65e9d52e683a60af0e8b18e)(react-native-worklets@0.10.1(patch_hash=b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec)(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+
+  '@types/react@19.2.14': {}
+
+  canvaskit-wasm@0.41.0: {}
+
+  react-native-reanimated@4.5.1(patch_hash=f1adeb1c26dfb66311eb34b353a16b2ae27f5a95a65e9d52e683a60af0e8b18e)(react-native-worklets@0.10.1(patch_hash=b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec)(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3): {}
+
+  react-native-skia-android@147.1.0: {}
+
+  react-native-skia-apple-ios@147.1.0: {}
+
+  react-native-skia-apple-macos@147.1.0: {}
+
+  react-native-skia-apple-tvos@147.1.0: {}
+
+  react-native-worklets@0.10.1(patch_hash=b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec)(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3): {}
+
+  react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3): {}
+
+  react-reconciler@0.31.0(react@19.2.3): {}
+
+  react@19.2.3: {}

@@ -12,6 +12,7 @@ import { targetProfileOf } from './targets.ts'
 import type { TargetRequest } from './types.ts'
 import { stripRegistrySha1Fragment } from '../recipe/resolution.ts'
 import { denoDeclarationRangeProjections } from '../formats/_deno-core.ts'
+import { yarnBerryChecksumFreeNodes } from '../formats/_yarn-berry-core.ts'
 
 // === PROJECTION MODEL =======================================================
 
@@ -265,12 +266,34 @@ function metadataPreflight(
   return losses
 }
 
+/** NodeIds whose source entry DID carry an integrity field the parser could not
+ * decode. The digest is gone from the payload, so absence there is a dropped
+ * authority — never a source-authoritative omission. */
+function droppedSourceIntegrityNodes(graph: Graph): ReadonlySet<string> {
+  const dropped = new Set<string>()
+  for (const diagnostic of graph.diagnostics()) {
+    if (!diagnostic.code.endsWith('_INVALID_INTEGRITY')) continue
+    if (typeof diagnostic.subject === 'string') dropped.add(diagnostic.subject)
+  }
+  return dropped
+}
+
 function integrityPreflight(
   graph: Graph,
   target: ReturnType<typeof targetProfileOf>,
 ): ProjectionLoss[] {
   if (target.capabilities.integrity === 'canonical') return []
   const losses: ProjectionLoss[] = []
+  // Both sets cost a graph traversal, so they are built only once a node
+  // actually reaches the Berry checksum demand.
+  let checksumFree: ReadonlySet<string> | undefined
+  let droppedIntegrity: ReadonlySet<string> | undefined
+  const authoredWithoutChecksum = (nodeId: string): boolean => {
+    checksumFree ??= yarnBerryChecksumFreeNodes(graph, target.format)
+    if (!checksumFree.has(nodeId)) return false
+    droppedIntegrity ??= droppedSourceIntegrityNodes(graph)
+    return !droppedIntegrity.has(nodeId)
+  }
   for (const node of [...graph.nodes()].sort((left, right) => left.id.localeCompare(right.id))) {
     const payload = graph.tarballOf(node.id)
     if (target.capabilities.integrity === 'berry-zip') {
@@ -293,6 +316,13 @@ function integrityPreflight(
         && payload?.resolution?.type !== 'directory'
       if (!archiveBacked) continue
       if (payload?.integrity !== undefined && emitBerryChecksum(payload.integrity) !== undefined) continue
+      // Yarn's own writer omits `checksum` for an entry it never materialised,
+      // so for those entries the field's absence is what the producer authored
+      // and there is no authority to lose. Gated on holding NO digest at all:
+      // a held-but-unemittable digest, or one the parser had to drop, is a real
+      // loss and still blocks (`yarnBerryChecksumFreeNodes` needs a verbatim
+      // parsed `conditions:`, so a converted graph is never excused).
+      if (payload?.integrity === undefined && authoredWithoutChecksum(node.id)) continue
       const remedy = supply('artifacts', node.id)
       const diagnostic = projectionDiagnostic(
         'berry-checksum',

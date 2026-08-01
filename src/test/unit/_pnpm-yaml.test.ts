@@ -34,6 +34,64 @@ describe('readYaml', () => {
     const y = readYaml('m: {a: 1, bogus}\n')
     expect(y).toEqual({ m: { a: '1' } })
   })
+
+  it('reads an explicit key (`? <key>` / `: <value>`) whose value mapping starts on the `:` line', () => {
+    // The shape pnpm's emitter produces: the value mapping's FIRST entry rides
+    // the `:` line, the remaining entries sit at the value's own indent.
+    const y = readYaml(
+      'snapshots:\n' +
+        "  ? 'pkg@1.0.0(peer@2.0.0)'\n" +
+        '  : dependencies:\n' +
+        '      left-pad: 1.3.0\n' +
+        '    optionalDependencies:\n' +
+        '      fsevents: 2.3.3\n',
+    )
+    expect(y).toEqual({
+      snapshots: {
+        'pkg@1.0.0(peer@2.0.0)': {
+          dependencies: { 'left-pad': '1.3.0' },
+          optionalDependencies: { fsevents: '2.3.3' },
+        },
+      },
+    })
+  })
+
+  it('reads an explicit key whose value block starts on the line after `:`', () => {
+    const y = readYaml('m:\n  ? long-key\n  :\n    a: 1\n')
+    expect(y).toEqual({ m: { 'long-key': { a: '1' } } })
+  })
+
+  it('reads an explicit key with an inline empty-map value (`: {}`)', () => {
+    const y = readYaml("m:\n  ? 'pkg@1.0.0'\n  : {}\n  after: tail\n")
+    expect(y).toEqual({ m: { 'pkg@1.0.0': {}, after: 'tail' } })
+  })
+
+  it('keeps siblings after an explicit-key entry at the same indent', () => {
+    const y = readYaml(
+      'm:\n' +
+        "  before: 1\n" +
+        "  ? 'pkg@1.0.0'\n" +
+        '  : dependencies:\n' +
+        '      left-pad: 1.3.0\n' +
+        '  after: 2\n',
+    )
+    expect(Object.keys(y.m as Record<string, unknown>)).toEqual(['before', 'pkg@1.0.0', 'after'])
+  })
+
+  it('flattens `---`-separated documents into one map, last document winning per top-level key', () => {
+    // Multi-document locks exist in the wild (withastro/astro ships two). The
+    // reader has no document concept: a `---` line carries no key colon and is
+    // skipped, so later documents overwrite earlier top-level keys. Pinned as a
+    // regression guard for the entry loop, not endorsed as document support.
+    const y = readYaml('---\na: 1\nm:\n  x: first\n---\nb: 2\nm:\n  y: second\n')
+    expect(y).toEqual({ a: '1', b: '2', m: { y: 'second' } })
+  })
+
+  it('reads an explicit key longer than YAML\'s 1024-character implicit-key limit verbatim', () => {
+    const key = `pkg@1.0.0(${'x'.repeat(1100)})`
+    const y = readYaml(`snapshots:\n  ? '${key}'\n  : dependencies:\n      left-pad: 1.3.0\n`)
+    expect(Object.keys(y.snapshots as Record<string, unknown>)).toEqual([key])
+  })
 })
 
 describe('emitYaml', () => {
@@ -69,5 +127,49 @@ describe('emitYaml', () => {
       { topLevelOrder: ['r'] },
     )
     expect(out).toBe('r: {inner: {a: b}, list: [p, q]}\n')
+  })
+
+  it('emits a key longer than 1024 emitted characters in explicit (`? ` / `: `) form', () => {
+    const key = `pkg@1.0.0(${'x'.repeat(1100)})`
+    const out = emitYaml(
+      { snapshots: { [key]: { dependencies: { 'left-pad': '1.3.0' }, optionalDependencies: { fsevents: '2.3.3' } } } },
+      { topLevelOrder: ['snapshots'] },
+    )
+    expect(out).toBe(
+      'snapshots:\n' +
+        `  ? ${key}\n` +
+        '  : dependencies:\n' +
+        '      left-pad: 1.3.0\n' +
+        '    optionalDependencies:\n' +
+        '      fsevents: 2.3.3\n',
+    )
+  })
+
+  it('emits a key of exactly 1024 emitted characters in ordinary implicit form', () => {
+    // YAML 1.2 caps an IMPLICIT key at 1024 characters; only a longer one needs
+    // the explicit form, so the boundary itself must stay implicit.
+    const key = 'k'.repeat(1024)
+    const out = emitYaml({ m: { [key]: { a: 'b' } } }, { topLevelOrder: ['m'] })
+    expect(out).toBe(`m:\n  ${key}:\n    a: b\n`)
+  })
+
+  it('emits an over-long key whose value is an empty map inline after `: `', () => {
+    const key = 'k'.repeat(1025)
+    const out = emitYaml({ m: { [key]: {} } }, { topLevelOrder: ['m'] })
+    expect(out).toBe(`m:\n  ? ${key}\n  : {}\n`)
+  })
+
+  it('quotes an over-long key that needs quoting, and counts the quotes toward the limit', () => {
+    // `'` + 1023 chars + `'` = 1025 emitted characters — over the limit only
+    // because of the quotes the `@` lead forces.
+    const key = `@${'k'.repeat(1022)}`
+    const out = emitYaml({ m: { [key]: { a: 'b' } } }, { topLevelOrder: ['m'] })
+    expect(out).toBe(`m:\n  ? '${key}'\n  : a: b\n`)
+  })
+
+  it('round-trips an explicit-key entry through emit → read unchanged', () => {
+    const key = `pkg@1.0.0(${'x'.repeat(1100)})`
+    const tree = { snapshots: { [key]: { dependencies: { 'left-pad': '1.3.0' } } } }
+    expect(readYaml(emitYaml(tree, { topLevelOrder: ['snapshots'] }))).toEqual(tree)
   })
 })

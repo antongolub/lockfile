@@ -25,6 +25,7 @@
 
 import {
   GraphError,
+  nameOf,
   newBuilder,
   type DependencyManifest,
   type Diagnostic,
@@ -714,7 +715,7 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
     const inner = buildInnerBlock(graph, node, sidecar)
     const tarballSrc = graph.tarballOf(node.id)
     const integrity = emitSriForRegistry(tarballSrc?.integrity, tarballSrc?.nativeResolution) ?? ''
-    const key = chooseNodeEmitKey(node, sidecar, packagesBlock)
+    const key = chooseNodeEmitKey(graph, node, sidecar, packagesBlock)
     packagesBlock[key] = [`${node.name}@${node.version}`, '', inner, integrity]
   }
 
@@ -896,7 +897,18 @@ export function addBlockEdges(
         })
         continue
       }
-      const attrs: { range: string; workspace?: boolean; workspaceRange?: { specifier: string; resolvedVersion?: string } } = { range }
+      const attrs: { range: string; alias?: string; workspace?: boolean; workspaceRange?: { specifier: string; resolvedVersion?: string } } = { range }
+      // EdgeAttrs.alias — the DECLARED dependency name, kept whenever it
+      // differs from the resolved target's own name. bun encodes an npm alias
+      // by keying both the dependency map and the `packages` entry under the
+      // declared name while the tuple id slot holds the canonical
+      // `<name>@<version>` (`"pm-x": ["@yarnpkg/cli-dist@4.17.1", …]`).
+      // Resolution above already followed that channel, so the mismatch
+      // between `depName` and the dst node's name is exactly the alias. It is
+      // NOT recoverable from the target node, so it has to ride the edge —
+      // without it the emitter re-keys the map by the package name and the
+      // emitted lock no longer resolves.
+      if (depName !== nameOf(dstId)) attrs.alias = depName
       if (isWorkspaceProtocolRange(range)) {
         attrs.workspace = true
         // ADR-0014 §4.F4 — bun-text member-ref form has no version range;
@@ -1131,6 +1143,16 @@ export function renderInlineValue(value: unknown): string {
   return 'null'
 }
 
+// Dependency-map slot for an edge. bun keys `dependencies` /
+// `devDependencies` / `optionalDependencies` by the DECLARED name, which for
+// an npm alias is the alias (`"string-width-cjs": "npm:string-width@^4.2.0"`)
+// and not the resolved package name. `EdgeAttrs.alias` carries that declared
+// name; a bare dep has none and falls back to the target's own name, leaving
+// the non-aliased emit byte-unchanged.
+function declaredNameOf(edge: Edge, dst: Node): string {
+  return edge.attrs?.alias ?? dst.name
+}
+
 export function buildWorkspaceManifest(
   graph: Graph,
   workspaceNode: Node | undefined,
@@ -1192,7 +1214,7 @@ function captureGraphWorkspaceManifest(
         )
       }
     }
-    target[dst.name] = range
+    target[declaredNameOf(edge, dst)] = range
   }
   Object.assign(
     dependencies,
@@ -1258,7 +1280,7 @@ export function buildInnerBlock(graph: Graph, node: Node, sidecar: BunTextSideca
       : edge.kind === 'optional' ? optionalDependencies
         : edge.kind === 'peer' ? peerDependencies
           : undefined
-    if (target !== undefined) target[dst.name] = range
+    if (target !== undefined) target[declaredNameOf(edge, dst)] = range
   }
   Object.assign(
     dependencies,
@@ -1326,12 +1348,26 @@ function renderInlineObject(obj: Record<string, unknown>): string {
   return `{ ${parts.join(', ')} }`
 }
 
-function renderObject(obj: Record<string, unknown>, depth: number, isTopLevel: boolean): string {
+// The one top-level block whose entries bun separates with a blank line. The
+// rule is unconditional, NOT a `configVersion` era: across the real-world
+// corpus every lock with two or more `packages` entries separates all of them
+// (the sole exception is a hand-authored turborepo test fixture, identifiable
+// by its 3-slot multi-line tuples and absent trailing commas), and the
+// committed `lockfiles/*/bun-text.lock` — an older, `configVersion`-less bun
+// generation — separates them too. `workspaces` is never separated.
+const BLANK_LINE_SEPARATED_BLOCK = 'packages'
+
+function renderObject(
+  obj: Record<string, unknown>,
+  depth: number,
+  isTopLevel: boolean,
+  separateEntries = false,
+): string {
   const keys = Object.keys(obj)
   if (keys.length === 0) return '{}'
   const indent = INDENT.repeat(depth + 1)
   const closeIndent = INDENT.repeat(depth)
-  const lines: string[] = ['{']
+  const entries: string[] = []
   // Walk keys. Each entry indented to depth+1. Trailing commas after every
   // value (bun-text always-trailing-comma style); the outer-most object emits
   // no trailing comma on its last entry to match the fixture shape.
@@ -1340,21 +1376,27 @@ function renderObject(obj: Record<string, unknown>, depth: number, isTopLevel: b
     const rendered = Array.isArray(val)
       ? renderArray(val)
       : (val !== null && typeof val === 'object'
-        ? renderObject(val as Record<string, unknown>, depth + 1, false)
+        ? renderObject(
+          val as Record<string, unknown>,
+          depth + 1,
+          false,
+          isTopLevel && key === BLANK_LINE_SEPARATED_BLOCK,
+        )
         : renderInlineValue(val))
-    lines.push(`${indent}${JSON.stringify(key)}: ${rendered},`)
+    entries.push(`${indent}${JSON.stringify(key)}: ${rendered},`)
   }
   if (isTopLevel) {
-    const last = lines.pop()!
-    lines.push(last.replace(/,$/, ''))
+    entries[entries.length - 1] = entries[entries.length - 1]!.replace(/,$/, '')
   }
-  lines.push(`${closeIndent}}`)
-  return lines.join('\n')
+  // One blank line BETWEEN entries only — never leading, trailing, or doubled,
+  // so a single-entry block stays dense.
+  return `{\n${entries.join(separateEntries ? '\n\n' : '\n')}\n${closeIndent}}`
 }
 
 // === Serialize helpers ======================================================
 
 function chooseNodeEmitKey(
+  graph: Graph,
   node: Node,
   sidecar: BunTextSidecar | undefined,
   alreadyEmitted: Record<string, unknown>,
@@ -1365,12 +1407,35 @@ function chooseNodeEmitKey(
   if (stored !== undefined && alreadyEmitted[stored] === undefined) {
     return stored
   }
+  // A `packages` key is the name bun hoists the package to, so an npm-aliased
+  // dependency is keyed by its alias — the same slot its dependency-map entry
+  // uses. Without a parse-time key (cross-format projection, mutator-minted
+  // node) the alias has to come off the edges, else the emitted `workspaces`
+  // key and `packages` key disagree and bun cannot resolve the dependency.
+  const aliasKey = unanimousAliasOf(graph, node)
+  if (aliasKey !== undefined && alreadyEmitted[aliasKey] === undefined) return aliasKey
   // Fallback: bare name. If the bare key is already taken (different version
   // of the same name), append `@<version>` as a disambiguator. The disambiguated
   // form is admittedly non-canonical, but bun's de-hoisting layer outside this
   // adapter's reach — mutator-added duplicates fall back here.
   if (alreadyEmitted[node.name] === undefined) return node.name
   return `${node.name}@${node.version}`
+}
+
+// The alias every incoming dependency declaration agrees on, or undefined.
+// bun writes one `packages` entry per hoist directory, so a node reached both
+// under its own name and under an alias gets two entries there; this emitter
+// writes one entry per node and therefore only adopts an alias key when no
+// consumer refers to the node by its canonical name.
+function unanimousAliasOf(graph: Graph, node: Node): string | undefined {
+  let alias: string | undefined
+  for (const edge of graph.in(node.id)) {
+    const slot = edge.attrs?.alias
+    if (slot === undefined) return undefined
+    if (alias !== undefined && slot !== alias) return undefined
+    alias = slot
+  }
+  return alias
 }
 
 function reportPatchDrop(

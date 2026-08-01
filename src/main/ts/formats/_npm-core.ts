@@ -93,6 +93,7 @@ import {
   type NpmLockfile,
   type NpmRootMeta,
   type NpmSidecar,
+  type NpmWorkspacesField,
 } from './_npm-flat-types.ts'
 import {
   captureUnknownTopLevel,
@@ -784,7 +785,8 @@ function captureNpmRootMeta(context: NpmParseContext): NpmRootMeta {
     requires: lf.requires,
   }
   context.config.hooks?.captureRootMeta?.({ lf, rootEntry, rootMeta })
-  if (rootEntry.workspaces !== undefined) rootMeta.workspaces = rootEntry.workspaces.slice()
+  const workspaces = captureWorkspacesField(rootEntry.workspaces, rootMeta, diagnostics)
+  if (workspaces !== undefined) rootMeta.workspaces = workspaces
   if (rootEntry.bundleDependencies !== undefined) {
     rootMeta.bundleDependencies = Array.isArray(rootEntry.bundleDependencies)
       ? rootEntry.bundleDependencies.slice()
@@ -814,6 +816,34 @@ function captureNpmRootMeta(context: NpmParseContext): NpmRootMeta {
     sc.installPaths = Array.from(new Set(sc.installPaths)).sort(cmpStr)
   }
   return rootMeta
+}
+
+// `packages[""].workspaces` as npm itself copies it out of the root manifest.
+// BOTH npm spellings are legitimate and are carried VERBATIM: the array form
+// `["a", "b"]`, and the object form `{ "packages": ["a"], "nohoist": [...] }`
+// that `@npmcli/map-workspaces` reads (npm's own arborist fixtures use it).
+// Nothing in the graph iterates this value — it is metadata replayed on emit —
+// so normalising the object form down to its `packages` array would buy nothing
+// and would re-emit a root entry that differs from the one npm writes.
+// Anything that is neither shape is not a field npm can read back, so it is
+// reported against the root package by NAME (its entry key is the empty string,
+// which would be a useless subject) and dropped.
+function captureWorkspacesField(
+  value: NpmEntry['workspaces'],
+  rootMeta: NpmRootMeta,
+  diagnostics: Diagnostic[],
+): NpmWorkspacesField | undefined {
+  const raw: unknown = value
+  if (raw === undefined) return undefined
+  if (Array.isArray(raw)) return raw.slice() as string[]
+  if (raw !== null && typeof raw === 'object') return { ...raw as Record<string, unknown> }
+  diagnostics.push({
+    code: 'NPM_BAD_ROOT_WORKSPACES',
+    severity: 'warning',
+    subject: rootMeta.name ?? 'packages[""]',
+    message: `root "workspaces" must be an array or an object, got ${raw === null ? 'null' : typeof raw}; dropping`,
+  })
+  return undefined
 }
 
 function emitNpmParseDiagnostics(context: NpmParseContext): void {

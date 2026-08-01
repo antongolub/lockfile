@@ -133,6 +133,40 @@ this is only how bun-text *carries* it.
   de-hoist keys (`<consumer-path>/<dep-name>`). Parse dedups on NodeId and emits
   one tuple per `<name>@<version>`; the de-hoist scope is replayed at parse but
   collapses to the flat key on emit (lossless — the dep set is key-invariant).
+- An `npm:` alias is carried by the **declared name**, never by the target. bun
+  keys the dependency map, and the `packages` entry itself, under the declared
+  name (`"pm-x": "npm:@yarnpkg/cli-dist@4.17.1"` alongside
+  `"pm-x": ["@yarnpkg/cli-dist@4.17.1", …]`) while the tuple id slot holds the
+  canonical `<name>@<version>`. That declared name is not recoverable from the
+  target node, so parse retains it in `attrs.alias` whenever it differs from
+  the resolved package name, and both emit paths (`workspaces` manifests and
+  `packages` inner blocks) key by `attrs.alias` before falling back to the
+  package name. Dropping it produces a lock whose `workspaces` key and
+  `packages` key disagree, which bun rejects with
+  `Failed to resolve root prod dependency` under `--frozen-lockfile`.
+  Because `attrs.alias` is the 4th component of edge identity, it is also what
+  lets one consumer declare the same target twice — canonically and under an
+  alias, as `metro-source-map` does with
+  `@babel/traverse--for-generate-function-map` — without the two declarations
+  colliding as a duplicate edge at seal.
+- A `packages` key is the directory bun hoists the package to, so an aliased
+  dependency is keyed by its alias. When no parse-time key survives
+  (cross-format projection, mutator-minted node) the emitter takes that key
+  from the edges, and only when **every** incoming declaration agrees on the
+  same alias — a node also reached under its canonical name needs the two
+  `packages` entries bun would write, which the one-entry-per-node emit shape
+  cannot express.
+- Entries of the top-level `packages` block are separated by **one blank
+  line**; no other block is. There is no blank line before the first entry or
+  after the last, never two in a row, and a single-entry block is dense. The
+  rule is unconditional — it is **not** a `configVersion` era. Across the
+  real-world corpus every lock with two or more `packages` entries separates
+  all of them, at `configVersion` absent, `0`, and `1` alike; the committed
+  `lockfiles/*/bun-text.lock` fixtures, produced by an older
+  `configVersion`-less bun, separate them too. The only corpus counter-example
+  is a hand-authored turborepo integration fixture, not producer output —
+  identifiable by its 3-slot multi-line `packages` tuples and its complete
+  absence of trailing commas, neither of which bun emits.
 - `lockfileVersion: 1` for bun-text refers to bun's own text-format version,
   unrelated to npm's `lockfileVersion: 1`. Real-world `bun.lock` files also
   carry a sibling `configVersion` integer the adapter currently ignores.

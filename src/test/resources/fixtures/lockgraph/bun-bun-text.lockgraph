@@ -187,7 +187,7 @@ E 229
 29	49	dep	^5.1.0
 29	50	dep	^8.3.1
 29	52	dep	^13.1.0
-29	64	dep	npm:@wolfy1339/lru-cache@^11.0.2-patch.1
+29	64	dep	npm:@wolfy1339/lru-cache@^11.0.2-patch.1	alias=lru-cache
 29	80	dep	^2.3.1
 29	144	dep	^1.1.2
 29	145	dep	^6.0.0

@@ -15,7 +15,7 @@ interface FixtureCorpus {
 const corpora: FixtureCorpus[] = [
   {
     directory: 'real-world',
-    expected: 40,
+    expected: 43,
     include: path => ['bun.lock', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']
       .includes(basename(path)),
     contract: 'production lockfiles',
@@ -61,6 +61,12 @@ const corpora: FixtureCorpus[] = [
     expected: 2,
     include: path => basename(path).endsWith('package-lock.json'),
     contract: 'native npm serializer fixtures',
+  },
+  {
+    directory: 'pnpm-explicit-key',
+    expected: 1,
+    include: path => basename(path) === 'pnpm-lock.yaml',
+    contract: 'YAML explicit keys past the 1024-character implicit limit',
   },
   {
     directory: 'lockgraph',
@@ -109,7 +115,7 @@ describe('same-format fidelity contract — every fixture lockfile', () => {
     120_000,
   )
 
-  it('keeps the explicit fixture census at 169 lockfiles', () => {
-    expect(corpora.reduce((total, corpus) => total + corpus.expected, 0)).toBe(169)
+  it('keeps the explicit fixture census at 173 lockfiles', () => {
+    expect(corpora.reduce((total, corpus) => total + corpus.expected, 0)).toBe(173)
   })
 })

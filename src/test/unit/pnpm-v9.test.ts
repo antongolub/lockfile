@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { check, enrich, optimize, parse, stringify } from '../../main/ts/formats/pnpm-v9.ts'
 import {
   fixture,
@@ -467,4 +470,86 @@ describe('pnpm-v9 — peer resolution (workspace-peer edge / dedup + patch-hash)
     expect(stringify(parse(out))).toBe(out)
   })
 
+})
+
+// --- YAML explicit snapshot keys (pnpm's >1024-character fallback) ----------
+//
+// pnpm's emitter falls back to YAML's explicit-key form (`? <key>` on one line,
+// `: <value>` on the next) when a mapping key exceeds YAML 1.2's
+// 1024-character implicit-key limit. Deeply nested peer contexts combined with
+// `patch_hash=` segments reach it in practice — the fixture below is the
+// `@shopify/react-native-skia@2.6.2(patch_hash=…)` entry lifted verbatim from
+// expo/expo's published `pnpm-lock.yaml` (1043 emitted characters).
+
+const here = dirname(fileURLToPath(import.meta.url))
+const explicitKeyLock = (): string =>
+  readFileSync(
+    resolve(here, '../resources/fixtures/pnpm-explicit-key/expo-skia-patched/pnpm-lock.yaml'),
+    'utf8',
+  )
+
+// The producer-authored bytes: the `? ` key line and the `: `-led value block,
+// exactly as expo/expo's pnpm-lock.yaml carries them.
+const EXPLICIT_KEY =
+  '@shopify/react-native-skia@2.6.2(patch_hash=ba884424a75156115606f768b005e5af9a39e9836f1acbc8e70c5d2fd5d13044)' +
+  '(react-native-reanimated@4.5.1(patch_hash=f1adeb1c26dfb66311eb34b353a16b2ae27f5a95a65e9d52e683a60af0e8b18e)' +
+  '(react-native-worklets@0.10.1(patch_hash=b72ac0fc85273472ec4b8974adb8d4eba75672291aa7501270a7b08e58ba7dec)' +
+  '(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))' +
+  '(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))' +
+  '(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))' +
+  '(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))' +
+  '(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))' +
+  '(react-native@0.86.0(@babel/core@7.29.7)(@react-native/jest-preset@0.86.0(@babel/core@7.29.7)(react@19.2.3))' +
+  '(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)'
+
+describe('parse — YAML explicit snapshot keys', () => {
+  it('reads the fixture key as pnpm wrote it — quoted, over the 1024-character implicit limit', () => {
+    expect(EXPLICIT_KEY.length + 2).toBeGreaterThan(1024)
+    expect(explicitKeyLock()).toContain(`\n  ? '${EXPLICIT_KEY}'\n  : dependencies:\n`)
+  })
+
+  it('adds the explicit-key snapshot to the graph like any other snapshot', () => {
+    const graph = parse(explicitKeyLock())
+    const skia = Array.from(graph.nodes()).filter(n => n.name === '@shopify/react-native-skia')
+    expect(skia.map(n => n.version)).toEqual(['2.6.2'])
+    // Its dependencies resolve as edges, exactly as for an implicit-key snapshot.
+    expect(graph.out(skia[0]!.id, 'dep').map(e => e.dst)).toContain('canvaskit-wasm@0.41.0')
+  })
+
+  it('reports no PNPM_BAD_ENTRY for an explicit-key snapshot', () => {
+    const graph = parse(explicitKeyLock())
+    expect(graph.diagnostics().filter(d => d.code === 'PNPM_BAD_ENTRY')).toEqual([])
+  })
+
+  it('reports no PNPM_UNRESOLVED_DEP once the explicit-key snapshot is present', () => {
+    const graph = parse(explicitKeyLock())
+    expect(graph.diagnostics().filter(d => d.code === 'PNPM_UNRESOLVED_DEP')).toEqual([])
+  })
+
+  it('names the original explicit key as the PNPM_BAD_ENTRY subject when the key is not parseable', () => {
+    const badKey = `no-at-separator(${'x'.repeat(1100)})`
+    const lock =
+      `lockfileVersion: '9.0'\n\n` +
+      `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n` +
+      `importers:\n\n  .: {}\n\n` +
+      `packages: {}\n\n` +
+      `snapshots:\n\n  ? ${badKey}\n  : {}\n`
+    const bad = parse(lock).diagnostics().filter(d => d.code === 'PNPM_BAD_ENTRY')
+    expect(bad).toHaveLength(1)
+    expect(bad[0]!.subject).toBe(badKey)
+    expect(bad[0]!.message).toContain(JSON.stringify(badKey))
+  })
+})
+
+describe('stringify — YAML explicit snapshot keys', () => {
+  it('re-emits the fixture byte-identically, explicit-key form included', () => {
+    const source = explicitKeyLock()
+    expect(stringify(parse(source))).toBe(source)
+  })
+
+  it('emits the over-long snapshot key in `? ` / `: ` form rather than as an implicit key', () => {
+    const out = stringify(parse(explicitKeyLock()))
+    expect(out).toContain(`\n  ? '${EXPLICIT_KEY}'\n  : dependencies:\n`)
+    expect(out).not.toContain(`\n  '${EXPLICIT_KEY}':`)
+  })
 })

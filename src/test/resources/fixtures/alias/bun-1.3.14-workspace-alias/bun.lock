@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "f",
+      "dependencies": {
+        "pm-x": "npm:@yarnpkg/cli-dist@4.17.1",
+      },
+    },
+  },
+  "packages": {
+    "pm-x": ["@yarnpkg/cli-dist@4.17.1", "", { "bin": { "yarn": "bin/yarn.js", "yarnpkg": "bin/yarn.js" } }, "sha512-2tiSQuJNl/L3QwTdrq6lKWDpkcnp9MGvCT/rIldHcbu3SWfnLdmehvt3eulX1hT7FFt1Gjfq3CesF+kvhFip6g=="],
+  }
+}

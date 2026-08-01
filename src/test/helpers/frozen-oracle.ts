@@ -211,7 +211,16 @@ function resolveBin(adapter: FrozenOracleAdapter): string {
 function argvFor(adapter: FrozenOracleAdapter, mode: 'create' | 'frozen'): readonly string[] {
   if (adapter.family === 'npm') {
     return mode === 'create'
-      ? ['install', '--package-lock-only', '--ignore-scripts', '--audit=false', '--fund=false']
+      ? [
+          'install',
+          '--package-lock-only',
+          ...(adapter.nativeLockfileVersion === undefined
+            ? []
+            : [`--lockfile-version=${adapter.nativeLockfileVersion}`]),
+          '--ignore-scripts',
+          '--audit=false',
+          '--fund=false',
+        ]
       : ['ci', '--ignore-scripts', '--audit=false', '--fund=false']
   }
   if (adapter.family === 'yarn-classic') {

@@ -729,9 +729,12 @@ function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
   for (const snapshotKey of Object.keys(snapshotsMap)) {
     const parsed = parsePackagesOrSnapshotKey(snapshotKey)
     if (parsed === undefined) {
+      // The key IS the subject — no NodeId exists for an entry we cannot parse,
+      // and without it the warning names nothing the reader can act on.
       diagnostics.push({
         code: 'PNPM_BAD_ENTRY',
         severity: 'warning',
+        subject: snapshotKey,
         message: `pnpm-v${shape.lockfileVersion.split('.')[0]} snapshot key ${JSON.stringify(snapshotKey)} not parseable`,
       })
       continue
@@ -774,6 +777,7 @@ function addPnpmInlinePackageNodes(context: PnpmParseContext): void {
       diagnostics.push({
         code: 'PNPM_BAD_ENTRY',
         severity: 'warning',
+        subject: pkgKey,
         message: `pnpm-v${shape.lockfileVersion.split('.')[0]} packages key ${JSON.stringify(pkgKey)} not parseable`,
       })
       continue
