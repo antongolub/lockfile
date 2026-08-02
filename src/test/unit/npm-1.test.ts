@@ -741,6 +741,166 @@ describe('parse', () => {
   })
 })
 
+describe('npm-1 — source-aware tree edges', () => {
+  const npmjs = (name: string, version: string): string =>
+    `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`
+  const mirror = (name: string, version: string, scheme = 'https'): string =>
+    `${scheme}://registry.npmmirror.com/${name}/-/${name}-${version}.tgz`
+  const onlyId = (graph: Graph, name: string): string => {
+    const ids = graph.byName(name)
+    expect(ids).toHaveLength(1)
+    return ids[0]!
+  }
+
+  it('binds the project root to a top-level source-authored node', () => {
+    const graph = parse(v1Lock({
+      dependencies: {
+        target: { version: '1.0.0', resolved: mirror('target', '1.0.0') },
+      },
+    }))
+    const target = onlyId(graph, 'target')
+
+    expect(target).toContain('+src=')
+    expect(graph.out('root@1.0.0', 'dep').map(edge => edge.dst)).toContain(target)
+  })
+
+  it('binds requires to the target entry source on the same host and scheme', () => {
+    const graph = parse(v1Lock({
+      dependencies: {
+        consumer: {
+          version: '1.0.0',
+          resolved: mirror('consumer', '1.0.0'),
+          requires: { target: '^1.0.0' },
+        },
+        target: { version: '1.0.0', resolved: mirror('target', '1.0.0') },
+      },
+    }))
+    const consumer = onlyId(graph, 'consumer')
+    const target = onlyId(graph, 'target')
+
+    expect(graph.out(consumer, 'dep').map(edge => edge.dst)).toContain(target)
+    expect(graph.tarballOf(target)?.nativeResolution).toBe(mirror('target', '1.0.0'))
+  })
+
+  it('treats http and https spellings on one registry host as one source identity', () => {
+    const graph = parse(v1Lock({
+      dependencies: {
+        consumer: {
+          version: '1.0.0',
+          resolved: mirror('consumer', '1.0.0'),
+          requires: { target: '^1.0.0' },
+        },
+        target: { version: '1.0.0', resolved: mirror('target', '1.0.0', 'http') },
+      },
+    }))
+    const consumer = onlyId(graph, 'consumer')
+    const target = onlyId(graph, 'target')
+
+    expect(graph.out(consumer, 'dep').map(edge => edge.dst)).toContain(target)
+    expect(graph.getNode(consumer)?.source).toBe(graph.getNode(target)?.source)
+    expect(graph.tarballOf(target)?.nativeResolution).toBe(mirror('target', '1.0.0', 'http'))
+  })
+
+  it('binds a default-registry consumer to a distinct target registry identity', () => {
+    const graph = parse(v1Lock({
+      dependencies: {
+        consumer: {
+          version: '1.0.0',
+          resolved: npmjs('consumer', '1.0.0'),
+          requires: { target: '^1.0.0' },
+        },
+        target: { version: '1.0.0', resolved: mirror('target', '1.0.0') },
+      },
+    }))
+    const target = onlyId(graph, 'target')
+
+    expect(target).toContain('+src=')
+    expect(graph.out('consumer@1.0.0', 'dep').map(edge => edge.dst)).toContain(target)
+  })
+
+  it('binds a registry consumer to a git-authored target identity', () => {
+    const git = 'git+ssh://git@github.com/example/target.git#0123456789abcdef'
+    const graph = parse(v1Lock({
+      dependencies: {
+        consumer: {
+          version: '1.0.0',
+          resolved: npmjs('consumer', '1.0.0'),
+          requires: { target: git },
+        },
+        target: { version: git },
+      },
+    }))
+    const target = onlyId(graph, 'target')
+
+    expect(target).toContain('+src=')
+    expect(graph.out('consumer@1.0.0', 'dep').map(edge => edge.dst)).toContain(target)
+  })
+
+  it('does not silently bind a source target to a same-version bare node in another scope', () => {
+    const graph = parse(v1Lock({
+      dependencies: {
+        consumer: {
+          version: '1.0.0',
+          resolved: npmjs('consumer', '1.0.0'),
+          requires: { dup: '^1.0.0' },
+        },
+        dup: { version: '1.0.0', resolved: mirror('dup', '1.0.0') },
+        holder: {
+          version: '1.0.0',
+          resolved: npmjs('holder', '1.0.0'),
+          dependencies: {
+            dup: { version: '1.0.0' },
+          },
+        },
+      },
+    }))
+    const sourceTarget = graph.byName('dup').find(id => id.includes('+src='))
+
+    expect(sourceTarget).toBeDefined()
+    expect(graph.out('consumer@1.0.0', 'dep').map(edge => edge.dst)).toContain(sourceTarget)
+    expect(graph.out('root@1.0.0', 'dep').map(edge => edge.dst)).toContain(sourceTarget)
+  })
+
+  it('keeps taobao and npmmirror identities distinct when one lock carries both', () => {
+    const taobao = (name: string, version: string): string =>
+      `https://registry.npm.taobao.org/${name}/download/${name}-${version}.tgz`
+    const graph = parse(v1Lock({
+      dependencies: {
+        'consumer-old': {
+          version: '1.0.0',
+          resolved: npmjs('consumer-old', '1.0.0'),
+          requires: { dup: '^1.0.0' },
+        },
+        dup: { version: '1.0.0', resolved: taobao('dup', '1.0.0') },
+        holder: {
+          version: '1.0.0',
+          resolved: npmjs('holder', '1.0.0'),
+          dependencies: {
+            'consumer-new': {
+              version: '1.0.0',
+              resolved: npmjs('consumer-new', '1.0.0'),
+              requires: { dup: '^1.0.0' },
+            },
+            dup: { version: '1.0.0', resolved: mirror('dup', '1.0.0') },
+          },
+        },
+      },
+    }))
+    const duplicates = graph.byName('dup')
+    const oldTarget = duplicates.find(id =>
+      graph.tarballOf(id)?.nativeResolution === taobao('dup', '1.0.0'))
+    const newTarget = duplicates.find(id =>
+      graph.tarballOf(id)?.nativeResolution === mirror('dup', '1.0.0'))
+
+    expect(duplicates).toHaveLength(2)
+    expect(oldTarget).toBeDefined()
+    expect(newTarget).toBeDefined()
+    expect(oldTarget).not.toBe(newTarget)
+    expect(graph.out('consumer-old@1.0.0', 'dep').map(edge => edge.dst)).toContain(oldTarget)
+    expect(graph.out('consumer-new@1.0.0', 'dep').map(edge => edge.dst)).toContain(newTarget)
+  })
+})
+
 describe('enrich', () => {
   it('emits NPM_V1_PEER_UNSATISFIED when the captured peer range matches nothing', () => {
     const lock = v1Lock({

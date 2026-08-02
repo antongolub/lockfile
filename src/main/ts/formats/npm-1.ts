@@ -388,9 +388,7 @@ function npm1EntryIdentity(
     : `${parentPath}/node_modules/${declaredName}`
   const resolved = npm1ResolvedField(context, entry, installPath)
     ?? (isUrlLikeVersion(version) ? version : undefined)
-  const source = resolved !== undefined
-    ? sourceDiscriminatorOf(parseResolutionRecipe(resolved, { sourceKind: 'npm-resolved' }))
-    : undefined
+  const source = npm1SourceDiscriminator(resolved)
   return {
     id: serializeNodeId(declaredName, version, [], undefined, source),
     version,
@@ -398,6 +396,31 @@ function npm1EntryIdentity(
     source,
     installPath,
   }
+}
+
+function npm1SourceDiscriminator(resolved: string | undefined): string | undefined {
+  return resolved === undefined
+    ? undefined
+    : sourceDiscriminatorOf(parseResolutionRecipe(resolved, { sourceKind: 'npm-resolved' }))
+}
+
+// Edge identity must be derived from the selected installed entry, exactly as
+// node identity is. This deliberately ignores a consumer's source and keeps
+// exact URL spelling in the target tarball payload rather than in the edge.
+// Invalid non-string `resolved` values are diagnosed when the target node is
+// walked; here they have the same identity semantics as an absent value.
+function npm1EntryTargetId(declaredName: string, entry: Npm1Entry): string | undefined {
+  if (typeof entry.version !== 'string') return undefined
+  const resolved = typeof entry.resolved === 'string'
+    ? entry.resolved
+    : isUrlLikeVersion(entry.version) ? entry.version : undefined
+  return serializeNodeId(
+    declaredName,
+    entry.version,
+    [],
+    undefined,
+    npm1SourceDiscriminator(resolved),
+  )
 }
 
 function addNpm1EntryNode(
@@ -520,7 +543,8 @@ function addNpm1RootEdges(context: Npm1ParseContext): void {
   const entries = Object.entries(context.lf.dependencies).sort((a, b) => cmpStr(a[0], b[0]))
   for (const [declaredName, entry] of entries) {
     if (entry === null || typeof entry !== 'object' || typeof entry.version !== 'string') continue
-    const dstId = `${declaredName}@${entry.version}`
+    const dstId = npm1EntryTargetId(declaredName, entry)
+    if (dstId === undefined) continue
     if (!context.seenIds.has(dstId)) continue
     addNpm1DependencyEdge(context, context.rootId, dstId, entry.version, declaredName)
   }
@@ -655,16 +679,15 @@ function resolveTreeTarget(
   currentDeps: Record<string, Npm1Entry>,
   parentScopes: Array<Record<string, Npm1Entry>>,
 ): string | undefined {
-  if (currentDeps[name] !== undefined && typeof currentDeps[name].version === 'string') {
-    return `${name}@${currentDeps[name].version}`
-  }
+  const current = currentDeps[name]
+  const currentTarget = current === undefined ? undefined : npm1EntryTargetId(name, current)
+  if (currentTarget !== undefined) return currentTarget
   for (let i = parentScopes.length - 1; i >= 0; i--) {
     const scope = parentScopes[i]
     if (scope === undefined) continue
     const entry = scope[name]
-    if (entry !== undefined && typeof entry.version === 'string') {
-      return `${name}@${entry.version}`
-    }
+    const target = entry === undefined ? undefined : npm1EntryTargetId(name, entry)
+    if (target !== undefined) return target
   }
   return undefined
 }

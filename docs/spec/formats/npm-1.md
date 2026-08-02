@@ -1,7 +1,7 @@
 # `npm-1` — npm `package-lock.json` (lockfileVersion 1)
 
 > Status: stable (adapter + flat-family round-trip suite).
-> Updated: 2026-07-29
+> Updated: 2026-08-02
 > Provenance: **Official**.
 
 ## Compatibility
@@ -134,6 +134,25 @@ Mostly self-contained: the lockfile encodes the full hoisted tree.
   reports `COMPLETENESS_OUTPUT_UNRESOLVED_DECLARATION_DROPPED`; strict output
   rejects this as irreducible loss (there is no registry remedy for preserving
   an already-authored declaration).
+- A `requires` or project-root edge takes its target identity from the selected
+  installed entry, including that entry's own `resolved` source. It never
+  inherits the consumer's source and never falls back to a bare
+  `<name>@<version>` when the selected target is source-authored. Registry
+  tarball identity is host-based: scheme, path, and query do not split one
+  registry host, while the exact authored URL remains in `nativeResolution`
+  and is replayed unchanged.
+- Registry redirects are transport behaviour, not identity aliases. In
+  particular, `registry.npm.taobao.org` and its successor
+  `registry.npmmirror.com` remain distinct authored hosts: real locks carry
+  both at once, including the same package/version in different installed
+  scopes. The target entry binds each edge to the correct carrier without
+  collapsing those nodes. The external npm corpus gate covers all 77 Chinese-
+  mirror locks (77 parsed, zero mirror-specific seal failures), and a real
+  taobao-authored npm-1 lock is round-tripped before npm verifies the emitted
+  bytes with `npm ci`. This proves that npm accepts our emitted bytes, not that
+  npm would author the same full file: the source lock omits neutral root fields
+  that the emitter adds, so the oracle pins its authored dependency carrier and
+  exact URLs rather than claiming full-file byte identity.
 - **Emitted in `json-stringify-nice` key order** — the same serialiser arborist
   uses for v2/v3 (npm's `swKeyOrder` was designed to match npm 5/6's historical
   order), so a generated v1 lock is byte-identical to what npm 6 writes. See
