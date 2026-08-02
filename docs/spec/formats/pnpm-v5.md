@@ -160,24 +160,56 @@ this is only how pnpm *carries* it.
 
 ### `_<peer>` tail encoding
 
-The v5 tail is built by `createPeersFolderSuffix` (measured on pnpm 6.35.1):
-each peer becomes `<name-with-first-slash-replaced-by-+>@<version>`, the list is
-sorted and joined with `+`, and the whole string is prefixed with `_`. It is
-hashed — `_<md5-hex>` — only when the joined string exceeds **32 characters**,
-which is why most real v5 tails are digests while short ones are literal. A
-peer satisfied by a workspace member puts
-[`filenamify(dir, {replacement: '+'})`](./pnpm-v9.md#workspace-directory-peer-locators)
-in the version half, exactly as v9 does.
+The tail is built by `createPeersFolderSuffix`. Read from the producers' own
+bundles rather than inferred, because two details differ between them and
+neither is guessable from a lockfile:
 
-`+` is therefore overloaded three ways inside one v5 tail: the scope separator
-of a peer NAME, the separator BETWEEN peers, and the directory separator of a
-workspace-peer VERSION. A scoped peer is the common case —
-`vueComponent/ant-design-vue-pro` ships
-`/@antv/g2-plugin-slider/2.1.1_@antv+g2@3.5.19`, where `@antv+g2` is the package
-`@antv/g2` and not a directory. That file is the one lock in the 70-file scraped
-corpus that fails to parse: the tail is read as a workspace locator, the
-peerContext disagrees with the emitted peer edges, and the seal rejects the
-lock. Disambiguating the three meanings is open.
+```js
+// pnpm 6.35.1 and pnpm 7 — identical except for the threshold and the encoding
+function createPeersFolderSuffix (peers) {
+  const folderName = peers
+    .map(({ name, version }) => `${name.replace('/', '+')}@${version}`)
+    .sort()
+    .join('+')
+  if (folderName.length > THRESHOLD) return `_${HASH(folderName)}`
+  return `_${folderName}`
+}
+```
+
+| producer | `THRESHOLD` | `HASH` | rendered width |
+| --- | --: | --- | --- |
+| pnpm 6 | 32 | `md5(s)` as lowercase hex | 32 |
+| pnpm 7+ | 26 | `base32(md5(s))`, RFC 4648, padding stripped, lowercased | 26 |
+
+Note `name.replace('/', '+')` replaces only the **first** `/`, which for
+`@scope/name` is exactly the scope separator.
+
+So `+` is overloaded three ways inside one tail: the scope separator of a peer
+**name**, the separator **between** peers, and — via
+[`filenamify(dir, {replacement: '+'})`](./pnpm-v9.md#workspace-directory-peer-locators)
+— the directory separator of a workspace-peer **version**. They are separable
+without ambiguity:
+
+- a segment opening with `@` and carrying no second `@` is a scope, and takes
+  the following segment as its name half — `@antv+g2@3.5.19` is the package
+  `@antv/g2`, never a directory;
+- a segment with no `@` at all belongs to the version before it, which is how
+  semver build metadata (`1.0.0+build`) survives;
+- everything else starts a new peer.
+
+**A hashed tail is a peer context, not part of the version.** The digest replaces
+the whole rendered list, so it names no package and can bear no peer edge, but it
+still discriminates one variant of a package from another. It is therefore
+carried as a single opaque context token: the node keeps its real version, its
+base identity still matches a peer reference naming `name@version`, and the seal
+exempts exactly this token from edge/context coherence (ADR-0030). Recovering the
+peer set from a digest is not possible — `md5` is one-way — though a candidate
+set can be *verified* by re-rendering and re-hashing it.
+
+The one `_` in a key is the version/tail boundary and never a peer separator.
+Peers are joined by `+`. Eight keys in the scraped corpus carry two underscores;
+all eight are package names such as `@types/babel__core`, so peeling from the
+right on `_` splits a name in half.
 
 ## Degradation rules
 

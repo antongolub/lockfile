@@ -39,7 +39,13 @@ const SENTINEL_RE       = /^unresolved-[0-9a-f]{64}$/
 // (a future `patchedDependencies:`-block cross-check could disambiguate the
 // theoretical bare-hex-patch collision, but no real corpus patch is bare —
 // every one is `patch_hash=<64hex>`).
-const HASHED_PEER_SET_RE = /^[0-9a-f]{16,}$/
+// pnpm hashes a peer set that renders too long, and it has used two encodings
+// of the same md5. From its own `createPeersFolderSuffix` / `createBase32Hash`:
+//   pnpm 6  `_${md5(rendered).hex}`                  32 lowercase hex, cut over 32 chars
+//   pnpm 7+ `_${base32(md5(rendered))}` unpadded     26 chars over `a-z2-7`, cut over 26
+// Both are bare tokens in a peer-context position, where a real entry always
+// carries an `@`, so neither can collide with a `name@version` peer.
+const HASHED_PEER_SET_RE = /^(?:[0-9a-f]{16,}|[a-z2-7]{26})$/
 
 /**
  * True iff `s` is the canonical `<sha512-hex>` patch slot value (ADR-0014

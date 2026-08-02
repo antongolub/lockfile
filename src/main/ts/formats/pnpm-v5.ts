@@ -80,6 +80,7 @@ import {
   type OverrideConstraint,
 } from '../graph.ts'
 import { emitSriForRegistry } from '../recipe/integrity.ts'
+import { isHashedPeerSetToken } from '../recipe/patch.ts'
 import { captureOverrides, projectOverrides } from '../recipe/overrides.ts'
 import { governingOverrideFor } from '../recipe/descriptor-resolve.ts'
 import { LockfileError } from '../api/errors.ts'
@@ -502,7 +503,7 @@ function addPnpmV5PackageNodes(context: PnpmV5ParseContext): void {
       continue
     }
     const { name, version: ver, peers } = parsed
-    const peerContext = peers.map(p => `${p.name}@${p.version}`).sort(cmpStr)
+    const peerContext = peers.map(renderPeerContextEntry).sort(cmpStr)
     const nodeId = serializeNodeId(name, ver, peerContext)
     if (context.seenIds.has(nodeId)) continue
     context.seenIds.add(nodeId)
@@ -911,13 +912,18 @@ function addResolvedPeerEdges(
 ): void {
   // Peer edges — derive from the parsed peers chain.
   for (const peer of peers) {
+    // A hashed peer set names no package: the producer replaced the whole
+    // rendered list with one md5 token, so there is nothing to resolve and no
+    // edge to mint. It stays in the peerContext as an identity discriminator,
+    // and the seal exempts it from edge/context coherence (ADR-0030).
+    if (peer.version === '' && isHashedPeerSetToken(peer.name)) continue
     const peerNodeId = resolvePeerTargetById(seenIds, peer.name, peer.version)
     if (peerNodeId === undefined) {
       diagnostics.push({
         code: 'PNPM_UNRESOLVED_DEP',
         severity: 'warning',
         subject: srcId,
-        message: `pnpm-v5: ${srcId} peer ${peer.name}@${peer.version} resolves to no packages entry`,
+        message: `pnpm-v5: ${srcId} peer ${renderPeerContextEntry(peer)} resolves to no packages entry`,
       })
       continue
     }
@@ -1704,6 +1710,12 @@ function splitPeerTail(tail: string): PeerEntry[] | undefined {
   return peers.length > 0 ? peers : undefined
 }
 
+/** Render one peer-context entry. A hashed peer set is carried as a single
+ *  bare token with no version, so it must not pick up a trailing `@`. */
+function renderPeerContextEntry(p: PeerEntry): string {
+  return p.version === '' ? p.name : `${p.name}@${p.version}`
+}
+
 export function peelPeerTail(input: string): { version: string; peers: PeerEntry[] } | undefined {
   if (input.length === 0) return undefined
   const boundary = input.indexOf(PEER_TAIL_SEPARATOR)
@@ -1711,11 +1723,14 @@ export function peelPeerTail(input: string): { version: string; peers: PeerEntry
   const version = input.slice(0, boundary)
   if (version.length === 0) return undefined
   const tail = input.slice(boundary + 1)
-  // A tail carrying no `@` at all is the producer's md5 of a peer set longer
-  // than 32 characters — opaque, and not reversible into peer entries. Carry it
-  // verbatim inside the version so replay stays byte-exact, exactly as before
-  // this grammar was corrected. Recovering those bindings is a separate item.
-  if (!tail.includes('@')) return { version: input, peers: [] }
+  // A tail with no `@` is the producer's hash of a peer set that rendered too
+  // long — `md5` as 32 hex in pnpm 6, as unpadded base32 in pnpm 7+. It is a
+  // peer CONTEXT, not part of the version: recorded as one opaque context token
+  // so the node keeps its real version and its base identity still matches a
+  // peer reference naming `name@version`. The digest is not reversible into
+  // entries, so no peer edge is minted for it — the seal exempts exactly this
+  // token from edge/context coherence (ADR-0030).
+  if (!tail.includes('@')) return { version, peers: [{ name: tail, version: '' }] }
   const peers = splitPeerTail(tail)
   if (peers === undefined) return undefined
   return { version, peers }
@@ -1728,7 +1743,7 @@ export function resolveDependencyTarget(
 ): string | undefined {
   const peeled = peelPeerTail(rawValue)
   if (peeled === undefined) return undefined
-  const peerContext = peeled.peers.map(p => `${p.name}@${p.version}`).sort(cmpStr)
+  const peerContext = peeled.peers.map(renderPeerContextEntry).sort(cmpStr)
   const candidate = serializeNodeId(depName, peeled.version, peerContext)
   if (seenIds.has(candidate)) return candidate
   const bare = `${depName}@${peeled.version}`
@@ -1753,7 +1768,7 @@ export function resolveAliasedDependencyTarget(
   const rest = rawValue.slice(lastAt + 1)
   const peeled = peelPeerTail(rest)
   if (peeled === undefined) return undefined
-  const peerContext = peeled.peers.map(p => `${p.name}@${p.version}`).sort(cmpStr)
+  const peerContext = peeled.peers.map(renderPeerContextEntry).sort(cmpStr)
   const candidate = serializeNodeId(targetName, peeled.version, peerContext)
   if (seenIds.has(candidate)) return candidate
   const bare = `${targetName}@${peeled.version}`
