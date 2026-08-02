@@ -1,3 +1,15 @@
+## [0.6.4](https://github.com/lockgraph/lockgraph/compare/v0.6.3...v0.6.4) (2026-08-02)
+
+### Fixes & improvements
+* fix(npm): carry native root metadata and accept dependency-free locks ([a911315](https://github.com/lockgraph/lockgraph/commit/a91131570d86eb3b1b51ee9b94c3bc4d8ec91dee))
+* fix(npm-1): bind source-authored mirror targets ([4594005](https://github.com/lockgraph/lockgraph/commit/459400550f66e379ccbcf2a7256807fec91de151))
+* fix(pnpm): recover verified hashed workspace peers ([1818198](https://github.com/lockgraph/lockgraph/commit/1818198b843a2ca992482ca917622c1560c560f4))
+* docs: make the format specs stand on their own ([f8f5505](https://github.com/lockgraph/lockgraph/commit/f8f5505060a475e2b5fab23950dd2848c0093be7))
+* fix: model a hashed pnpm peer set as context, not as version ([2fcd5f6](https://github.com/lockgraph/lockgraph/commit/2fcd5f64e73d9176549b66d60446dc6add973dbe))
+* fix: build the pnpm v5 peer tail the way pnpm builds it ([382b092](https://github.com/lockgraph/lockgraph/commit/382b09257fcc8ff0a7109649438ab67a109eb11a))
+* fix: encode pnpm workspace locators the way pnpm encodes them ([f68edaf](https://github.com/lockgraph/lockgraph/commit/f68edaf4b65c9ab69fc2659dd6a514b026b9b85a))
+* fix: read a lock the way its producer reads it ([3ecadfb](https://github.com/lockgraph/lockgraph/commit/3ecadfb577d62729077c6b6026e56e2d34b299d3))
+
 ## [0.6.3](https://github.com/lockgraph/lockgraph/compare/v0.6.2...v0.6.3) (2026-08-01)
 
 ### Fixes & improvements
