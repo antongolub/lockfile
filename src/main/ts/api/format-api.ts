@@ -238,13 +238,72 @@ export function isFormatId(value: unknown): value is FormatId {
 export type ParseOptionsWithFormat = ParseOptions & { format?: FormatId }
 export type StringifyOptionsWithFormat = StringifyOptions & { format?: FormatId }
 
-function requireFormat(format: FormatId | undefined, subject: 'parse' | 'stringify'): FormatId {
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasKeyDeep(value: unknown, key: string): boolean {
+  const pending: unknown[] = [value]
+  while (pending.length > 0) {
+    const candidate = pending.pop()
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) pending.push(item)
+      continue
+    }
+    if (!isUnknownRecord(candidate)) continue
+    if (Object.prototype.hasOwnProperty.call(candidate, key)) return true
+    for (const item of Object.values(candidate)) pending.push(item)
+  }
+  return false
+}
+
+function undetectedNpmDiagnostic(input: string): Diagnostic | undefined {
+  let value: unknown
+  try { value = JSON.parse(input) } catch { return undefined }
+  if (!isUnknownRecord(value)) return undefined
+
+  const hasLockfileVersion = Object.prototype.hasOwnProperty.call(value, 'lockfileVersion')
+  const dependencies = value.dependencies
+  if (!hasLockfileVersion
+    && isUnknownRecord(dependencies)
+    && Object.keys(dependencies).length > 0
+    && !hasKeyDeep(value, 'integrity')) {
+    return Object.freeze({
+      code: 'NPM_SHRINKWRAP_PRE_LOCKFILE_VERSION',
+      severity: 'error',
+      message: 'parse: pre-npm-5 shrinkwrap has no lockfileVersion or integrity digests; conversion is refused',
+    })
+  }
+
+  const version = value.lockfileVersion
+  const packages = value.packages
+  const hasPackagesRoot = isUnknownRecord(packages)
+    && Object.prototype.hasOwnProperty.call(packages, '')
+  if ((version === 2 || version === 3) && !hasPackagesRoot) {
+    return Object.freeze({
+      code: 'NPM_LOCKFILE_STRUCTURE_MISSING',
+      severity: 'error',
+      message: `parse: npm lockfileVersion ${version} is missing the required packages root entry packages[""]; npm writes it even for dependency-free projects`,
+    })
+  }
+  return undefined
+}
+
+function requireFormat(
+  format: FormatId | undefined,
+  subject: 'parse' | 'stringify',
+  input?: string,
+): FormatId {
   if (format !== undefined) return format
+  const diagnostic = subject === 'parse' && input !== undefined
+    ? undetectedNpmDiagnostic(input)
+    : undefined
   throw new LockfileError({
-    code: 'INVALID_INPUT',
+    code: subject === 'parse' ? 'FORMAT_DETECT_FAILED' : 'INVALID_INPUT',
     message: subject === 'parse'
       ? 'parse: format could not be detected from the input; pass it explicitly'
       : 'stringify: target format is required; pass it as an argument or as options.format',
+    ...(diagnostic === undefined ? {} : { diagnostics: [diagnostic] }),
   })
 }
 
@@ -283,7 +342,7 @@ function parseResolved(
   input: string,
   options: ParseOptions = {},
 ): Graph {
-  const format = requireFormat(requested, 'parse')
+  const format = requireFormat(requested, 'parse', input)
   if (options.sources?.policy !== undefined && options.overrides !== undefined) {
     throw new LockfileError({
       code: 'INVALID_INPUT',

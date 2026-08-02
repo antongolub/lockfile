@@ -13,8 +13,9 @@
 // - `topLevelShape: 'packages-only'` (npm-3) — only the `packages` block
 //   is authoritative; any top-level `dependencies` is anomalous and
 //   surfaces `NPM_V3_UNEXPECTED_LEGACY_MIRROR` on parse.
-// - `topLevelShape: 'dual'` (npm-2) — BOTH `packages` and `dependencies`
-//   blocks are expected. `packages` wins on disagreement; per-entry drift
+// - `topLevelShape: 'dual'` (npm-2) — `packages` plus the legacy
+//   `dependencies` mirror are expected except for npm's dependency-free
+//   root-only omission. `packages` wins on disagreement; per-entry drift
 //   surfaces `NPM_V2_DUAL_MODE_DRIFT`. The npm-2-only dual-mode drift
 //   detection + legacy-mirror reconstruction lives in `_npm-2-mirror.ts`
 //   and is wired in via the `hooks` slot of `NpmFamilyConfig`. CORE
@@ -139,7 +140,23 @@ export function hasAdapterState(graph: Graph): boolean {
 }
 
 export function adapterStateSubjects(graph: Graph): readonly string[] {
-  return unknownTopLevelSubjects(sidecarByGraph.get(graph)?.unknownTopLevel)
+  const sidecar = sidecarByGraph.get(graph)
+  const rootSubjects = Object.entries(sidecar?.rootMeta?.nativeRootEntry?.value ?? {})
+    .filter(([key, value]) => rootEntryKeyNeedsNativeCarrier(key, value))
+    .map(([key]) => `root-entry:${key}`)
+  return [...unknownTopLevelSubjects(sidecar?.unknownTopLevel), ...rootSubjects].sort(cmpStr)
+}
+
+function rootEntryKeyNeedsNativeCarrier(key: string, value: unknown): boolean {
+  if (key === 'name' || key === 'version') return false
+  if (key !== 'dependencies'
+    && key !== 'devDependencies'
+    && key !== 'peerDependencies'
+    && key !== 'optionalDependencies') return true
+  return value === null
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.keys(value).length === 0
 }
 
 // === Access =================================================================
@@ -179,9 +196,27 @@ export function checkFamily(input: string, config: NpmFamilyConfig): boolean {
       // is anomalous on npm-3 input and surfaces as a parse-time warning.
       return /"packages"\s*:\s*\{/.test(input)
     case 'dual':
-      // npm-2: requires both `packages` and `dependencies` keys at top level.
-      return /"packages"\s*:\s*\{/.test(input) && /"dependencies"\s*:\s*\{/.test(input)
+      // npm-2 normally carries both maps. npm itself omits the empty legacy
+      // mirror for a dependency-free lock whose packages map contains only
+      // the root entry, so that exact producer shape is also npm-2.
+      if (!/"packages"\s*:\s*\{/.test(input)) return false
+      if (/"dependencies"\s*:\s*\{/.test(input)) return true
+      try {
+        const parsed: unknown = JSON.parse(input)
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+        return hasOnlyRootPackage((parsed as { packages?: unknown }).packages)
+      } catch {
+        return false
+      }
   }
+}
+
+function hasOnlyRootPackage(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const packages = value as Record<string, unknown>
+  if (Object.keys(packages).length !== 1 || !Object.hasOwn(packages, '')) return false
+  const root = packages['']
+  return root !== null && typeof root === 'object' && !Array.isArray(root)
 }
 
 /** Parses the configured npm layout while preserving adapter sidecar state. */
@@ -234,7 +269,7 @@ export function stringifyFamily(
   if (rootNode !== undefined) {
     packages[''] = buildRootEntry(graph, rootNode, rootMeta, sidecar, config, emitDiagnostic)
   } else if (rootMeta !== undefined) {
-    packages[''] = buildSyntheticRootEntry(rootMeta)
+    packages[''] = buildSyntheticRootEntry(rootMeta, config)
   } else {
     // Empty graph / no root info: emit a minimal root entry so the lockfile
     // remains parseable (parseFamily rejects a `packages` map missing the
@@ -318,6 +353,7 @@ export function stringifyFamily(
   const text = stringifyNpmLock(
     merged,
     sidecar?.unknownTopLevel === undefined ? undefined : Object.keys(merged),
+    nativeRootEntryPortableTo(rootMeta, config),
   )
   return options.lineEnding === 'crlf' ? text.replace(/\n/g, '\r\n') : text
 }
@@ -777,12 +813,20 @@ function addNpmPackageEdges(context: NpmParseContext): void {
 }
 
 function captureNpmRootMeta(context: NpmParseContext): NpmRootMeta {
-  const { diagnostics, lf, nodeSidecar, rootEntry } = context
+  const { config, diagnostics, lf, nodeSidecar, rootEntry } = context
   // Pass 3: root meta.
   const rootMeta: NpmRootMeta = {
     name: lf.name ?? rootEntry.name,
     version: lf.version ?? rootEntry.version,
     requires: lf.requires,
+    ...(config.lockfileVersion === 2 || config.lockfileVersion === 3
+      ? {
+          nativeRootEntry: {
+            lockfileVersion: config.lockfileVersion,
+            value: cloneNpmRootEntry(rootEntry),
+          },
+        }
+      : {}),
   }
   context.config.hooks?.captureRootMeta?.({ lf, rootEntry, rootMeta })
   const workspaces = captureWorkspacesField(rootEntry.workspaces, rootMeta, diagnostics)
@@ -1079,13 +1123,70 @@ export function fallbackInstallPathForNode(node: Node, pathToId: ReadonlyMap<str
   }
 }
 
-export function buildSyntheticRootEntry(rootMeta: NpmRootMeta): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
+export function buildSyntheticRootEntry(
+  rootMeta: NpmRootMeta,
+  config?: NpmFamilyConfig,
+): Record<string, unknown> {
+  const body = cloneNativeRootEntry(rootMeta, config)
   if (rootMeta.name !== undefined) body.name = rootMeta.name
   if (rootMeta.version !== undefined) body.version = rootMeta.version
   if (rootMeta.workspaces !== undefined) body.workspaces = rootMeta.workspaces
   if (rootMeta.bundleDependencies !== undefined) body.bundleDependencies = rootMeta.bundleDependencies
+  delete body.overrides
   return body
+}
+
+function cloneNpmRootEntry(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+}
+
+function cloneNativeRootEntry(
+  rootMeta: NpmRootMeta | undefined,
+  config: NpmFamilyConfig | undefined,
+): Record<string, unknown> {
+  const native = rootMeta?.nativeRootEntry
+  return native !== undefined && nativeRootEntryPortableTo(rootMeta, config)
+    ? cloneNpmRootEntry(native.value)
+    : {}
+}
+
+function nativeRootEntryPortableTo(
+  rootMeta: NpmRootMeta | undefined,
+  config: NpmFamilyConfig | undefined,
+): boolean {
+  const sourceVersion = rootMeta?.nativeRootEntry?.lockfileVersion
+  const targetVersion = config?.lockfileVersion
+  return (sourceVersion === 2 || sourceVersion === 3)
+    && (targetVersion === 2 || targetVersion === 3)
+}
+
+function overlayRootBlock(
+  body: Record<string, unknown>,
+  key: 'dependencies' | 'devDependencies' | 'peerDependencies' | 'optionalDependencies',
+  value: Record<string, string> | undefined,
+): void {
+  if (value !== undefined && Object.keys(value).length > 0) {
+    const native = body[key]
+    if (native !== null && typeof native === 'object' && !Array.isArray(native)) {
+      const overlaid: Record<string, string> = {}
+      for (const nativeKey of Object.keys(native)) {
+        if (Object.hasOwn(value, nativeKey)) overlaid[nativeKey] = value[nativeKey]!
+      }
+      for (const valueKey of Object.keys(value)) {
+        if (!Object.hasOwn(overlaid, valueKey)) overlaid[valueKey] = value[valueKey]!
+      }
+      body[key] = overlaid
+    } else {
+      body[key] = value
+    }
+    return
+  }
+  const native = body[key]
+  const nativeIsExplicitEmpty = native !== null
+    && typeof native === 'object'
+    && !Array.isArray(native)
+    && Object.keys(native).length === 0
+  if (!nativeIsExplicitEmpty) delete body[key]
 }
 
 export function collectManifestBlocks(
@@ -1326,19 +1427,34 @@ function buildRootEntry(
   config: NpmFamilyConfig,
   emitDiagnostic: (d: Diagnostic) => void = () => undefined,
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
-  body.name = rootMeta?.name ?? rootNode.name
-  body.version = rootMeta?.version ?? rootNode.version
+  const body = cloneNativeRootEntry(rootMeta, config)
+  body.name = rootNode.name
+  body.version = rootNode.version
 
   const blocks = collectManifestBlocks(graph, rootNode.id, sidecar, emitDiagnostic)
-  if (Object.keys(blocks.dep).length > 0) body.dependencies = blocks.dep
-  if (Object.keys(blocks.dev).length > 0) body.devDependencies = blocks.dev
-  if (Object.keys(blocks.peer).length > 0) body.peerDependencies = blocks.peer
-  else if (rootMeta?.peerDependencies !== undefined) body.peerDependencies = sortRecord(rootMeta.peerDependencies)
-  if (Object.keys(blocks.optional).length > 0) body.optionalDependencies = blocks.optional
-  else if (rootMeta?.optionalDependencies !== undefined) body.optionalDependencies = sortRecord(rootMeta.optionalDependencies)
+  overlayRootBlock(body, 'dependencies', blocks.dep)
+  overlayRootBlock(body, 'devDependencies', blocks.dev)
+  overlayRootBlock(
+    body,
+    'peerDependencies',
+    Object.keys(blocks.peer).length > 0
+      ? blocks.peer
+      : rootMeta?.peerDependencies === undefined
+        ? undefined
+        : sortRecord(rootMeta.peerDependencies),
+  )
+  overlayRootBlock(
+    body,
+    'optionalDependencies',
+    Object.keys(blocks.optional).length > 0
+      ? blocks.optional
+      : rootMeta?.optionalDependencies === undefined
+        ? undefined
+        : sortRecord(rootMeta.optionalDependencies),
+  )
   if (rootMeta?.workspaces !== undefined) body.workspaces = rootMeta.workspaces
   if (rootMeta?.bundleDependencies !== undefined) body.bundleDependencies = rootMeta.bundleDependencies
+  delete body.overrides
   config.hooks?.enrichPackageEntry?.({
     graph,
     node: rootNode,

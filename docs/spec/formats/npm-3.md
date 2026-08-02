@@ -91,6 +91,18 @@ Same as [npm-2](./npm-2.md#conversion-inputs).
 - npm 7 and 8 **cannot install** from a v3 lockfile; they ignore the lock and
   re-resolve. The converter must warn when emitting v3 if backward-install is
   important.
+- As in npm-2, the whole source-authored `packages[""]` object is retained for
+  replay and graph rebinding, then cloned before canonical Graph fields overlay
+  it. The complete record is portable across npm-2 ↔ npm-3; minted and
+  foreign-PM output fabricates no native root metadata. Pinned npm 8.19.4
+  `npm ci` returns `frozen-verified` for an npm-2 lock with an unknown
+  `futureRootField`, proving that future keys travel across this family boundary.
+  npm-4 is excluded because the audited corpus contains zero v4 locks with a
+  root entry; the evidence ends at v3. The same pinned npm accepts the native-oracle lock with
+  root `engines` stripped, so this carrier closes a **byte-fidelity defect, not
+  a frozen-install correctness defect**: npm does not need those fields for
+  that install, but lockgraph's certification criterion still requires byte
+  identity.
 - **Integrity is preserved as a multi-hash multiset.** Every algorithm and every
   member of a space-joined SRI (`sha1-… sha512-…`) is kept verbatim — `sha1`,
   `sha256`, `sha384`, `sha512` — not collapsed to sha512-only. The strongest

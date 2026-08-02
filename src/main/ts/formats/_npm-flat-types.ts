@@ -59,17 +59,35 @@ const compareNpmKeys = (a: string, b: string): number => {
 // precede nested objects; within each group NPM_SW_KEY_ORDER leads, then
 // localeCompare. Arrays are mapped so any object elements are reordered too.
 // `out` is a fresh acyclic plain-object tree, so no cycle guard is needed.
-const npmNiceOrder = (val: unknown): unknown => {
-  if (Array.isArray(val)) return val.map(npmNiceOrder)
+const npmNiceOrder = (
+  val: unknown,
+  preserveOrder = false,
+  path: readonly string[] = [],
+  preserveNativeRootEntryOrder = false,
+): unknown => {
+  if (Array.isArray(val)) {
+    return val.map(item => npmNiceOrder(item, preserveOrder, path, preserveNativeRootEntryOrder))
+  }
   if (!isPlainObject(val)) return val
   const entries = Object.entries(val)
-  entries.sort(([ak, av], [bk, bv]) => {
-    const aObj = isPlainObject(av)
-    const bObj = isPlainObject(bv)
-    return aObj === bObj ? compareNpmKeys(ak, bk) : aObj ? 1 : -1
-  })
+  if (!preserveOrder) {
+    entries.sort(([ak, av], [bk, bv]) => {
+      const aObj = isPlainObject(av)
+      const bObj = isPlainObject(bv)
+      return aObj === bObj ? compareNpmKeys(ak, bk) : aObj ? 1 : -1
+    })
+  }
   const ordered: Record<string, unknown> = {}
-  for (const [k, v] of entries) ordered[k] = npmNiceOrder(v)
+  for (const [k, v] of entries) {
+    const childPath = [...path, k]
+    const preserveChild = preserveOrder || (
+      preserveNativeRootEntryOrder
+      && path.length === 1
+      && path[0] === 'packages'
+      && k === ''
+    )
+    ordered[k] = npmNiceOrder(v, preserveChild, childPath, preserveNativeRootEntryOrder)
+  }
   return ordered
 }
 
@@ -79,8 +97,9 @@ const npmNiceOrder = (val: unknown): unknown => {
 export const stringifyNpmLock = (
   out: unknown,
   topLevelOrder?: readonly string[],
+  preserveNativeRootEntryOrder = false,
 ): string => {
-  const ordered = npmNiceOrder(out)
+  const ordered = npmNiceOrder(out, false, [], preserveNativeRootEntryOrder)
   if (topLevelOrder === undefined || !isPlainObject(ordered)) {
     return JSON.stringify(ordered, null, 2) + '\n'
   }
@@ -297,6 +316,13 @@ export interface NpmRootMeta {
   name?: string
   version?: string
   requires?: boolean
+  /** Whole source-authored `packages[""]` object for npm-2/3 same-format
+   *  replay. The originating version prevents cross-format fabrication;
+   *  stringify clones the record before canonical graph fields overlay it. */
+  nativeRootEntry?: Readonly<{
+    lockfileVersion: 2 | 3
+    value: Readonly<Record<string, unknown>>
+  }>
   workspaces?: NpmWorkspacesField
   bundleDependencies?: string[] | boolean
   devDependencies?: Record<string, string>

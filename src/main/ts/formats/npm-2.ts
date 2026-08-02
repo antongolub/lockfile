@@ -3,8 +3,9 @@
 // Thin entry that wires the npm-2 config + dual-mode hooks through
 // `_npm-core.ts`:
 //   - lockfileVersion: 2
-//   - topLevelShape: 'dual' (BOTH `packages` AND `dependencies` keys at
-//     top level; per ADR-0021 §A.npm-2). `packages` is authoritative;
+//   - topLevelShape: 'dual' (`packages` plus npm's legacy `dependencies`
+//     mirror, except for npm's producer-valid dependency-free root-only
+//     shape where the empty mirror is omitted). `packages` is authoritative;
 //     the `dependencies` block is an npm-1-style legacy nested-tree
 //     mirror retained for npm v6 back-compat readers.
 //   - diagnosticPrefix: 'NPM_V2'

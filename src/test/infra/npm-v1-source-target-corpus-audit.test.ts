@@ -94,14 +94,14 @@ suite(
         mirrorParsed: 77,
         mirrorSeal: 0,
       })
-      expect({ total, parsedEmitted, byteExact, notDetected, notJson, knownOther }).toEqual({
-        total: 1828,
-        parsedEmitted: 1793,
-        byteExact: 266,
-        notDetected: 19,
-        notJson: 5,
-        knownOther: 11,
-      })
+      // Exact pins are right for code properties (seal failures must remain
+      // zero; the mirror class must remain complete) but not corpus-size
+      // measurements. Population can grow; only regressions in direction fail.
+      expect(parsedEmitted).toBeGreaterThanOrEqual(1797)
+      expect(byteExact).toBeGreaterThanOrEqual(395)
+      expect(notDetected).toBeLessThanOrEqual(15)
+      expect(notJson).toBeLessThanOrEqual(5)
+      expect(knownOther).toBeLessThanOrEqual(11)
     }, 120_000)
   },
 )

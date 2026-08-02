@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { LockfileError } from '../../main/ts/api/errors.ts'
+import { rebindFormatAdapterState } from '../../main/ts/api/format-registry.ts'
 import { canonicalDigest } from '../../main/ts/recipe/integrity.ts'
 
 const sriOf = (s: string): string => 'sha512-' + createHash('sha512').update(s).digest('base64')
@@ -37,6 +38,62 @@ describe('npm-2 — dual-mode parse preconditions', () => {
     expect(check(v3)).toBe(false)
   })
 
+  it('accepts a producer-valid root-only packages map without a legacy mirror', () => {
+    const source = JSON.stringify({
+      name: 'empty-project',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': { name: 'empty-project', version: '1.0.0' },
+      },
+    }, null, 2) + '\n'
+
+    expect(check(source)).toBe(true)
+    const graph = parse(source)
+    expect([...graph.nodes()].map(node => node.id)).toEqual(['empty-project@1.0.0'])
+    expect(JSON.parse(stringify(graph)).dependencies).toBeUndefined()
+  })
+
+  it('replays a source-authored empty legacy mirror', () => {
+    const source = JSON.stringify({
+      name: 'empty-project',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': { name: 'empty-project', version: '1.0.0' },
+      },
+      dependencies: {},
+    }, null, 2) + '\n'
+
+    expect(stringify(parse(source))).toBe(source)
+  })
+
+  it('omits a source-authored empty mirror after graph mutation', () => {
+    const source = parse(JSON.stringify({
+      name: 'empty-project',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': { name: 'empty-project', version: '1.0.0' },
+      },
+      dependencies: {},
+    }))
+    const root = [...source.nodes()][0]!
+    const mutated = source.mutate(mutator => {
+      mutator.replaceNode(root.id, { ...root })
+    }).graph
+    const rebound = rebindFormatAdapterState('npm-2', source, mutated).graph
+
+    // A future mutation path that misses rebind cannot express a harmful case:
+    // once an installed entry exists the rebuilt mirror is non-empty and the
+    // presence bit is irrelevant; a still-root-only graph should replay the
+    // source-authored empty mirror anyway.
+    expect(JSON.parse(stringify(rebound)).dependencies).toBeUndefined()
+  })
+
   it('FORMAT_MISMATCH if `packages` block is missing (dual-mode require)', () => {
     const malformed = JSON.stringify({
       name: 'x',
@@ -67,6 +124,29 @@ describe('npm-2 — dual-mode parse preconditions', () => {
       expect((error as LockfileError).code).toBe('FORMAT_MISMATCH')
     }
   })
+
+  it.each(['dependencies', 'devDependencies', 'optionalDependencies'] as const)(
+    'still requires the mirror when the root has installed %s',
+    rootField => {
+      const malformed = JSON.stringify({
+        name: 'x',
+        version: '0.0.0',
+        lockfileVersion: 2,
+        requires: true,
+        packages: {
+          '': { name: 'x', version: '0.0.0', [rootField]: { ms: '2.1.3' } },
+          'node_modules/ms': {
+            version: '2.1.3',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+            integrity: 'sha512-abc',
+          },
+        },
+      }, null, 2)
+      expect(() => parse(malformed)).toThrowError(
+        expect.objectContaining({ code: 'FORMAT_MISMATCH' }),
+      )
+    },
+  )
 })
 
 describe('npm-2 — legacy `dependencies` mirror emit', () => {

@@ -16,6 +16,13 @@ const npmLock = readFileSync(`${LOCKFILES}/npm-3.lock`, 'utf8')
 
 const ids = (graph: Graph): string[] => [...graph.nodes()].map(node => node.id).sort()
 
+function parseError(input: string): LockfileError {
+  let error: unknown
+  try { parse(input) } catch (caught) { error = caught }
+  expect(error).toBeInstanceOf(LockfileError)
+  return error as LockfileError
+}
+
 describe('isFormatId', () => {
   it('accepts every shipped id', () => {
     for (const id of ['npm-1', 'npm-3', 'pnpm-v9', 'yarn-classic', 'deno-v5', 'lockgraph']) {
@@ -65,11 +72,89 @@ describe('parse', () => {
   })
 
   it('refuses when the format is neither given nor detectable', () => {
-    let error: unknown
-    try { parse('not a lockfile at all') } catch (caught) { error = caught }
-    expect(error).toBeInstanceOf(LockfileError)
-    expect((error as LockfileError).code).toBe('INVALID_INPUT')
-    expect((error as Error).message).toContain('pass it explicitly')
+    const error = parseError('not a lockfile at all')
+    expect(error.code).toBe('FORMAT_DETECT_FAILED')
+    expect(error.message).toContain('pass it explicitly')
+  })
+
+  it('names a pre-npm-5 shrinkwrap with no integrity instead of treating it as junk', () => {
+    const error = parseError(JSON.stringify({
+      name: 'legacy-shrinkwrap',
+      version: '1.0.0',
+      dependencies: {
+        dep: {
+          version: '1.0.0',
+          from: 'dep@1.0.0',
+          resolved: 'https://registry.npmjs.org/dep/-/dep-1.0.0.tgz',
+        },
+      },
+    }))
+
+    expect(error.code).toBe('FORMAT_DETECT_FAILED')
+    expect(error.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'NPM_SHRINKWRAP_PRE_LOCKFILE_VERSION',
+        severity: 'error',
+        message: expect.stringMatching(/pre-npm-5 shrinkwrap.*integrity.*refus/i),
+      }),
+    ])
+  })
+
+  it.each([
+    {
+      lockfileVersion: 2,
+      input: { lockfileVersion: 2, requires: true, packages: {} },
+    },
+    {
+      lockfileVersion: 3,
+      input: { lockfileVersion: 3, requires: true },
+    },
+  ])('names a malformed npm-v$lockfileVersion lock with no packages root', ({
+    lockfileVersion,
+    input,
+  }) => {
+    const error = parseError(JSON.stringify(input))
+
+    expect(error.code).toBe('FORMAT_DETECT_FAILED')
+    expect(error.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'NPM_LOCKFILE_STRUCTURE_MISSING',
+        severity: 'error',
+        message: expect.stringMatching(
+          new RegExp(`lockfileVersion ${lockfileVersion}.*packages.*root`, 'i'),
+        ),
+      }),
+    ])
+  })
+
+  it('does not name an integrity-bearing pre-version object as the legacy corpus shape', () => {
+    const error = parseError(JSON.stringify({
+      dependencies: {
+        dep: {
+          version: '1.0.0',
+          integrity: 'sha512-AAAA',
+        },
+      },
+    }))
+    expect(error.diagnostics).toEqual([])
+  })
+
+  it('does not name an arbitrary object as the legacy corpus shape', () => {
+    expect(parseError(JSON.stringify({ name: 'not-a-lockfile' })).diagnostics).toEqual([])
+  })
+
+  it('detects and parses a producer-valid dependency-free npm-v2 lock', () => {
+    const input = JSON.stringify({
+      name: 'empty-project',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': { name: 'empty-project', version: '1.0.0' },
+      },
+    })
+    expect(detect(input)).toBe('npm-2')
+    expect([...parse(input).nodes()].map(node => node.id)).toEqual(['empty-project@1.0.0'])
   })
 })
 

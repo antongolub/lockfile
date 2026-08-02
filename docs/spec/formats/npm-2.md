@@ -54,6 +54,11 @@
 }
 ```
 
+For a dependency-free project npm may omit the top-level `dependencies` key;
+in that producer shape `packages` contains exactly the `""` root entry. The
+adapter accepts that narrow packages-only v2 form. A packages map containing
+any installed or workspace entry still requires the legacy mirror.
+
 ## Capabilities
 
 | Feature | Supported | Notes |
@@ -98,8 +103,31 @@ this is only how npm-2 *carries* it.
 
 - Two parallel sections: `packages` (path-keyed, layout) and `dependencies`
   (legacy v1 shape). They must stay consistent or older tooling breaks. We
-  parse `packages`; we may emit both.
+  parse `packages`; any output containing installed or workspace entries emits
+  the mirror key even when its reconstructed map is empty. npm omits the mirror
+  only for a dependency-free root-only lock, and minted, cross-format, or
+  rebound output follows that producer rule. An explicit source-authored empty mirror is
+  nevertheless replayed by the original parsed Graph; source layout is
+  authoritative for an unmodified same-format replay.
 - The empty-string key `""` is the *root project itself*, not a workspace.
+- The whole source-authored `packages[""]` object is a native replay carrier
+  shared by npm-2 and npm-3. This preserves root manifest metadata such as `license`,
+  `engines`, `bin`, `funding`, `hasInstallScript`, `peerDependenciesMeta`,
+  explicit empty dependency blocks, and future producer keys. Canonical Graph
+  fields overlay a cloned carrier on emit; graph rebinding retains it, and the
+  whole record travels across npm-2 ↔ npm-3. Minted and foreign-PM output
+  fabricates none of it.
+- The family boundary is producer-measured, not inferred from a general npm
+  classification. The real corpus exposes the identical fourteen-key root
+  vocabulary in npm-2 and npm-3, and pinned npm 8.19.4 `npm ci` returns
+  `frozen-verified` for an npm-2 lock carrying an unknown `futureRootField`.
+  npm-4 remains outside this carrier: the audited corpus has zero v4 locks with
+  a root entry, so evidence currently stops at v3.
+- Pinned npm 8.19.4 `npm ci` accepts the exact native-oracle lock after its root
+  `engines` field is stripped. Root native-field replay is therefore a
+  **byte-fidelity defect, not a frozen-install correctness defect**: npm does
+  not need those fields for that install, but lockgraph still replays them
+  because certification requires byte identity.
 - Project-root authority comes only from a parse-captured native root or an
   explicit node with `workspacePath: ""`. DAG reachability is never project
   identity: a rootless source gets a neutral `packages[""]`, while every
@@ -143,6 +171,13 @@ this is only how npm-2 *carries* it.
   that npm accepts the emitted lock; a subsequent write-enabled npm 11.18.0 run
   must also leave its bytes unchanged. Before these carriers were retained,
   frozen mode passed but the writer repaired the alias entry and override pin.
+- Dependency-free v2 has a separate exact producer oracle: the 212-byte
+  `Templarian/MaterialDesign-SVG` lock at SHA-256
+  `02f1f77bdd6ccac2bd802e20aa4c7e7871b06bf295843e99a6d7fdbdf54e8d98`
+  omits the mirror, carries a root `license`, round-trips byte-identically, and
+  is accepted by pinned npm 8.19.4 `npm ci`. Corpus parse+emit coverage rises
+  from 1,793 to 1,797 and the byte-identical count from 266 to 299; no existing
+  byte-identical file regresses.
 - A non-link package entry whose `resolved` field is `file:`, `link:`, or
   `portal:` is a local directory dependency, not workspace identity. Parse
   stores the directory canonical and retains the exact protocol spelling for

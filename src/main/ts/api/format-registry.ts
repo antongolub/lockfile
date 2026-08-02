@@ -318,7 +318,17 @@ export function stringifyFormat(
 }
 
 export function formatAdapterStateCompatible(source: FormatId, target: FormatId): boolean {
-  return source === target || (isDenoFormat(source) && isDenoFormat(target))
+  // The npm root-entry carrier is proven portable only across npm-2/npm-3:
+  // the real corpus exposes the same measured fourteen-key packages[""]
+  // vocabulary in both, and pinned npm 8 accepts an unknown future key. Keep
+  // this boundary explicit: npm-1 has no packages map, while npm-4 has no
+  // root-entry corpus evidence and must not inherit compatibility through a
+  // broader "npm flat" classification.
+  const npmRootCarrierCompatible = (source === 'npm-2' || source === 'npm-3')
+    && (target === 'npm-2' || target === 'npm-3')
+  return source === target
+    || npmRootCarrierCompatible
+    || (isDenoFormat(source) && isDenoFormat(target))
 }
 
 function denoAdapter(

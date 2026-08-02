@@ -4,7 +4,8 @@
 // strategy fix-up and cycle-break. The core (`_npm-core.ts`) handles
 // the flat `packages` block shared with npm-3; this module owns:
 //
-//   - parse-time dual-mode `dependencies` requirement (validateTopLevel)
+//   - parse-time dual-mode `dependencies` requirement, with npm's exact
+//     dependency-free root-only omission (validateTopLevel)
 //   - parse-time dual-mode drift detection (`detectDualModeDrift`,
 //     wired via `emitParseDiagnostics`)
 //   - emit-time legacy `dependencies` mirror reconstruction
@@ -64,6 +65,9 @@ export interface Npm2MirrorSidecar {
   resolvedByNodeId: Map<string, string>
   legacyEntriesByInstallPath: Map<string, Npm2LegacyEntryCapture>
   legacyRequiresByEdge: Map<string, Npm2LegacyRequireCapture>
+  // Presence, not producer preference: an explicit empty source mirror is
+  // replayed only by the original parsed Graph. Rebinding clears this bit.
+  sourceAuthoredEmptyMirror: boolean
 }
 
 interface Npm2LegacyEntryCapture {
@@ -125,12 +129,13 @@ export function rebindNpm2MirrorState(
 export const NPM2_HOOKS: NpmFamilyHooks = {
   validateTopLevel(lf: NpmLockfile): void {
     const hasDependencies = lf.dependencies !== undefined
+      && lf.dependencies !== null
       && typeof lf.dependencies === 'object'
       && !Array.isArray(lf.dependencies)
-    if (!hasDependencies) {
+    if (!hasDependencies && !hasOnlyRootPackage(lf.packages)) {
       throw new LockfileError({
         code: 'FORMAT_MISMATCH',
-        message: 'npm-2 adapter: top-level "dependencies" mirror is required (dual-mode)',
+        message: 'npm-2 adapter: top-level "dependencies" mirror is required when "packages" contains installed entries',
       })
     }
     // Begin per-parse capture buffer.
@@ -170,11 +175,25 @@ export const NPM2_HOOKS: NpmFamilyHooks = {
     mirrorSidecarByGraph.set(ctx.graph, {
       resolvedByNodeId: buffer,
       ...captured,
+      sourceAuthoredEmptyMirror: ctx.lf.dependencies !== undefined
+        && ctx.lf.dependencies !== null
+        && typeof ctx.lf.dependencies === 'object'
+        && !Array.isArray(ctx.lf.dependencies)
+        && Object.keys(ctx.lf.dependencies).length === 0,
     })
   },
 
   enrichStringifyOut(ctx): void {
-    ctx.out.dependencies = buildLegacyDependenciesMirror(ctx.graph, ctx.rootNode, ctx.sidecar)
+    const mirror = buildLegacyDependenciesMirror(ctx.graph, ctx.rootNode, ctx.sidecar)
+    const sourceAuthoredEmpty = mirrorSidecarByGraph.get(ctx.graph)?.sourceAuthoredEmptyMirror === true
+    // npm's omission is keyed to the complete output layout, not merely to
+    // whether this reconstruction found a legacy entry. Rootless and
+    // cross-format Graphs can emit installed packages with an empty mirror;
+    // v2 still requires the explicit mirror key for those layouts.
+    const outputIsRootOnly = hasOnlyRootPackage(ctx.out.packages)
+    if (!outputIsRootOnly || Object.keys(mirror).length > 0 || sourceAuthoredEmpty) {
+      ctx.out.dependencies = mirror
+    }
   },
 
   recoverResolvedForNode(graph: Graph, node: Node): string | undefined {
@@ -184,7 +203,10 @@ export const NPM2_HOOKS: NpmFamilyHooks = {
   rebindGraph(oldGraph: Graph, newGraph: Graph): void {
     const existing = mirrorSidecarByGraph.get(oldGraph)
     if (existing !== undefined) {
-      mirrorSidecarByGraph.set(newGraph, existing)
+      mirrorSidecarByGraph.set(newGraph, {
+        ...existing,
+        sourceAuthoredEmptyMirror: false,
+      })
     }
   },
 
@@ -209,8 +231,17 @@ export const NPM2_HOOKS: NpmFamilyHooks = {
       resolvedByNodeId: pruned,
       legacyEntriesByInstallPath,
       legacyRequiresByEdge,
+      sourceAuthoredEmptyMirror: existing.sourceAuthoredEmptyMirror,
     })
   },
+}
+
+function hasOnlyRootPackage(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const packages = value as Record<string, unknown>
+  if (Object.keys(packages).length !== 1 || !Object.hasOwn(packages, '')) return false
+  const root = packages['']
+  return root !== null && typeof root === 'object' && !Array.isArray(root)
 }
 
 // === PARSE ==================================================================
