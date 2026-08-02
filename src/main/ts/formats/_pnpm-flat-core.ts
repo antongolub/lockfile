@@ -911,6 +911,11 @@ function addPnpmWorkspaceImporterDependency(
   const { shape, builder, diagnostics, sidecar } = context
   const { importerPath, srcId, kind, depName, specifier, version } = dependency
   const linkPath = resolveLinkPath(importerPath, version.slice(5))
+  // NOT root-normalised: the emitter treats the root importer as a non-workspace
+  // target (`isWorkspaceTarget` excludes `workspacePath === ''`), so an edge into
+  // it would re-emit under the root's node name (`.`) instead of the declared
+  // slot. An importer `link:..` therefore stays an unresolved declaration, which
+  // replays the line verbatim.
   const targetId = sidecar.importerByPath.get(linkPath)
   if (targetId === undefined) {
     diagnostics.push({
@@ -3182,20 +3187,92 @@ export function resolvePeerTargetById(seenIds: Set<string>, peerName: string, pe
 }
 
 /**
+ * Look an importer up by lockfile-relative directory. The root importer is
+ * KEYED `.` in `importerByPath`, but pnpm REFERS to it by the empty path — a
+ * root-satisfied link is written `link:` and a sibling's is `link:..`, both of
+ * which normalise to `''`. Without this the root importer is unreachable
+ * through either link channel.
+ */
+function importerIdForPath(path: string, importerByPath: Map<string, string>): string | undefined {
+  return importerByPath.get(path) ?? (path === '' ? importerByPath.get('.') : undefined)
+}
+
+/**
+ * Encode a workspace directory the way pnpm does when it stuffs one into a
+ * peer's version slot. This is a port of `filenamify@4.3.0` called as
+ * `filenamify(linkedDir, { replacement: '+' })` — the exact call pnpm 9 and
+ * pnpm 10 make (`peerNodeIdToPeerId` / the `createPeersDirSuffix` caller), and
+ * pnpm 6 makes for the v5 `_<peer>` tail.
+ *
+ * It is NOT a plain `/` → `+` substitution. Every filename-reserved character
+ * collapses onto `+`, runs of `+` collapse to one, an outer `+` is stripped,
+ * and the result is truncated at 100 characters — so the encoding is LOSSY and
+ * cannot be inverted by string surgery. `plus+dir` encodes to itself, and
+ * decoding it as `plus/dir` names a directory that does not exist.
+ * `resolveWorkspacePeerId` therefore matches against the encoding of each
+ * KNOWN importer rather than trying to decode the locator.
+ */
+export function encodeWorkspaceDirectory(directory: string): string {
+  let out = directory.replace(/[<>:"\/\\|?*\u0000-\u001f]/g, '+')
+  out = out.replace(/[\u0000-\u001f\u0080-\u009f]/g, '+')
+  out = out.replace(/^\.+/, '+')
+  out = out.replace(/\.+$/, '')
+  out = out.replace(/\+{2,}/g, '+')
+  if (out.length > 1) out = out.replace(/^\+|\+$/g, '')
+  if (/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/i.test(out)) out += '+'
+  return out.slice(0, 100)
+}
+
+/**
+ * Index every known importer by its `encodeWorkspaceDirectory` form, so a peer
+ * locator can be matched against the producer's own output instead of being
+ * decoded. Memoised per `importerByPath` identity AND size — the map is filled
+ * incrementally while the importers block is read, so a stale index would miss
+ * every importer registered after the first lookup.
+ */
+const encodedImporterIndexes = new WeakMap<Map<string, string>, { size: number; index: Map<string, string> }>()
+
+function encodedImporterIndex(importerByPath: Map<string, string>): Map<string, string> {
+  const cached = encodedImporterIndexes.get(importerByPath)
+  if (cached !== undefined && cached.size === importerByPath.size) return cached.index
+  const index = new Map<string, string>()
+  for (const [path, id] of importerByPath) {
+    // pnpm stores the root importer's link target as the EMPTY string
+    // (`link:`), not `.`, so `filenamify('')` — and hence the locator — is
+    // empty too. Measured on pnpm 9.15.9: `react-dom@19.2.0(react@)`.
+    const encoded = encodeWorkspaceDirectory(path === '.' ? '' : path)
+    // First registration wins, so two importers that collide under the lossy
+    // encoding resolve deterministically to the earlier one.
+    if (!index.has(encoded)) index.set(encoded, id)
+  }
+  encodedImporterIndexes.set(importerByPath, { size: importerByPath.size, index })
+  return index
+}
+
+/**
  * #8b-A — workspace-peer detection. pnpm encodes a peer that is satisfied by a
  * workspace importer by stuffing the importer directory into the peer's
- * version slot with `/` → `+` (e.g. `vue@packages+vue` → importer dir
- * `packages/vue`, materialised in the snapshot's `dependencies` as
- * `vue: link:packages/vue`). Such a peer's true target is the synthesized
- * importer member node (`packages/vue@0.0.0`).
+ * version slot (e.g. `vue@packages+vue` → importer dir `packages/vue`,
+ * materialised in the snapshot's `dependencies` as `vue: link:packages/vue`).
+ * Such a peer's true target is the synthesized importer member node
+ * (`packages/vue@0.0.0`).
  *
- * Returns the canonical importer member NodeId when `peerVersion` decodes to a
- * known workspace path, otherwise `undefined`.
+ * Matching is ENCODE-side first — `encodeWorkspaceDirectory` applied to each
+ * known importer — because the encoding is not invertible. The decode-side
+ * walk stays as the fallback for the one shape the encode index cannot carry:
+ * a package published from a SUB-DIRECTORY of its importer
+ * (`packages/mui-material/build`), where the encoded locator belongs to no
+ * importer and only the nearest ancestor does.
+ *
+ * Returns the canonical importer member NodeId, otherwise `undefined`.
  */
 export function resolveWorkspacePeerId(
   peerVersion: string,
   importerByPath: Map<string, string>,
 ): string | undefined {
+  const exact = encodedImporterIndex(importerByPath).get(peerVersion)
+  if (exact !== undefined) return exact
+  if (peerVersion.length === 0) return undefined
   return resolveWorkspaceDirectoryId(peerVersion.replace(/\+/g, '/'), importerByPath)
 }
 
@@ -3212,7 +3289,7 @@ export function resolveWorkspaceDirectoryId(
   importerByPath: Map<string, string>,
 ): string | undefined {
   let path = directory
-  const exact = importerByPath.get(path)
+  const exact = importerIdForPath(path, importerByPath)
   if (exact !== undefined) return exact
   while (path.includes('/')) {
     path = path.slice(0, path.lastIndexOf('/'))
@@ -3559,7 +3636,13 @@ function classifyPeerSuffixSegment(segment: string): ClassifiedPeerSuffixSegment
   if (separator <= 0) return { kind: 'invalid' }
   const name = base.slice(0, separator)
   const version = base.slice(separator + 1)
-  if (name.length === 0 || version.length === 0) return { kind: 'invalid' }
+  if (name.length === 0) return { kind: 'invalid' }
+  // An EMPTY version is legal: pnpm encodes a peer satisfied by the ROOT
+  // importer as `name@`, because the linked directory is the empty string
+  // (measured on pnpm 9.15.9 — `react-dom@19.2.0(react@)` with
+  // `react: 'link:'`). Rejecting it made the whole snapshot key unparseable
+  // and silently dropped the package. When no root importer resolves it, the
+  // peer simply finds no target and surfaces as `PNPM_UNRESOLVED_DEP`.
   return { kind: 'peer', value: { name, version, nested: segment.slice(baseEnd) } }
 }
 

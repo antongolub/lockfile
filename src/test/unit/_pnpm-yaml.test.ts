@@ -121,6 +121,22 @@ describe('emitYaml', () => {
     )
   })
 
+  it('quotes a scalar carrying `: `, which a plain scalar may not contain', () => {
+    // pnpm writes `specifier: 'workspace: *'`; emitting it bare makes pnpm
+    // reject the whole file with ERR_PNPM_BROKEN_LOCKFILE (verified on
+    // pnpm 9.15.9: "bad indentation of a mapping entry").
+    const out = emitYaml({ parent: { specifier: 'workspace: *' } }, { topLevelOrder: ['parent'] })
+    expect(out).toBe("parent:\n  specifier: 'workspace: *'\n")
+  })
+
+  it('quotes a scalar ending in `:` and leaves an interior `:` bare', () => {
+    const out = emitYaml(
+      { parent: { trailing: 'workspace:', interior: 'link:packages/a' } },
+      { topLevelOrder: ['parent'] },
+    )
+    expect(out).toBe("parent:\n  trailing: 'workspace:'\n  interior: link:packages/a\n")
+  })
+
   it('emits a flow map whose values are a nested object and an array (recursion)', () => {
     const out = emitYaml(
       { r: flowMap({ inner: { a: 'b' } as unknown, list: ['p', 'q'] as unknown } as Record<string, unknown>) },

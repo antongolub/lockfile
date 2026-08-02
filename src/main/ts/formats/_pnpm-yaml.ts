@@ -650,7 +650,15 @@ function emitScalar(value: string): string {
   // in-word `#` (git-ref URLs like `…git#sha`) unquoted, so quote only those two.
   // `\s` (not a literal space) so a TAB before `#` also quotes — a strict YAML
   // reader (js-yaml, pnpm's actual parser) treats `\t#` as a comment start.
-  if (/(^#|\s#)/.test(value) || / : /.test(value)) return `'${value.replace(/'/g, "''")}'`
+  //
+  // A plain scalar may not contain a `:` followed by whitespace or end-of-scalar
+  // — that sequence is what ENDS a mapping key, so a reader splits the value in
+  // two. pnpm quotes accordingly (`specifier: 'workspace: *'`); emitting it bare
+  // makes pnpm reject the file outright (verified on pnpm 9.15.9:
+  // `ERR_PNPM_BROKEN_LOCKFILE … bad indentation of a mapping entry`). An
+  // interior `:` with a non-space after it is safe and stays bare, which is what
+  // keeps `link:packages/a` and `sha512-…` unquoted.
+  if (/(^#|\s#)/.test(value) || /:(\s|$)/.test(value)) return `'${value.replace(/'/g, "''")}'`
   return value
 }
 

@@ -168,6 +168,58 @@ suffix are load-bearing for faithful round-trip:
   `LAYOUT_RESOLVE_VIOLATION` [Diagnostic](./_common.md#4-reserved-vocabulary)
   (`warning` severity, never a throw).
 
+#### Workspace-directory peer locators
+
+A peer that a **workspace member** satisfies has no version to record, so pnpm
+puts the member's directory in the peer's version slot instead:
+`@angular/material@22.0.0-rc.2(@angular/core@packages+core)` binds the importer
+at `packages/core`. The `name` half is the **alias the consumer declared the
+peer under**, not the member's package name; the member is named by DIRECTORY
+everywhere else in the lock, so the alias is the only record of the slot.
+
+The directory is encoded with `filenamify(dir, { replacement: '+' })` —
+`filenamify@4.3.0`, called from `peerNodeIdToPeerId` on the pnpm 9 and pnpm 10
+code paths and from the `createPeersFolderSuffix` caller on pnpm 6. The full
+rule, in order:
+
+1. every filename-reserved character — `< > : " / \ | ? *` and `U+0000`–`U+001F`
+   — becomes `+`;
+2. `U+0080`–`U+009F` becomes `+`;
+3. a LEADING run of `.` becomes a single `+`;
+4. a TRAILING run of `.` is dropped;
+5. runs of two or more `+` collapse to one;
+6. when more than one character remains, one leading and one trailing `+` are
+   stripped;
+7. a Windows device name (`con`, `prn`, `aux`, `nul`, `com0`–`com9`,
+   `lpt0`–`lpt9`, case-insensitive, whole string) gains a trailing `+`;
+8. the result is truncated to 100 characters.
+
+It is therefore **not** a `/` → `+` substitution, and it is **not invertible**:
+steps 1, 5, 6 and 8 all lose information. A directory that already contains a
+`+` encodes to itself — pnpm 9.15.9 writes `react-dom@19.2.0(react@plus+dir)`
+for an importer at `plus+dir` — so decoding `+` back to `/` reads a directory
+that does not exist. Resolution runs the ENCODER over each known importer and
+matches the locator against its output. The decode-and-walk-up path survives
+only for the sub-directory publish below, whose locator belongs to no importer
+at all.
+
+The ROOT importer is a special case in both directions. pnpm stores its link
+target as the EMPTY string rather than `.`, so the encoding is empty too and the
+locator is bare: pnpm 9.15.9 writes `react-dom@19.2.0(react@)` with
+`react: 'link:'` in the snapshot's dependency block. An empty version slot is
+therefore legal in the suffix grammar, and rejecting it discards the whole
+snapshot key.
+
+Corpus evidence — 109 pnpm locks (70 scraped, the real-world fixtures, and the
+generated adapter matrix). Eleven carry a workspace-directory locator: 208
+occurrences resolve to an importer exactly, 50 to a nearest-ancestor importer
+(all in `mui/material-ui`, which publishes each member from `<member>/build`),
+and none to an unknown directory. No ordinary semver build-metadata tail
+(`1.0.0+build`) appears in a peer slot anywhere in that corpus. Every locator
+replays byte-identically through `parse` → `stringify` in all eleven files. No
+corpus importer directory contains a literal `+` and no corpus peer is satisfied
+by the root importer; both shapes come from pnpm 9.15.9 directly.
+
 ### `catalog:` protocol (pnpm 9.5+)
 
 - A top-level `catalogs:` block (named catalogs of `name → { specifier }`) plus
@@ -230,9 +282,10 @@ verbatim without validating it.
 Two producers write the shape, and they need different handling:
 
 - A **peer satisfied by a workspace member.** pnpm records it twice — once as
-  the `(name@dir+path)` token in the consumer's snapshot key, once as this
-  dependency slot. The model binds the peer edge from the key; the slot is a
-  duplicate.
+  the [workspace-directory locator](#workspace-directory-peer-locators) in the
+  consumer's snapshot key, once as this dependency slot. The model binds the
+  peer edge from the key; the slot is a duplicate. A member linked from the
+  ROOT importer is written `link:` with no path.
 - A **`file:`-protocol directory package** whose own dependencies name sibling
   members (`courses@file:nx-dev/courses` → `docs: link:nx-dev/docs`). No peer
   suffix carries these, so the slot is the sole record of the relationship.
@@ -259,6 +312,18 @@ token (`@angular/build@22.0.0-rc.2(53b8fd9b…)`), so the workspace peer is not
 recoverable from the key; or a project `overrides:` entry
 (`'@nuxt/kit': workspace:*`) redirected a published package's **ordinary**
 dependency onto a member, which is not a peer at all.
+
+The two causes are distinguishable without a manifest, because the lock carries
+the consumer's own `packages[<bare-key>].peerDependencies` block. All 14
+occurrences in the angular fixture are the hashed-token cause: they are the
+seven names `@angular/compiler`, `@angular/compiler-cli`, `@angular/core`,
+`@angular/localize`, `@angular/platform-browser`, `@angular/platform-server` and
+`@angular/service-worker`, across the two hashed `@angular/build@22.0.0-rc.2`
+snapshots, and every one of the seven is a declared `peerDependency` of
+`@angular/build`. They are the same class of binding as row 2 — a
+workspace-satisfied peer — carried by a token the encoding cannot express.
+Resolving the `(name@dir)` locator does not reach them: their locators were
+replaced by the digest before the lock was written.
 
 Rows 2–4 keep the slot as an unresolved-dependency declaration, which is what
 replays the `link:` line at stringify. Row 1 keeps the declared slot name and

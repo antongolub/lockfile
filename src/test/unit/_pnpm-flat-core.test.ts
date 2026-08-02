@@ -19,6 +19,7 @@ import {
   matcherMatches,
   patchPathOfResolution,
   resolvePeerTargetById,
+  encodeWorkspaceDirectory,
   resolveWorkspacePeerId,
   derivePeerCandidates,
   resolveLinkPath,
@@ -33,6 +34,11 @@ const V9 = (body: string): string =>
   `lockfileVersion: '9.0'\n\n` +
   `settings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\n` +
   body
+
+// react-dom@19.2.0's real integrity, taken from a lock pnpm 9.15.9 wrote —
+// the byte-replay cases need an SRI that survives canonicalisation unchanged.
+const REACT_DOM_SRI =
+  'sha512-UlbRu4cAiGaIewkPyiRGJk0imDN2T3JjieT6spoL2UeSf5od4n5LB/mQ4ejmxhCFT1tYe8IvaFulzynWovsEFQ=='
 
 const V6 = (body: string): string =>
   `lockfileVersion: '6.0'\n\n` +
@@ -206,6 +212,64 @@ describe('parse', () => {
     const edge = graph.out('local@file:tools/local', 'dep')
       .find(e => e.dst === 'packages/mui-material@0.0.0')
     expect(edge).toBeDefined()
+  })
+
+  it('binds a workspace peer whose importer directory contains a `+`', () => {
+    // Emitted by pnpm 9.15.9 for an importer at `plus+dir`. pnpm encodes the
+    // directory with `filenamify(dir, {replacement: '+'})`, which leaves an
+    // existing `+` untouched — so `+`→`/` decoding alone reads the locator as
+    // `plus/dir`, binds nothing, and the peerContext/peer-edge seal throws.
+    const graph = parseV9(
+      V9(
+        'importers:\n\n  .: {}\n\n  plus+dir: {}\n\n' +
+          'packages:\n\n  react-dom@19.2.0:\n    resolution: {integrity: sha512-r}\n' +
+          '    peerDependencies:\n      react: ^19.2.0\n\n' +
+          'snapshots:\n\n  react-dom@19.2.0(react@plus+dir):\n    dependencies:\n' +
+          '      react: link:plus+dir\n',
+      ),
+    )
+    const consumer = 'react-dom@19.2.0(plus+dir@0.0.0)'
+    expect(graph.out(consumer, 'peer').map(e => e.dst)).toEqual(['plus+dir@0.0.0'])
+  })
+
+  it('binds a workspace peer satisfied by the ROOT importer', () => {
+    // Emitted by pnpm 9.15.9 when the root importer satisfies the peer: the
+    // linked directory is the empty string, so the locator is bare `react@`.
+    // Rejecting an empty version made the whole snapshot key unparseable and
+    // dropped the package.
+    const graph = parseV9(
+      V9(
+        'importers:\n\n  .: {}\n\n  consumer: {}\n\n' +
+          'packages:\n\n  react-dom@19.2.0:\n    resolution: {integrity: sha512-r}\n' +
+          '    peerDependencies:\n      react: ^19.2.0\n\n' +
+          "snapshots:\n\n  react-dom@19.2.0(react@):\n    dependencies:\n      react: 'link:'\n",
+      ),
+    )
+    const consumer = 'react-dom@19.2.0(.@0.0.0)'
+    expect(graph.getNode(consumer)).toBeDefined()
+    expect(graph.out(consumer, 'peer').map(e => e.dst)).toEqual(['.@0.0.0'])
+    expect(graph.diagnostics().filter(d => d.code === 'PNPM_BAD_ENTRY')).toEqual([])
+  })
+
+  it('replays a `+`-bearing workspace-peer locator verbatim', () => {
+    const source = V9(
+      'importers:\n\n  .: {}\n\n  plus+dir: {}\n\n' +
+        'packages:\n\n  react-dom@19.2.0:\n    resolution: {integrity: ' + REACT_DOM_SRI + '}\n' +
+        '    peerDependencies:\n      react: ^19.2.0\n\n' +
+        'snapshots:\n\n  react-dom@19.2.0(react@plus+dir):\n    dependencies:\n' +
+        '      react: link:plus+dir\n',
+    )
+    expect(stringifyV9(parseV9(source))).toBe(source)
+  })
+
+  it('replays the bare root workspace-peer locator verbatim', () => {
+    const source = V9(
+      'importers:\n\n  .: {}\n\n  consumer: {}\n\n' +
+        'packages:\n\n  react-dom@19.2.0:\n    resolution: {integrity: ' + REACT_DOM_SRI + '}\n' +
+        '    peerDependencies:\n      react: ^19.2.0\n\n' +
+        "snapshots:\n\n  react-dom@19.2.0(react@):\n    dependencies:\n      react: 'link:'\n",
+    )
+    expect(stringifyV9(parseV9(source))).toBe(source)
   })
 
   it('reports PNPM_WORKSPACE_LINK_PEER_BOUND (info) when the peer suffix already binds the member', () => {
@@ -558,6 +622,30 @@ describe('resolvePeerTargetById', () => {
   })
 })
 
+describe('encodeWorkspaceDirectory', () => {
+  // Ported from `filenamify@4.3.0`, which pnpm 6/9/10 call as
+  // `filenamify(linkedDir, { replacement: '+' })`. Each case pins one rule.
+  it.each([
+    ['packages/core', 'packages+core', 'every path separator becomes `+`'],
+    ['deep/a/b/c', 'deep+a+b+c', 'a nested path collapses separator by separator'],
+    ['plus+dir', 'plus+dir', 'an existing `+` is NOT a separator and survives'],
+    ['', '', 'the root importer, which pnpm links as `link:` with no path'],
+    ['a//b', 'a+b', 'a run of `+` collapses to one'],
+    ['+edge+', 'edge', 'one leading and one trailing `+` are stripped'],
+    ['..', '+', 'a leading dot-run becomes ONE `+`, kept because outer-strip needs length > 1'],
+    ['dir.', 'dir', 'a trailing dot-run is dropped'],
+    ['a:b|c?d*e', 'a+b+c+d+e', 'every filename-reserved character becomes `+`'],
+    ['aux', 'aux+', 'a Windows device name gains a trailing `+`'],
+  ])('encodes %j as %j — %s', (input, expected) => {
+    expect(encodeWorkspaceDirectory(input)).toBe(expected)
+  })
+
+  it('truncates at 100 characters, which makes the encoding lossy', () => {
+    const long = 'p'.repeat(60) + '/' + 'q'.repeat(60)
+    expect(encodeWorkspaceDirectory(long)).toHaveLength(100)
+  })
+})
+
 describe('resolveWorkspacePeerId', () => {
   it('resolves an exact importer, an ancestor walk-up, and rejects a registry peer', () => {
     const importerByPath = new Map([
@@ -570,6 +658,34 @@ describe('resolveWorkspacePeerId', () => {
     expect(resolveWorkspacePeerId('packages+lib+build', importerByPath)).toBe('packages/lib@0.0.0')
     // A real semver is not a workspace path.
     expect(resolveWorkspacePeerId('1.2.3', importerByPath)).toBeUndefined()
+  })
+
+  it('resolves an importer directory that itself contains a `+`', () => {
+    // Measured on pnpm 9.15.9: an importer at `plus+dir` is encoded VERBATIM —
+    // `filenamify` leaves `+` alone — so the token is `react@plus+dir`.
+    // Decoding `+`→`/` yields `plus/dir`, which is no importer; only matching
+    // against the ENCODING of each known importer finds it.
+    const importerByPath = new Map([
+      ['.', '.@0.0.0'],
+      ['plus+dir', 'plus+dir@0.0.0'],
+    ])
+    expect(resolveWorkspacePeerId('plus+dir', importerByPath)).toBe('plus+dir@0.0.0')
+  })
+
+  it('resolves the empty locator the root importer encodes to', () => {
+    // Measured on pnpm 9.15.9: a peer satisfied by the ROOT importer is stored
+    // as `link:` with an empty directory, so `filenamify('')` yields `''` and
+    // pnpm writes the bare token `react@`.
+    const importerByPath = new Map([['.', '.@0.0.0']])
+    expect(resolveWorkspacePeerId('', importerByPath)).toBe('.@0.0.0')
+  })
+
+  it('keeps a nested importer directory distinct from a same-named sibling', () => {
+    const importerByPath = new Map([
+      ['.', '.@0.0.0'],
+      ['deep/a/b/c', 'deep/a/b/c@0.0.0'],
+    ])
+    expect(resolveWorkspacePeerId('deep+a+b+c', importerByPath)).toBe('deep/a/b/c@0.0.0')
   })
 })
 

@@ -1,7 +1,7 @@
 # `npm-2` — npm `package-lock.json` (lockfileVersion 2)
 
 > Status: stable (adapter + flat-family round-trip suite; dual-mode drift covered).
-> Updated: 2026-07-29
+> Updated: 2026-08-02
 > Provenance: **Official**.
 
 ## Compatibility
@@ -126,6 +126,23 @@ this is only how npm-2 *carries* it.
   from the canonical node name, the shared package entry carries
   `name: <canonical>`. The same entry may therefore retain `name` at an
   additional own-name path; this is intentional and is byte-stable under npm.
+- The legacy top-level `dependencies` mirror keeps the alias **install slot**
+  and npm-qualified version independently from that canonical identity. For
+  example, a `node_modules/pm-x` entry whose package name is
+  `@yarnpkg/cli-dist` mirrors as `dependencies.pm-x.version =
+  "npm:@yarnpkg/cli-dist@<version>"`; keying the mirror by the canonical name
+  instead leaves npm to repopulate the alias entry on its next writing run.
+- npm may write a different range spelling into the legacy mirror than into
+  the authoritative `packages` entry when an override was applied. The flat
+  package declaration retains the authored range (for example `^1.2.5`), while
+  the matching legacy `requires` slot carries the applied exact pin (for
+  example `1.2.8`). The adapter preserves that npm-2-native mirror spelling on
+  the corresponding unchanged graph edge; it does not reinterpret the exact
+  pin as a new graph declaration or as an npm lockfile override policy.
+- Both rules are tested with a two-phase producer oracle. `npm ci` proves only
+  that npm accepts the emitted lock; a subsequent write-enabled npm 11.18.0 run
+  must also leave its bytes unchanged. Before these carriers were retained,
+  frozen mode passed but the writer repaired the alias entry and override pin.
 - A non-link package entry whose `resolved` field is `file:`, `link:`, or
   `portal:` is a local directory dependency, not workspace identity. Parse
   stores the directory canonical and retains the exact protocol spelling for

@@ -30,7 +30,7 @@
 // The mirror is RECONSTRUCTED FROM THE SAME GRAPH that emits the `packages`
 // block, so the two are consistent by construction.
 
-import { type Graph, type Node, type Diagnostic } from '../graph.ts'
+import { type Diagnostic, type Edge, type Graph, type Node } from '../graph.ts'
 import { emitSriForRegistry } from '../recipe/integrity.ts'
 import { LockfileError } from '../api/errors.ts'
 import {
@@ -62,11 +62,26 @@ let currentParseCapture: Map<string, string> | undefined
 // keyed for emit-time mirror reconstruction. Absent on npm-3.
 export interface Npm2MirrorSidecar {
   resolvedByNodeId: Map<string, string>
+  legacyEntriesByInstallPath: Map<string, Npm2LegacyEntryCapture>
+  legacyRequiresByEdge: Map<string, Npm2LegacyRequireCapture>
+}
+
+interface Npm2LegacyEntryCapture {
+  nodeId: string
+  version?: string
+}
+
+interface Npm2LegacyRequireCapture {
+  src: string
+  dst: string
+  sourceRange: string
+  mirrorRange: string
 }
 
 interface LegacyMirrorContext {
   graph: Graph
   sidecar: NpmSidecar | undefined
+  mirrorSidecar: Npm2MirrorSidecar | undefined
   rootId: string | undefined
   // workspacePath -> NodeId for recognized workspace-symlink install paths.
   workspacePathToId: Map<string, string>
@@ -93,7 +108,11 @@ export function rebindNpm2MirrorState(
 ): readonly string[] {
   const sidecar = mirrorSidecarByGraph.get(source)
   if (sidecar === undefined) return []
-  const invalidated = [...sidecar.resolvedByNodeId.keys()]
+  const carriedNodeIds = new Set([
+    ...sidecar.resolvedByNodeId.keys(),
+    ...[...sidecar.legacyEntriesByInstallPath.values()].map(entry => entry.nodeId),
+  ])
+  const invalidated = [...carriedNodeIds]
     .filter(id => target.getNode(id) === undefined)
     .sort()
   NPM2_HOOKS.rebindGraph?.(source, target)
@@ -143,10 +162,15 @@ export const NPM2_HOOKS: NpmFamilyHooks = {
     }
   },
 
-  afterParse(ctx: { graph: Graph }): void {
+  afterParse(ctx): void {
     const buffer = currentParseCapture ?? new Map<string, string>()
     currentParseCapture = undefined
-    mirrorSidecarByGraph.set(ctx.graph, { resolvedByNodeId: buffer })
+    const legacy = (ctx.lf.dependencies ?? {}) as Record<string, NpmLegacyEntry>
+    const captured = captureLegacyMirror(ctx.graph, ctx.packages, legacy)
+    mirrorSidecarByGraph.set(ctx.graph, {
+      resolvedByNodeId: buffer,
+      ...captured,
+    })
   },
 
   enrichStringifyOut(ctx): void {
@@ -171,11 +195,101 @@ export const NPM2_HOOKS: NpmFamilyHooks = {
     for (const [nodeId, resolved] of existing.resolvedByNodeId) {
       if (reachableNodeIds.has(nodeId)) pruned.set(nodeId, resolved)
     }
-    mirrorSidecarByGraph.set(graph, { resolvedByNodeId: pruned })
+    const legacyEntriesByInstallPath = new Map<string, Npm2LegacyEntryCapture>()
+    for (const [path, entry] of existing.legacyEntriesByInstallPath) {
+      if (reachableNodeIds.has(entry.nodeId)) legacyEntriesByInstallPath.set(path, entry)
+    }
+    const legacyRequiresByEdge = new Map<string, Npm2LegacyRequireCapture>()
+    for (const [key, entry] of existing.legacyRequiresByEdge) {
+      if (reachableNodeIds.has(entry.src) && reachableNodeIds.has(entry.dst)) {
+        legacyRequiresByEdge.set(key, entry)
+      }
+    }
+    mirrorSidecarByGraph.set(graph, {
+      resolvedByNodeId: pruned,
+      legacyEntriesByInstallPath,
+      legacyRequiresByEdge,
+    })
   },
 }
 
 // === PARSE ==================================================================
+
+function captureLegacyMirror(
+  graph: Graph,
+  packages: Record<string, NpmEntry>,
+  legacy: Record<string, NpmLegacyEntry>,
+): Pick<Npm2MirrorSidecar, 'legacyEntriesByInstallPath' | 'legacyRequiresByEdge'> {
+  const legacyEntriesByInstallPath = new Map<string, Npm2LegacyEntryCapture>()
+  const legacyRequiresByEdge = new Map<string, Npm2LegacyRequireCapture>()
+
+  const visit = (entries: Record<string, NpmLegacyEntry>, parentPath: string): void => {
+    for (const [slot, entry] of Object.entries(entries)) {
+      if (entry === null || typeof entry !== 'object') continue
+      const installPath = parentPath === ''
+        ? `node_modules/${slot}`
+        : `${parentPath}/node_modules/${slot}`
+      const node = resolveLegacyEntryNode(graph, packages, installPath)
+      if (node !== undefined) {
+        const capture: Npm2LegacyEntryCapture = { nodeId: node.id }
+        if (typeof entry.version === 'string') capture.version = entry.version
+        legacyEntriesByInstallPath.set(installPath, capture)
+
+        for (const [declaredName, mirrorRange] of Object.entries(entry.requires ?? {})) {
+          const edge = [...graph.out(node.id)].find(candidate => (
+            candidate.kind !== 'peer'
+            && declaredNameOf(graph, candidate) === declaredName
+          ))
+          const sourceRange = edge?.attrs?.[NPM_EDGE_RANGE_ATTR]
+          if (edge === undefined || typeof sourceRange !== 'string') continue
+          legacyRequiresByEdge.set(mirrorEdgeKey(edge), {
+            src: edge.src,
+            dst: edge.dst,
+            sourceRange,
+            mirrorRange,
+          })
+        }
+      }
+      if (entry.dependencies !== undefined) visit(entry.dependencies, installPath)
+    }
+  }
+
+  visit(legacy, '')
+  return { legacyEntriesByInstallPath, legacyRequiresByEdge }
+}
+
+function resolveLegacyEntryNode(
+  graph: Graph,
+  packages: Record<string, NpmEntry>,
+  installPath: string,
+): Node | undefined {
+  const entry = packages[installPath]
+  if (entry?.link === true && typeof entry.resolved === 'string') {
+    return [...graph.nodes()].find(node => node.workspacePath === entry.resolved)
+  }
+  const name = entry?.name ?? installPathTail(installPath)
+  const candidates = graph.byName(name)
+    .map(id => graph.getNode(id))
+    .filter((node): node is Node => node !== undefined)
+  if (typeof entry?.version === 'string') {
+    const exact = candidates.find(node => node.version === entry.version)
+    if (exact !== undefined) return exact
+  }
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
+function mirrorEdgeKey(edge: Edge): string {
+  return `${edge.src}\0${edge.kind}\0${edge.dst}\0${edge.attrs?.alias ?? ''}`
+}
+
+function declaredNameOf(graph: Graph, edge: Edge): string | undefined {
+  return edge.attrs?.alias ?? graph.getNode(edge.dst)?.name
+}
+
+function installPathTail(path: string): string {
+  const chain = (`/${path}`).split('/node_modules/').filter(Boolean)
+  return chain[chain.length - 1] ?? path
+}
 
 // === Dual-mode drift ========================================================
 
@@ -249,6 +363,7 @@ export function buildLegacyDependenciesMirror(
   const ctx: LegacyMirrorContext = {
     graph,
     sidecar,
+    mirrorSidecar: mirrorSidecarByGraph.get(graph),
     rootId: rootNode.id,
     workspacePathToId,
     workspacePathById,
@@ -266,18 +381,29 @@ export function buildLegacyDependenciesMirror(
     top[node.name] = buildLegacyWorkspaceEntry(ctx, node, wsPath)
   }
 
-  // Hoisted `node_modules/<name>` entries: pick the unique NodeId whose
-  // sidecar has `node_modules/<n>` (no `/node_modules/` boundary) among
-  // its install paths. Fall back to flat-emit by graph.byName(name) when
-  // sidecar is absent (post-mutation new nodes).
+  // Hoisted entries are keyed by their actual install slot. That slot differs
+  // from `node.name` for npm aliases and remains part of npm-2's legacy mirror.
   for (const node of graph.nodes()) {
     if (node.id === rootNode.id) continue
     if (workspacePathById.has(node.id)) continue
     const nodeSide = sidecar?.nodes.get(node.id)
-    const hoistedPath = `node_modules/${node.name}`
-    const installedHoisted = nodeSide?.installPaths.includes(hoistedPath)
-    if (installedHoisted || nodeSide === undefined || nodeSide.installPaths.length === 0) {
-      top[node.name] = buildLegacyNodeEntry(ctx, node, '')
+    const hoistedPaths = new Set(
+      (nodeSide?.installPaths ?? []).filter(isTopLevelInstallPath),
+    )
+    for (const [path, entry] of ctx.mirrorSidecar?.legacyEntriesByInstallPath ?? []) {
+      if (entry.nodeId === node.id && isTopLevelInstallPath(path)) hoistedPaths.add(path)
+    }
+    if (hoistedPaths.size === 0) {
+      for (const edge of graph.out(rootNode.id)) {
+        if (edge.dst !== node.id || edge.kind === 'peer' || edge.kind === 'bundled') continue
+        hoistedPaths.add(`node_modules/${edge.attrs?.alias ?? node.name}`)
+      }
+    }
+    if (hoistedPaths.size === 0 && (nodeSide === undefined || nodeSide.installPaths.length === 0)) {
+      hoistedPaths.add(`node_modules/${node.name}`)
+    }
+    for (const installPath of [...hoistedPaths].sort(cmpStr)) {
+      top[installPathTail(installPath)] = buildLegacyNodeEntry(ctx, node, installPath)
     }
   }
 
@@ -301,7 +427,7 @@ function buildLegacyWorkspaceEntry(
     if (dst === undefined) continue
     const edgeKey = edgeTripleKey(edge.src, edge.kind, edge.dst)
     const declaredName = ctx.sidecar?.edgeDeclaredNames.get(edgeKey) ?? dst.name
-    requires[declaredName] = range
+    requires[declaredName] = legacyRequiresValue(ctx, edge, range)
   }
   if (Object.keys(requires).length > 0) entry.requires = sortRecord(requires)
 
@@ -316,10 +442,12 @@ function buildLegacyWorkspaceEntry(
 function buildLegacyNodeEntry(
   ctx: LegacyMirrorContext,
   node: Node,
-  parentInstallPrefix: string,
+  installPath: string,
 ): NpmLegacyEntry {
   const entry: NpmLegacyEntry = {}
-  if (node.version !== undefined) entry.version = node.version
+  const captured = ctx.mirrorSidecar?.legacyEntriesByInstallPath.get(installPath)
+  const capturedVersion = captured?.nodeId === node.id ? captured.version : undefined
+  entry.version = capturedVersion ?? aliasVersionForSlot(ctx, node, installPath) ?? node.version
 
   const tarball = ctx.graph.tarballOf(node.id)
   const native = tarball?.nativeResolution
@@ -374,17 +502,41 @@ function buildLegacyNodeEntry(
     if (dst === undefined) continue
     const edgeKey = edgeTripleKey(edge.src, edge.kind, edge.dst)
     const declaredName = ctx.sidecar?.edgeDeclaredNames.get(edgeKey) ?? dst.name
-    requires[declaredName] = range
+    requires[declaredName] = legacyRequiresValue(ctx, edge, range)
   }
   if (Object.keys(requires).length > 0) entry.requires = sortRecord(requires)
 
-  // De-hoisted nested entries for this consumer (only when parent has a prefix).
-  if (parentInstallPrefix !== '') {
-    const nestedDeps = collectNestedMirror(ctx, `${parentInstallPrefix}/node_modules/${node.name}`)
-    if (Object.keys(nestedDeps).length > 0) entry.dependencies = sortRecord(nestedDeps)
-  }
+  const nestedDeps = collectNestedMirror(ctx, installPath)
+  if (Object.keys(nestedDeps).length > 0) entry.dependencies = sortRecord(nestedDeps)
 
   return entry
+}
+
+function isTopLevelInstallPath(path: string): boolean {
+  return path.startsWith('node_modules/')
+    && !path.slice('node_modules/'.length).includes('/node_modules/')
+}
+
+function legacyRequiresValue(ctx: LegacyMirrorContext, edge: Edge, range: string): string {
+  const captured = ctx.mirrorSidecar?.legacyRequiresByEdge.get(mirrorEdgeKey(edge))
+  return captured?.sourceRange === range ? captured.mirrorRange : range
+}
+
+function aliasVersionForSlot(
+  ctx: LegacyMirrorContext,
+  node: Node,
+  installPath: string,
+): string | undefined {
+  const slot = installPathTail(installPath)
+  if (slot === node.name) return undefined
+  for (const owner of ctx.graph.nodes()) {
+    for (const edge of ctx.graph.out(owner.id)) {
+      if (edge.dst !== node.id || edge.attrs?.alias !== slot) continue
+      const range = edge.attrs?.[NPM_EDGE_RANGE_ATTR]
+      if (typeof range === 'string') return range
+    }
+  }
+  return undefined
 }
 
 // Walk the sidecar's install paths for nested entries beneath a given path

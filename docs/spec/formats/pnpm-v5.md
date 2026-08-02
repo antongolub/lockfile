@@ -150,13 +150,34 @@ this is only how pnpm *carries* it.
   lockfile directory, not a `packages` key — pnpm 7 writes it for a peer
   satisfied by a workspace member. Handling matches
   [pnpm-v9](./pnpm-v9.md#link-inside-a-snapshots-dependency-block), with two
-  v5 specifics: v5 always HASHES a peer set into the key's `_<hash>` tail, so a
-  workspace-satisfied peer is never recoverable from the key and the
-  `PNPM_WORKSPACE_LINK_PEER_BOUND` branch cannot arise — every published
+  v5 specifics: the peer tail is frequently a hash, so a workspace-satisfied
+  peer is often not recoverable from the key and the
+  `PNPM_WORKSPACE_LINK_PEER_BOUND` branch does not arise — the published
   consumer reports `PNPM_WORKSPACE_LINK_EDGE_DROPPED`; and pnpm keys a local
   directory package as a bare `file:<dir>`, which `parsePackagesKey` rejects
   (`PNPM_BAD_ENTRY`), so the local-consumer bind is unreachable on real v5
   input.
+
+### `_<peer>` tail encoding
+
+The v5 tail is built by `createPeersFolderSuffix` (measured on pnpm 6.35.1):
+each peer becomes `<name-with-first-slash-replaced-by-+>@<version>`, the list is
+sorted and joined with `+`, and the whole string is prefixed with `_`. It is
+hashed — `_<md5-hex>` — only when the joined string exceeds **32 characters**,
+which is why most real v5 tails are digests while short ones are literal. A
+peer satisfied by a workspace member puts
+[`filenamify(dir, {replacement: '+'})`](./pnpm-v9.md#workspace-directory-peer-locators)
+in the version half, exactly as v9 does.
+
+`+` is therefore overloaded three ways inside one v5 tail: the scope separator
+of a peer NAME, the separator BETWEEN peers, and the directory separator of a
+workspace-peer VERSION. A scoped peer is the common case —
+`vueComponent/ant-design-vue-pro` ships
+`/@antv/g2-plugin-slider/2.1.1_@antv+g2@3.5.19`, where `@antv+g2` is the package
+`@antv/g2` and not a directory. That file is the one lock in the 70-file scraped
+corpus that fails to parse: the tail is read as a workspace locator, the
+peerContext disagrees with the emitted peer edges, and the seal rejects the
+lock. Disambiguating the three meanings is open.
 
 ## Degradation rules
 
