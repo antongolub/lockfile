@@ -807,14 +807,22 @@ Git `…#<40hex-commit>` locators are untouched (only a fragment fused to `.tgz`
 
 ### 3.2 Origin tags — the load-bearing addition
 
-`origin` distinguishes a **tarball** digest (`origin ∈ {sri, registry,
-recomputed, url-fragment}` — re-encodable into an SRI) from a **berry-zip**
-digest (`origin = 'berry-zip'` — re-encodable only within the yarn family).
-This is the single load-bearing distinction (`isTarballOrigin(o)` in
-`integrity.ts` is literally `o !== 'berry-zip'`), and it makes the
+`origin` distinguishes an **SRI-emittable tarball** digest (`origin ∈ {sri,
+registry, recomputed}`) from the two **field-specific** digests: `berry-zip`
+(re-encodable only within the yarn family) and `url-fragment` (a lockfile slot
+that may never enter the multiset — see the note below). `isTarballOrigin(o)`
+in `integrity.ts` is therefore `o !== 'berry-zip' && o !== 'url-fragment'`.
+The tarball-vs-zip split is the load-bearing one, and it makes the
 derive-vs-fetch boundary *representable* instead of silently mis-converted
 (the boundary itself is stated in
 [§3.3](#33-the-berry-zip--tarball-sri-boundary)).
+
+**An origin states what a digest IS and where it came FROM — never which
+field of some lockfile happens to render it.** Two values can be the same 40
+hex characters of the same tarball and still differ in origin only if they
+were *obtained* differently; where a given format chooses to *write* one is an
+emitter decision, not a property of the digest. See the `dist.shasum` rule
+below, which is exactly the case where confusing the two is tempting.
 
 The five origins, with **what bytes each is a hash of, where it comes from,
 and how to verify it**:
@@ -822,14 +830,14 @@ and how to verify it**:
 | Origin | Class | Hash OF | Comes FROM | How to VERIFY |
 | --- | --- | --- | --- | --- |
 | `sri` | tarball | the published **tarball** bytes | an SRI `integrity` field in a lockfile (npm / pnpm / bun / yarn-classic) | download the tarball, compute the named algorithm, compare to the digest ([§3.6](#36-how-to-verify)) |
-| `registry` | tarball | the published **tarball** bytes | registry metadata `dist.integrity` (an SRI), ingested with `parseSri(…, 'registry')` | same as `sri` — it is the registry's own SRI for the same tarball |
+| `registry` | tarball | the published **tarball** bytes | registry metadata — `dist.integrity` (an SRI, ingested with `parseSri(…, 'registry')`) **and `dist.shasum`** (the legacy bare 40-hex sha1, ingested as a `sha1` hash) | same as `sri` — it is the registry's own digest for the same tarball |
 | `recomputed` | tarball | the published **tarball** bytes | recomputed locally from fetched tarball bytes (Phase 2; not yet wired) | trivially valid — it *is* the computed hash |
-| `url-fragment` | tarball | the published **tarball** bytes (a sha1) | the `#<40-hex-sha1>` appended to a yarn-classic / codeload `resolved` URL | download the tarball, compute **sha1**, compare to the fragment hex. **Reserved/unwired in Phase 1** — the parser keeps this sha1 on the **resolution sidecar**, NOT in the integrity multiset (see note below) |
+| `url-fragment` | **slot** | the published **tarball** bytes (a sha1) | the `#<40-hex-sha1>` appended to a yarn-classic / codeload `resolved` URL | download the tarball, compute **sha1**, compare to the fragment hex. **Reserved/unwired** — the parser keeps this sha1 on the **resolution sidecar**, NOT in the integrity multiset, and `isTarballOrigin` excludes it so it can never reach an SRI field (see note below) |
 | `berry-zip` | **zip** | Yarn Berry's **post-processed zip-cache**, NOT the tarball | the yarn-berry `checksum:` field | **cannot** be verified by hashing the tarball — you must reproduce yarn's zip transform first ([§3.3](#33-the-berry-zip--tarball-sri-boundary)) |
 
 > **`url-fragment` is reserved, not active.** The `HashOrigin` union
 > includes `'url-fragment'` and the model *defines* it as a tarball sha1, but
-> in the current phase no adapter folds it into the multiset. yarn-classic's
+> **no adapter may fold it into the multiset**. yarn-classic's
 > parser strips the `#<sha1>` from the `resolved` URL and records it as
 > forensic attribution on the **resolution sidecar** (see
 > `canonicalResolutionOfResolved` / `extractShaFromFragment` in the
@@ -839,6 +847,43 @@ and how to verify it**:
 > `registry` is wired (registry ingestion); `recomputed` is defined but
 > Phase-2 and not yet produced. So in practice a parsed lockfile yields only
 > `sri` and `berry-zip` hashes today.
+
+> **A `dist.shasum`-derived digest carries `registry`, never `url-fragment`.**
+> This is the one rule in §3.2 that has been got wrong in production code, so
+> it is stated explicitly.
+>
+> `dist.shasum` is the registry's legacy sha1 **of the published tarball**,
+> served in packument metadata beside — or instead of — `dist.integrity`. It
+> is registry metadata, so its origin is `registry`, exactly like
+> `dist.integrity`. Every consumer agrees: **npm** re-encodes it into a v1
+> lock's `integrity` as `sha1-<base64>`; **deno** writes it into
+> `npm.<id>.integrity` as bare hex when a mirror serves no `integrity`
+> ([`_deno.md`](./_deno.md)); **yarn 1** appends it to the `resolved` URL. Three
+> producers, three different destination fields, one unchanged value.
+>
+> That last consumer is the trap. `url-fragment` does **not** mean "a sha1 that
+> some format writes into a URL" — it names the *slot itself*, the `#<sha1>`
+> yarn 1.0–1.5 append when a lockfile is their only evidence for the digest.
+> Tagging registry metadata with it confuses a value's identity with one
+> renderer's layout, and the damage is real and silent, because origin governs
+> two things at once:
+>
+> - **SRI-emittability.** `url-fragment` is outside `isTarballOrigin`, so
+>   `emitSri` skips it and `tarballHashes` returns empty. A shasum-only
+>   registry (cnpm mirrors, older private registries) would then enrich a node
+>   with a checksum in hand that **no format can write** — a dropped checksum,
+>   which is a bug and never an acceptable simplification.
+> - **Cross-family equivalence.** `integrityEquivalent` compares within origin
+>   classes, so the same 40 hex characters tagged `registry` on one side and
+>   `url-fragment` on the other compare as a **difference that does not
+>   exist**, and the lockgraph emitter rejects the carrier outright.
+>
+> The converse error is equally serious: widening the tag so that a genuine
+> URL-fragment sha1 becomes SRI-emittable would let a value into a field that
+> means something else. Both directions stay closed — the origin records
+> provenance, and **each emitter decides where that digest belongs in its own
+> file**. yarn-classic's decision is stated in
+> [`yarn-classic.md`](./yarn-classic.md#integrity).
 
 ### 3.3 The berry-zip ≠ tarball-SRI boundary
 
@@ -947,10 +992,11 @@ are equivalent **iff, within EACH origin class — tarball-scoped vs
 algorithms present, same digests). Precisely:
 
 - Origin *provenance within the tarball class is ignored*: a `sri` sha512 and
-  a `registry` sha512 (or `recomputed`, or `url-fragment`) of the **same
-  tarball** are interchangeable and compare equal. The tarball origins
-  (`sri` / `registry` / `recomputed` / `url-fragment`) form one equivalence
-  pool.
+  a `registry` sha512 (or a `recomputed` one) of the **same tarball** are
+  interchangeable and compare equal. The tarball origins
+  (`sri` / `registry` / `recomputed`) form one equivalence pool. This is why a
+  `dist.shasum` mis-tagged `url-fragment` reports a false difference against
+  the identical digest read from a lock — it falls outside the pool entirely.
 - The **tarball-vs-zip split is load-bearing**: a `berry-zip` digest is a
   **distinct artefact**. A tarball sha512 mislabelled `berry-zip` is **NOT**
   equivalent to the genuine tarball digest — the comparison projects the two

@@ -662,6 +662,35 @@ integrity-origin rules are recorded in both versioned format specs and
 
 ## Quirks (npm-specific, not obvious from "it makes a `node_modules`")
 
+- **`npm ci` cannot consume a `lockfileVersion: 1` lock carrying a git
+  dependency.** It exits 1 with `EUSAGE`, and it does so for **npm's own**
+  authored lock, not only for a synthesised one. This is a limitation of the
+  frozen command, not of the bytes: the writer considers the same lock canonical.
+  Measured on npm 11 against a lock npm 6 wrote.
+
+  ```
+  npm ci                                                exit 1  EUSAGE
+  npm install --package-lock-only --lockfile-version=1  exit 0  599c87c5… unchanged
+  ```
+
+  Any statement of the form "npm cannot read a v1 lock with a git dependency"
+  has to say **frozen mode**, or it is false.
+
+- **The writer migrates a v1 lock to v3 unless the dialect is pinned.**
+  `npm install --package-lock-only` rewrites `lockfileVersion: 1` to `3`;
+  adding `--lockfile-version=1` returns the file byte-identical. So a
+  canonicality measurement on any pre-v3 lock **must** pin the version, or it
+  measures npm's migration policy instead of the file.
+
+- **`"resolved": false` means "no resolution URL known".** npm 5/6 write the
+  literal `false` — most often inside the bundled subtree of an optional
+  dependency such as `fsevents` — and npm treats any falsy `resolved` as absent
+  rather than as an error. It is a marker, not corruption.
+
+- **`workspaces` may be an object.** Besides the array form, npm accepts
+  `{"packages": [...], "nohoist": [...]}`, and arborist itself writes it. A
+  reader assuming an array will throw on real npm-authored fixtures.
+
 - **Tree shape is install-history-dependent.** Same `package.json`, different
   byte-level `package-lock.json` / `node_modules` nesting, depending on add
   order and dedupe history. Resolution is identical; shape is not. `npm ci` +

@@ -70,6 +70,64 @@ describe('npm-2 — dual-mode parse preconditions', () => {
 })
 
 describe('npm-2 — legacy `dependencies` mirror emit', () => {
+  it('retains an aliased top-level slot and its npm-qualified version', () => {
+    const source = JSON.stringify({
+      name: 'alias-root',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': {
+          name: 'alias-root',
+          version: '1.0.0',
+          dependencies: { 'pm-x': 'npm:minimist@1.2.8' },
+        },
+        'node_modules/pm-x': {
+          name: 'minimist',
+          version: '1.2.8',
+        },
+      },
+      dependencies: {
+        'pm-x': { version: 'npm:minimist@1.2.8' },
+      },
+    }, null, 2)
+
+    const mirror = JSON.parse(stringify(parse(source))).dependencies
+    expect(mirror['pm-x']).toMatchObject({ version: 'npm:minimist@1.2.8' })
+    expect(mirror.minimist).toBeUndefined()
+  })
+
+  it('retains a producer-authored exact override pin in legacy `requires`', () => {
+    const source = JSON.stringify({
+      name: 'override-root',
+      version: '1.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': {
+          name: 'override-root',
+          version: '1.0.0',
+          dependencies: { parent: '1.0.0' },
+        },
+        'node_modules/parent': {
+          version: '1.0.0',
+          dependencies: { child: '^1.0.0' },
+        },
+        'node_modules/child': { version: '1.1.0' },
+      },
+      dependencies: {
+        parent: {
+          version: '1.0.0',
+          requires: { child: '1.1.0' },
+        },
+        child: { version: '1.1.0' },
+      },
+    }, null, 2)
+
+    const mirror = JSON.parse(stringify(parse(source))).dependencies
+    expect(mirror.parent.requires).toEqual({ child: '1.1.0' })
+  })
+
   it('emits both `packages` and `dependencies` blocks (dual mode)', () => {
     const graph = parseFixtureGraph(SPEC, 'simple')
     const text = stringify(graph)

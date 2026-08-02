@@ -153,9 +153,13 @@ describe('yarn-classic — minted resolved URL: yarn-1 host + #<sha1> fragment (
   // fragment desyncs the lock → `yarn --frozen-lockfile` rewrites it.
   const sha1   = 'a'.repeat(40)                                 // dist.shasum
   const sha512 = 'b'.repeat(128)                                // dist.integrity
+  // BOTH digests are registry metadata about the same tarball, so BOTH carry `registry`
+  // — `dist.shasum` is named in that origin's definition. (This fixture once tagged the
+  // sha1 `url-fragment`, mirroring a defect in registry ingestion: that origin names a
+  // lockfile slot, never enters the multiset, and made the digest non-SRI-emittable.)
   const mintedIntegrity = () => ({ hashes: [
     { algorithm: 'sha512', digest: sha512, origin: 'registry' as const },
-    { algorithm: 'sha1',   digest: sha1,   origin: 'url-fragment' as const },
+    { algorithm: 'sha1',   digest: sha1,   origin: 'registry' as const },
   ] })
   // a MINTED node: registry `dist.tarball` (npmjs by default) + NO nativeResolution sidecar.
   const addMinted = (b: ReturnType<typeof newBuilder>, host = 'https://registry.npmjs.org') => {
@@ -181,7 +185,10 @@ describe('yarn-classic — minted resolved URL: yarn-1 host + #<sha1> fragment (
     expect(lockfile).not.toContain('registry.npmjs.org')       // host rewritten off npmjs
     const integrityLine = lockfile.split('\n').find(l => l.trimStart().startsWith('integrity'))
     expect(integrityLine).toBeDefined()
-    expect(integrityLine).not.toContain('sha1-')               // url-fragment sha1 never enters the SRI
+    // yarn 1 states the tarball sha1 in ONE carrier. The `resolved` fragment above carries
+    // it, so the SRI line stays sha512-only — a space-joined `sha512-… sha1-…` is a shape
+    // yarn never writes and `--frozen-lockfile` would rewrite.
+    expect(integrityLine).not.toContain('sha1-')
   })
 
   it('rehosts to the base the lock ALREADY uses (native siblings), not the default', () => {
@@ -350,7 +357,7 @@ describe('yarn-classic — entry key keeps the declared descriptor across a vers
     const integrity = {
       hashes: [
         { algorithm: 'sha512', digest: 'e'.repeat(128), origin: 'registry' as const },
-        { algorithm: 'sha1', digest: sha1, origin: 'url-fragment' as const },
+        { algorithm: 'sha1', digest: sha1, origin: 'registry' as const },
       ],
     }
     const graph = parse(lockWith('lodash@^4.17.0'))
@@ -1441,8 +1448,9 @@ describe('scopeOf', () => {
 describe('deriveResolvedFromCanonical', () => {
   it('rehosts a registry tarball onto the supplied base and appends the #<sha1>', () => {
     const canonical = { type: 'tarball' as const, url: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz' }
-    // The sha1 emits as a `#<sha1>` fragment only for a `url-fragment`-origin hash.
-    const integrity = { hashes: [{ algorithm: 'sha1', digest: '574c8138ce1d2b5861f0b44579dbadd60c6615b2', origin: 'url-fragment' as const }] }
+    // Any TARBALL-origin sha1 renders into the fragment — it is the tarball's sha1
+    // whatever carrier it arrived in. Here: `registry`, i.e. `dist.shasum`.
+    const integrity = { hashes: [{ algorithm: 'sha1', digest: '574c8138ce1d2b5861f0b44579dbadd60c6615b2', origin: 'registry' as const }] }
     const out = deriveResolvedFromCanonical(canonical, integrity, 'https://registry.yarnpkg.com')
     expect(out).toBe('https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz#574c8138ce1d2b5861f0b44579dbadd60c6615b2')
   })

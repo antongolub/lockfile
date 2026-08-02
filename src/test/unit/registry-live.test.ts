@@ -7,7 +7,15 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { liveRegistry, type LiveRegistryDirectOptions } from '../../main/ts/index.ts'
-import { canonicalDigest } from '../../main/ts/recipe/integrity.ts'
+import {
+  canonicalDigest,
+  emitSri,
+  integrityEquivalent,
+  tarballHashes,
+} from '../../main/ts/recipe/integrity.ts'
+import { encodeIntegrityColumn } from '../../main/ts/formats/lockgraph.ts'
+import * as denoV5 from '../../main/ts/formats/deno-v5.ts'
+import { deriveResolvedFromCanonical } from '../../main/ts/formats/yarn-classic.ts'
 
 const LODASH_BODY = {
   name: 'lodash',
@@ -317,5 +325,118 @@ describe('registry/live — limit (scheduling seam)', () => {
     await Promise.all([reg.packument('a'), reg.packument('b'), reg.packument('c')])
     expect(peak).toBe(1)
     expect(spy).toHaveBeenCalledTimes(3)
+  })
+})
+
+// `dist.shasum` is the registry's legacy sha1 of the published tarball. It is registry
+// metadata, exactly like `dist.integrity`, so it carries `origin: 'registry'` — the origin
+// whose own definition names it. It is NOT `url-fragment`: that origin names a lockfile
+// SLOT (the `#<sha1>` yarn 1.0–1.5 append to a `resolved` URL) and by _common.md §3.2 it
+// must never enter the integrity multiset.
+//
+// Ingesting it as `url-fragment` made the digest non-tarball-origin, which silently
+// DROPPED it from every SRI emit, threw INVARIANT_VIOLATION on a lockgraph encode, and
+// made strict equivalence report a false difference against the byte-identical digest the
+// deno adapter parses out of a shasum-only lock. Each is pinned below.
+describe('registry/live — dist.shasum ingestion', () => {
+  const SHASUM = '21413001973106cda1c3a9b91eedd4ccd5469d76'
+  const TARBALL = 'http://mirror.invalid/mirrored/download/mirrored-1.0.0.tgz'
+
+  // A cnpm-style mirror packument: `dist.shasum` and NO `dist.integrity`.
+  const shasumOnlyBody = {
+    name: 'mirrored',
+    'dist-tags': { latest: '1.0.0' },
+    versions: {
+      '1.0.0': {
+        name: 'mirrored', version: '1.0.0',
+        dist: { tarball: TARBALL, shasum: SHASUM },
+      },
+    },
+  }
+
+  const ingest = async (body: unknown = shasumOnlyBody) => {
+    const spy = vi.fn(async () => mockResponse({ body }))
+    const reg = liveRegistry(buildOpts(spy as unknown as typeof fetch))
+    return (await reg.packument('mirrored'))!.versions['1.0.0']!.integrity!
+  }
+
+  it('tags the shasum `registry` — what the value IS, not where a fragment rides', async () => {
+    expect((await ingest()).hashes).toEqual([
+      { algorithm: 'sha1', digest: SHASUM, origin: 'registry' },
+    ])
+  })
+
+  it('keeps the shasum SRI-emittable, so a shasum-only registry never loses it', async () => {
+    const integrity = await ingest()
+    expect(tarballHashes(integrity)).toHaveLength(1)
+    expect(emitSri(integrity)).toBe(`sha1-${Buffer.from(SHASUM, 'hex').toString('base64')}`)
+  })
+
+  it('encodes into a lockgraph integrity column instead of throwing INVARIANT_VIOLATION', async () => {
+    const integrity = await ingest()
+    expect(() => encodeIntegrityColumn(integrity, undefined, undefined)).not.toThrow()
+  })
+
+  it('is strictly equivalent to the same shasum parsed from a deno lock', async () => {
+    // Same 40 hex characters, same tarball, same registry that served them — deno wrote
+    // this lock by storing `dist.integrity() ?? dist.shasum` for a mirror that serves only
+    // the shasum. Two carriers of one fact must not compare as different.
+    const fromDenoLock = denoV5.parse(`{
+  "version": "5",
+  "npm": {
+    "mirrored@1.0.0": {
+      "integrity": "${SHASUM}",
+      "tarball": "${TARBALL}"
+    }
+  }
+}
+`).tarballOf('mirrored@1.0.0')!.integrity!
+
+    expect(integrityEquivalent(await ingest(), fromDenoLock)).toBe(true)
+  })
+
+  it('merges alongside a sha512 `dist.integrity` without displacing it', async () => {
+    const sri = 'sha512-6IMTriUmvsjHUjNtEDudZfuDQUoWXVxKHhlEGSk81n4YFS+r/Kl99wXiwlVXtPBtJenozv2P+hxDsw9eA7Xo6g=='
+    const integrity = await ingest({
+      name: 'mirrored',
+      'dist-tags': { latest: '1.0.0' },
+      versions: {
+        '1.0.0': {
+          name: 'mirrored', version: '1.0.0',
+          dist: { tarball: TARBALL, shasum: SHASUM, integrity: sri },
+        },
+      },
+    })
+    expect(integrity.hashes.map(h => `${h.algorithm}:${h.origin}`))
+      .toEqual(['sha512:registry', 'sha1:registry'])
+    expect(canonicalDigest(integrity)).toBe(sri)
+  })
+
+  // The other half of "never lose a checksum": correcting the origin must not cost
+  // yarn-classic its `resolved#<sha1>`. This asserts the real producer feeds the real
+  // consumer — the ingested carrier, not a hand-written fixture, still renders a fragment.
+  it('still renders yarn-classic a `#<sha1>` fragment from the ingested carrier', async () => {
+    const integrity = await ingest()
+    expect(deriveResolvedFromCanonical(
+      { type: 'tarball', url: 'https://registry.npmjs.org/mirrored/-/mirrored-1.0.0.tgz' },
+      integrity,
+      'https://registry.yarnpkg.com',
+    )).toBe(`https://registry.yarnpkg.com/mirrored/-/mirrored-1.0.0.tgz#${SHASUM}`)
+  })
+
+  it('ignores a malformed shasum rather than carrying a bogus digest', async () => {
+    const body = {
+      name: 'mirrored',
+      'dist-tags': { latest: '1.0.0' },
+      versions: {
+        '1.0.0': {
+          name: 'mirrored', version: '1.0.0',
+          dist: { tarball: TARBALL, shasum: 'not-a-sha1' },
+        },
+      },
+    }
+    const spy = vi.fn(async () => mockResponse({ body }))
+    const reg = liveRegistry(buildOpts(spy as unknown as typeof fetch))
+    expect((await reg.packument('mirrored'))!.versions['1.0.0']!.integrity).toBeUndefined()
   })
 })

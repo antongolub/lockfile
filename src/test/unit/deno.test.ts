@@ -614,6 +614,153 @@ describe('deno adapter', () => {
   })
 })
 
+// A lock's `version` string names the generation that WROTE it, not the shape its
+// body uses, and the two disagree in real files. Deno resolves the disagreement by
+// running its upgrade transforms from the declared version upwards, and every one of
+// them is a no-op when its own source section is absent: a body already nested the
+// way a LATER generation nests it therefore passes through untouched and is read in
+// full, while a body nested the way an EARLIER generation nested it is invisible —
+// no downgrade transform exists, so the stale key is dropped and the lock is
+// regenerated from scratch. All of it is measured against the vendored deno 2.9.4
+// oracle with a dangling specifier, which is a parse-time corruption check and so
+// reports whether the section was READ rather than whether it happened to agree.
+describe('declared version versus section nesting', () => {
+  const LODASH_SRI =
+    'sha512-v7iu7HN9K6cQ2xRT6gS1jVMFmwYCDD3wUFHK6HqHiXjaCsAzB8XmYNrO7YFsQ8v7Wgc/HmZoqNXFjkPkJIQOJg=='
+
+  // Deno reads this in full: the v3->v4 transform finds no `packages` to move, so
+  // the already-top-level sections reach the v4 reader unchanged.
+  const declaredV3NestedLater = `{
+  "version": "3",
+  "specifiers": {
+    "npm:lodash-es@4.17.21": "4.17.21"
+  },
+  "npm": {
+    "lodash-es@4.17.21": {
+      "integrity": "${LODASH_SRI}"
+    }
+  }
+}
+`
+
+  // Deno discards this: no transform moves `packages` down into a v4 document, so
+  // the key is unknown to the v4 reader and the next write drops it.
+  const declaredV4NestedEarlier = `{
+  "version": "4",
+  "packages": {
+    "specifiers": {
+      "npm:lodash-es@^4.17.21": "npm:lodash-es@4.17.21"
+    },
+    "npm": {
+      "lodash-es@4.17.21": {
+        "integrity": "${LODASH_SRI}",
+        "dependencies": {}
+      }
+    }
+  }
+}
+`
+
+  describe('a body nested the way a later generation nests it', () => {
+    it('is detected as its declared version even with no other section to go on', () => {
+      expect(detectPublic(declaredV3NestedLater)).toBe('deno-v3')
+      expect(denoV3.check(declaredV3NestedLater)).toBe(true)
+    })
+
+    it('projects the npm packages that deno itself reads', () => {
+      const graph = denoV3.parse(declaredV3NestedLater)
+      expect(graph.byName('lodash-es')).toHaveLength(1)
+    })
+
+    it('still replays byte-for-byte in its declared version', () => {
+      expect(denoV3.stringify(denoV3.parse(declaredV3NestedLater)))
+        .toBe(declaredV3NestedLater)
+    })
+
+    it('carries the packages through a version conversion instead of dropping them', () => {
+      const converted = denoV4.stringify(denoV3.parse(declaredV3NestedLater))
+      expect(JSON.parse(converted)).toEqual({
+        version: '4',
+        specifiers: { 'npm:lodash-es@4.17.21': '4.17.21' },
+        npm: { 'lodash-es@4.17.21': { integrity: LODASH_SRI } },
+      })
+    })
+  })
+
+  describe('a body nested the way an earlier generation nests it', () => {
+    it('leaves the unreachable section out of the graph, as deno does', () => {
+      expect(denoV4.parse(declaredV4NestedEarlier).byName('lodash-es')).toHaveLength(0)
+    })
+
+    it('still replays byte-for-byte in its declared version', () => {
+      expect(denoV4.stringify(denoV4.parse(declaredV4NestedEarlier)))
+        .toBe(declaredV4NestedEarlier)
+    })
+
+    it('declares the dropped section on conversion rather than emitting an absence', () => {
+      const diagnostics: Diagnostic[] = []
+      denoV3.stringify(denoV4.parse(declaredV4NestedEarlier), {
+        onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+      })
+      expect(diagnostics).toContainEqual(expect.objectContaining({
+        code: 'DENO_ORPHANED_SECTION_DROPPED',
+        severity: 'error',
+        subject: 'top-level:packages.npm',
+      }))
+      expect(diagnostics).toContainEqual(expect.objectContaining({
+        code: 'DENO_ORPHANED_SECTION_DROPPED',
+        subject: 'top-level:packages.specifiers',
+      }))
+    })
+  })
+
+  // Deno's transform MOVES `packages.*` onto the top-level keys, so the nesting that
+  // matches the declared version wins and the other is overwritten. Reading the
+  // top-level one instead would mint a graph deno never builds.
+  describe('a body carrying both nestings', () => {
+    const bothNestings = `{
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "npm:lodash-es@^4.17.21": "npm:lodash-es@4.17.21"
+    },
+    "npm": {
+      "lodash-es@4.17.21": {
+        "integrity": "${LODASH_SRI}",
+        "dependencies": {}
+      }
+    }
+  },
+  "specifiers": {
+    "npm:ghost@1.0.0": "1.0.0"
+  },
+  "npm": {
+    "ghost@1.0.0": {
+      "integrity": "${LODASH_SRI}"
+    }
+  }
+}
+`
+
+    it('reads the nesting that matches the declared version', () => {
+      const graph = denoV3.parse(bothNestings)
+      expect(graph.byName('lodash-es')).toHaveLength(1)
+      expect(graph.byName('ghost')).toHaveLength(0)
+    })
+
+    it('declares the overwritten nesting on conversion', () => {
+      const diagnostics: Diagnostic[] = []
+      denoV4.stringify(denoV3.parse(bothNestings), {
+        onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+      })
+      expect(diagnostics.filter(diagnostic =>
+        diagnostic.code === 'DENO_ORPHANED_SECTION_DROPPED')
+        .map(diagnostic => diagnostic.subject).sort())
+        .toEqual(['top-level:npm', 'top-level:specifiers'])
+    })
+  })
+})
+
 describe('registerNpmNodes', () => {
   const CYCLE_A_SRI =
     'sha512-t9JrAHWAnr9QTfmIjBLLnWMqprUKzl4ddsr2zQSmTF1WSB0Fa+D7nRaFWp6uHnailiuqTlHS1aknqA1XHID4gw=='

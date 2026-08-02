@@ -82,6 +82,62 @@ The exact set is sparse: a valid file need not contain every section. For v4
 and v5, npm dependency references are normally compact string arrays. V2 and
 v3 npm dependency references are name-to-native-id maps.
 
+#### The declared version does not determine the nesting
+
+The `version` string names the generation that *wrote* the file. It does not
+guarantee that the body nests its sections the way that row of the table says.
+Two corpus files disagree with their own declaration:
+
+| file | declares | nests as |
+| --- | --- | --- |
+| an ordinary Fresh + Supabase application `deno.lock` | `"3"` | v4/v5 — top-level `specifiers` and `npm`, array-form dependency references |
+| `cli/fixtures/deno.lock.future`, a hand-authored fixture in a dependency-update tool | `"4"` | v3 — `packages.specifiers`, `packages.jsr`, `packages.npm` |
+
+Deno resolves the disagreement by running its **upgrade** transforms from the
+declared version up to the current one. Each transform is a no-op when its own
+source section is absent, and no downgrade transform exists. So:
+
+> **A nesting at or above the declared version is read in full. A nesting below
+> it is invisible.**
+
+Measured against the vendored 2.9.4 binary by planting a dangling specifier — a
+parse-time corruption check, so it reports whether the section was *read*, not
+whether it happened to agree:
+
+| declared | nesting | Deno 2.9.4 |
+| --- | --- | --- |
+| v2 | v3, or v4/v5 | reads it — `Could not find 'ghost@1.0.0' in the list of packages.` |
+| v3 | v4/v5 | reads it — same corruption error |
+| v3 | both v3 and v4/v5 | reads the v3 one; the transform **moves it onto** the top-level keys, overwriting them |
+| v4, v5 | v3 | silently discards it — no corruption error, and the next write drops the key |
+| v4 | v2 | refuses — `Invalid npm package 'packages'` |
+
+The adapter mirrors this exactly, because both halves matter:
+
+- The v3-declared application lock holds **170 live npm packages**. Deno installs
+  from it. Refusing it would refuse a file `deno install --frozen` works with, so
+  the parser probes the nesting and reads them. Value shapes travel with the
+  nesting, not with the declaration: that file's specifier values are already
+  bare versions. Converting it to v4 now differs from the source by exactly one
+  line — the version string.
+- The v4-declared fixture's `packages` section is content **Deno never reads**.
+  Reading it would mint a graph Deno never builds, so the adapter does not read
+  it either.
+
+The lowest populated nesting at or above the declared version wins; only a
+section with at least one entry can claim a nesting, because moving an empty
+section is a no-op. Every other populated section is an **orphan**, and an orphan
+is declared, never dropped in silence: `DENO_ORPHANED_SECTION_IGNORED` (warning)
+on parse names each section the graph does not carry, and
+`DENO_ORPHANED_SECTION_DROPPED` (error) on a version conversion names each
+section the emitted document cannot carry. The latter is an inherent-meaningful
+projection loss, so a strict conversion fails rather than emitting a lock that is
+quietly missing them.
+
+Detection is widened to match: a `"3"` document whose only sections sit at the
+top level is still detected as `deno-v3`, rather than being turned away for
+carrying nothing where its declared version would have put it.
+
 ### What changes between versions
 
 Three transitions, each a different kind of change:

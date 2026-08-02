@@ -655,6 +655,29 @@ flattening, nested-tree edge, tarball payload, patch, preamble, and integrity
 rules are recorded in both versioned format specs and
 [`docs/arch/CONVERT.md`](../../arch/CONVERT.md).
 
+## Producer behaviour measured against pnpm 9.4.0 / 10.34.5
+
+- **`--frozen-lockfile` never writes.** Its exit 0 proves the producer *accepts*
+  a lockfile and says nothing about whether the bytes are canonical. Proving
+  canonicality needs a second, write-enabled run and a hash comparison before and
+  after. Every claim of the form "pnpm keeps our output" rests on that second leg.
+
+- **A snapshot-level `link:` is resolved verbatim against the lockfile
+  directory.** pnpm does not look the target up in the snapshot key set, and does
+  not validate that it exists: retargeting the value at a directory that is not
+  there still exits 0 and materialises a dangling symlink. So a diagnostic
+  phrased as "resolves to no snapshot" describes a lookup pnpm never performs.
+
+- **A local directory package needs `type: directory` in its resolution.**
+  Without it pnpm reads the entry as a tarball and fails with
+  `ERR_PNPM_MISSING_TARBALL_INTEGRITY`, demanding an integrity a directory has
+  none of.
+
+- **An importer's dependency slot is keyed by the declared package name**, never
+  by the member's directory, even though the lock names workspace members by
+  directory elsewhere. Keying the slot by directory produces
+  `specifiers in the lockfile don't match specifiers in package.json`.
+
 ## Quirks
 
 - **Two peer-suffix encodings** for one identity: filesystem `_`/`+` (§2.4) vs

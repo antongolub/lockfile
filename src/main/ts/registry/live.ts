@@ -332,13 +332,21 @@ function normalizeVersion(name: string, version: string, raw: any): PackumentVer
     const integrity = parseSri(dist.integrity, 'registry')
     if (!isEmptyIntegrity(integrity)) out.integrity = integrity
   }
-  // yarn-classic's `resolved#<sha1>` fragment is the TARBALL sha1; npm serves it as
-  // `dist.shasum` (a raw 40-hex sha1, distinct from the sha512 SRI in `dist.integrity`).
-  // Tag it `url-fragment` so a minted yarn-classic node re-emits the fragment WITHOUT the
-  // sha1 leaking into any SRI field (`isTarballOrigin` excludes `url-fragment`).
+  // `dist.shasum` is the registry's legacy sha1 OF THE PUBLISHED TARBALL (a raw 40-hex
+  // sha1, served alongside — or instead of — the SRI in `dist.integrity`). Origin states
+  // what the value IS and where it came FROM, so registry metadata is `registry`, exactly
+  // like `dist.integrity` above. This is the same value, and the same origin, that the
+  // deno adapter records when a shasum-only packument (cnpm mirrors) puts the bare hex in
+  // deno.lock's integrity FIELD (`_deno-core.ts`).
+  //
+  // NOT `url-fragment`: that origin names a lockfile SLOT — the `#<sha1>` yarn 1.0–1.5
+  // glue onto a `resolved` URL — and by _common.md §3.2 it must never enter the integrity
+  // multiset at all (the lockgraph emitter throws INVARIANT_VIOLATION on one). Tagging it
+  // so made this sha1 non-SRI-emittable, which DROPPED it on every emit and made strict
+  // equivalence report a false difference against the identical deno-parsed digest.
   if (typeof dist.shasum === 'string' && /^[0-9a-f]{40}$/i.test(dist.shasum)) {
     out.integrity = mergeIntegrity(out.integrity ?? emptyIntegrity(),
-      { hashes: [{ algorithm: 'sha1', digest: dist.shasum.toLowerCase(), origin: 'url-fragment' }] })
+      { hashes: [{ algorithm: 'sha1', digest: dist.shasum.toLowerCase(), origin: 'registry' }] })
   }
   if (typeof dist.tarball   === 'string') out.tarball   = dist.tarball
   if (isStringMap(raw?.dependencies))         out.dependencies         = { ...raw.dependencies }

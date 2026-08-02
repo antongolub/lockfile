@@ -893,6 +893,30 @@ yarn-berry graph mean what it means.
 
 ---
 
+## Producer behaviour measured across 564 scraped locks
+
+- **Yarn Classic writes bare entry keys.** `body-parser:` with no `@<range>`,
+  scoped names included, appears in 7 of 142 classic locks from 7 unrelated
+  repositories. The declared range is genuinely absent and **not reconstructible
+  from the manifest**: manifests carry ordinary caret ranges while the keys are
+  bare, and one lock resolves `@hackoregon/jinn@0.0.1` under a manifest declaring
+  `^0.2.3`.
+
+- **Berry writes no `checksum` for an entry it does not fetch as an archive.**
+  Two independent causes, and neither is "the entry is patched": a conditioned
+  entry excluded by the `optionalBuilds` rule, and a soft `link:` / `portal:` /
+  directory-`file:` locator. 1044 builtin-patched entries **do** carry a
+  checksum, so `builtin<...>` is not the discriminator — `conditions:` plus the
+  link type is.
+
+- **The cache-key prefix appears twice in Berry's history and is not implied by
+  `__metadata.version`.** Early v4 writes `checksum: 2/<128hex>` inline with no
+  `__metadata.cacheKey`; late v4-v7 write bare checksums beside a `cacheKey`
+  line; v8 carries both forms; v9 and v10 are uniformly prefixed. The value also
+  leaks project configuration — `10c0` versus `10` tracks whether
+  `compressionLevel` is set. A reader must key off the presence of `/`, as
+  Berry's own `Project.ts` does, never off the version number.
+
 ## Sources
 
 Primary (yarnpkg.com / berry source), fetched/searched 2026-06-16,

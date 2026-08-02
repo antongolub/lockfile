@@ -25,8 +25,15 @@
 export type HashOrigin =
   | 'sri'          // member of an SRI field (npm / pnpm / bun / yarn-classic integrity). Tarball digest.
   | 'berry-zip'    // Yarn Berry `checksum` — digest of the zip-cache, NOT the tarball.
-  | 'url-fragment' // yarn-classic `resolved#<sha1>` tarball sha1 — rides the resolved URL fragment, NOT the SRI field.
-  | 'registry'     // fetched from registry metadata (`dist.integrity` / `dist.shasum`). Tarball digest.
+  // A lockfile SLOT, not a provenance: the `#<sha1>` yarn 1.0–1.5 append to a `resolved`
+  // URL. Reserved — no adapter may fold it into the multiset (_common.md §3.2); the sha1
+  // rides the resolution sidecar and lockgraph REJECTS a multiset member carrying it.
+  | 'url-fragment'
+  // Registry metadata: `dist.integrity` (an SRI) AND `dist.shasum` (the legacy bare 40-hex
+  // sha1). Tarball digest, SRI-emittable. `dist.shasum` belongs HERE, not on
+  // `url-fragment` — origin is what a digest IS, never which field renders it. Mis-tagging
+  // it silently drops the checksum on every emit and fakes a cross-family difference.
+  | 'registry'
   | 'recomputed'   // recomputed from tarball bytes (Phase 2). Tarball digest.
 
 export interface Hash {
@@ -81,11 +88,25 @@ export function tarballHashes(i: Integrity): Hash[] {
   return i.hashes.filter(h => isTarballOrigin(h.origin))
 }
 
-/** The yarn-classic `resolved#<sha1>` fragment digest — a tarball sha1 tagged
- *  `url-fragment` (from `dist.shasum` on mint, or a parsed `#<sha1>` on round-trip).
- *  Lowercase hex, or `undefined`. Emitted into the resolved URL, never the SRI. */
-export function urlFragmentSha1(i: Integrity): string | undefined {
-  return i.hashes.find(h => h.algorithm === 'sha1' && h.origin === 'url-fragment')?.digest
+/**
+ * The tarball sha1 to render into a yarn-classic `resolved#<sha1>` fragment, as
+ * lowercase hex, or `undefined`.
+ *
+ * ANY tarball-origin sha1 qualifies. The fragment is a yarn-classic RENDERING SLOT,
+ * not a provenance claim: whether the tarball's sha1 reached us as `dist.shasum`
+ * (`registry`), as a `sha1-` member of a lock's SRI (`sri`), or from hashing the bytes
+ * (`recomputed`), it is the same fact and the same correct fragment value. Selecting by
+ * origin instead would be the identity-vs-slot confusion this function used to embody —
+ * it once matched `origin === 'url-fragment'`, a state that per _common.md §3.2 may never
+ * appear in the multiset, so after registry ingestion was corrected it would have matched
+ * NOTHING and silently dropped the fragment.
+ *
+ * `berry-zip` (a zip-cache digest, not the tarball) and `url-fragment` are excluded by
+ * `isTarballOrigin` — the latter fail-closed, so a hand-built `url-fragment` payload is
+ * exposed by the strict projection rather than quietly re-rendered.
+ */
+export function tarballSha1ForUrlFragment(i: Integrity): string | undefined {
+  return i.hashes.find(h => h.algorithm === 'sha1' && isTarballOrigin(h.origin))?.digest
 }
 
 /** First hash for `algorithm` (any origin), or `undefined`. */

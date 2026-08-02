@@ -71,8 +71,25 @@ interface DenoNpmPackageEntry extends JsonObject {
   bin?: boolean
 }
 
+/** Where a document actually nests its package sections. Three nestings exist across
+ * the four generations — v4 and v5 share one — and a document's nesting is a fact
+ * about its body, independent of the `version` string it declares. */
+type DenoNesting = 'v2' | 'v3' | 'v45'
+
+/** A populated section that the winning nesting does not reach. */
+interface DenoOrphanedSection {
+  readonly nesting: DenoNesting
+  readonly path: string
+  readonly count: number
+}
+
 interface DenoLayout {
+  /** The nesting the body uses, which drives WHERE sections live and WHICH value
+   * shapes they carry. Not necessarily the declared version. */
   readonly version: DenoVersion
+  /** The `version` string in the file, which drives format identity and replay. */
+  readonly declaredVersion: DenoVersion
+  readonly orphanedSections: readonly DenoOrphanedSection[]
   readonly document: JsonObject
   readonly specifiers: Record<string, string>
   readonly npm: Record<string, DenoNpmPackageEntry>
@@ -82,6 +99,8 @@ interface DenoLayout {
 
 interface DenoSidecar {
   readonly version: DenoVersion
+  readonly layoutVersion: DenoVersion
+  readonly orphanedSections: readonly DenoOrphanedSection[]
   readonly originalInput: string
   readonly document: JsonObject
   readonly nativeByNode: Map<string, string>
@@ -289,11 +308,17 @@ export function checkVersion(input: string, expectedVersion: DenoVersion): boole
   if (!isObject(value)) return false
   const version = value.version
   if (version !== expectedVersion) return false
-  if (version === '2') return isObject(value.npm) || isObject(value.remote)
+  // The corroborating section may be nested the way a LATER generation nests it —
+  // deno reads those, so detection must not turn such a document away for carrying
+  // no section where the declared version would have put one.
+  const nestedLater = isObject(value.specifiers) || isObject(value.jsr)
+  if (version === '2') return isObject(value.npm) || isObject(value.remote) || nestedLater || isObject(value.packages)
   if (version === '3') {
     return isObject(value.packages)
       || isObject(value.remote)
       || isObject(value.workspace)
+      || isObject(value.npm)
+      || nestedLater
   }
   return true
 }
@@ -352,8 +377,11 @@ function emitMutatedDocument(
   options: DenoStringifyOptions,
 ): string {
   const document = JSON.parse(JSON.stringify(sidecar.document)) as JsonObject
-  const npm = mutableNpmRecord(document, sidecar.version)
-  const specifiers = mutableSpecifierRecord(document, sidecar.version)
+  // Sections are rewritten where the body actually keeps them, not where the declared
+  // version says they belong, so a mutation of a mis-declared lock edits the entries
+  // it parsed instead of growing a second, empty container beside them.
+  const npm = mutableNpmRecord(document, sidecar.layoutVersion)
+  const specifiers = mutableSpecifierRecord(document, sidecar.layoutVersion)
   const renameByOld = new Map<string, string>()
   for (const [nextNativeId, sourceNativeId] of sidecar.bumpedFromNative) {
     renameByOld.set(sourceNativeId, nextNativeId)
@@ -375,10 +403,10 @@ function emitMutatedDocument(
     if (nextNpm[nativeId] !== undefined) continue
     nextNpm[nativeId] = buildNpmEntry(graph, sidecar, nativeId)
   }
-  replaceNpmRecord(document, sidecar.version, nextNpm)
+  replaceNpmRecord(document, sidecar.layoutVersion, nextNpm)
 
   for (const [request, resolved] of Object.entries(specifiers)) {
-    const rewritten = rewriteSpecifierResolution(sidecar.version, request, resolved, renameByOld)
+    const rewritten = rewriteSpecifierResolution(sidecar.layoutVersion, request, resolved, renameByOld)
     if (rewritten !== resolved) specifiers[request] = rewritten
   }
 
@@ -411,13 +439,23 @@ function emitConvertedDocument(
   }
 
   reportCrossVersionLosses(sidecar, targetVersion, options)
+  // A section the source nesting cannot reach is carried by NEITHER the graph nor the
+  // native sidecar, and the target document has no key to park it under. It is a real
+  // loss, so it is declared here; emitting the conversion without a word would be the
+  // silent drop this guard exists to prevent.
+  for (const diagnostic of orphanedSectionDiagnostics(
+    sidecar.orphanedSections,
+    sidecar.version,
+    'error',
+    `a deno-v${sidecar.version} -> deno-v${targetVersion} conversion therefore drops it`,
+  )) options.onDiagnostic?.(diagnostic)
   const npm = buildConvertedNpmRecord(graph, sidecar, targetVersion)
   const specifiers = convertSpecifierRecord(sidecar, targetVersion)
   const jsr = convertJsrRecord(sidecar, targetVersion, specifiers)
   const remote = cloneJsonObject(nativeSection(sidecar, 'remote'))
   const workspace = cloneJsonObject(nativeSection(sidecar, 'workspace'))
   if (
-    sidecar.version === '2'
+    sidecar.layoutVersion === '2'
     && targetVersion !== '2'
     && Object.keys(specifiers).length > 0
   ) {
@@ -462,7 +500,7 @@ function buildConvertedNpmRecord(
   sidecar: DenoSidecar,
   targetVersion: DenoVersion,
 ): Record<string, DenoNpmPackageEntry> {
-  const sourceNpm = npmRecordFromDocument(sidecar.document, sidecar.version)
+  const sourceNpm = npmRecordFromDocument(sidecar.document, sidecar.layoutVersion)
   const output: Record<string, DenoNpmPackageEntry> = {}
   for (const nativeId of [...sidecar.nodeByNative.keys()].sort(compareStrings)) {
     output[nativeId] = buildNpmEntry(
@@ -480,12 +518,15 @@ function convertSpecifierRecord(
   sidecar: DenoSidecar,
   targetVersion: DenoVersion,
 ): Record<string, string> {
-  const source = specifierRecordFromDocument(sidecar.document, sidecar.version)
+  const source = specifierRecordFromDocument(sidecar.document, sidecar.layoutVersion)
   const output: Record<string, string> = {}
   for (const [request, resolved] of Object.entries(source).sort(compareEntries)) {
-    const npmRef = nativeIdFromSpecifier(sidecar.version, request, resolved)
+    // Value shapes travel with the nesting, not with the declared version: the
+    // specifier values of a body nested the v4/v5 way are bare versions even when
+    // the document calls itself v3.
+    const npmRef = nativeIdFromSpecifier(sidecar.layoutVersion, request, resolved)
     if (npmRef !== undefined) {
-      const requestBody = sidecar.version === '2'
+      const requestBody = sidecar.layoutVersion === '2'
         ? request
         : request.startsWith('npm:')
           ? request.slice('npm:'.length)
@@ -503,8 +544,8 @@ function convertSpecifierRecord(
       continue
     }
     output[request] = targetVersion === '3'
-      ? jsrV3Resolution(request, resolved, sidecar.version)
-      : jsrV4Resolution(request, resolved, sidecar.version)
+      ? jsrV3Resolution(request, resolved, sidecar.layoutVersion)
+      : jsrV4Resolution(request, resolved, sidecar.layoutVersion)
   }
   return output
 }
@@ -536,9 +577,9 @@ function convertJsrRecord(
 ): JsonObject {
   if (targetVersion === '2') return {}
   const source = cloneJsonObject(nativeSection(sidecar, 'jsr'))
-  if (sidecar.version === targetVersion
-    || (sidecar.version === '4' && targetVersion === '5')
-    || (sidecar.version === '5' && targetVersion === '4')) return source
+  if (sidecar.layoutVersion === targetVersion
+    || (sidecar.layoutVersion === '4' && targetVersion === '5')
+    || (sidecar.layoutVersion === '5' && targetVersion === '4')) return source
   for (const entry of Object.values(source)) {
     if (!isObject(entry) || !Array.isArray(entry.dependencies)) continue
     entry.dependencies = entry.dependencies.map(dependency => {
@@ -604,7 +645,7 @@ function reportCrossVersionLosses(
     })
   }
   if (sidecar.version !== '5') return
-  const sourceNpm = npmRecordFromDocument(sidecar.document, sidecar.version)
+  const sourceNpm = npmRecordFromDocument(sidecar.document, sidecar.layoutVersion)
   for (const [nativeId, entry] of Object.entries(sourceNpm).sort(compareEntries)) {
     const fields = V5_ENTRY_FIELDS.filter(field => entry[field] !== undefined)
     if (fields.length === 0) continue
@@ -624,15 +665,15 @@ function reportCrossVersionLosses(
 }
 
 function nativeSection(
-  sidecar: Pick<DenoSidecar, 'document' | 'version'>,
+  sidecar: Pick<DenoSidecar, 'document' | 'layoutVersion'>,
   section: 'jsr' | 'remote' | 'redirects' | 'workspace',
 ): JsonObject {
-  if (section === 'jsr' && sidecar.version === '3') {
+  if (section === 'jsr' && sidecar.layoutVersion === '3') {
     return optionalObject(optionalObject(sidecar.document.packages, 'packages').jsr, 'packages.jsr')
   }
-  if (section === 'jsr' && sidecar.version === '2') return {}
-  if (section === 'redirects' && (sidecar.version === '2' || sidecar.version === '3')) return {}
-  if (section === 'workspace' && sidecar.version === '2') return {}
+  if (section === 'jsr' && sidecar.layoutVersion === '2') return {}
+  if (section === 'redirects' && (sidecar.layoutVersion === '2' || sidecar.layoutVersion === '3')) return {}
+  if (section === 'workspace' && sidecar.layoutVersion === '2') return {}
   return optionalObject(sidecar.document[section], section)
 }
 
@@ -747,7 +788,7 @@ function buildNpmEntry(
   sidecar: DenoSidecar,
   nativeId: string,
   previous?: DenoNpmPackageEntry,
-  targetVersion: DenoVersion = sidecar.version,
+  targetVersion: DenoVersion = sidecar.layoutVersion,
 ): DenoNpmPackageEntry {
   const nodeId = sidecar.nodeByNative.get(nativeId)
   const node = nodeId === undefined ? undefined : graph.getNode(nodeId)
@@ -983,13 +1024,16 @@ function parseLayout(input: string, expectedVersion: DenoVersion): DenoLayout {
     })
   }
 
+  const probed = probeNesting(value, expectedVersion)
+  const nestingVersion = probed.version
+
   let npmValue: unknown
   let specifiersValue: unknown
-  if (version === '2') {
+  if (nestingVersion === '2') {
     const npmSection = optionalObject(value.npm, 'npm')
     npmValue = npmSection.packages
     specifiersValue = npmSection.specifiers
-  } else if (version === '3') {
+  } else if (nestingVersion === '3') {
     const packages = optionalObject(value.packages, 'packages')
     npmValue = packages.npm
     specifiersValue = packages.specifiers
@@ -999,13 +1043,126 @@ function parseLayout(input: string, expectedVersion: DenoVersion): DenoLayout {
   }
 
   return {
-    version: expectedVersion,
+    version: nestingVersion,
+    declaredVersion: expectedVersion,
+    orphanedSections: probed.orphaned,
     document: value,
     specifiers: stringRecord(specifiersValue, 'specifiers'),
     npm: npmRecord(npmValue),
-    jsr: optionalObject(version === '3' ? optionalObject(value.packages, 'packages').jsr : value.jsr, 'jsr'),
+    jsr: optionalObject(
+      nestingVersion === '3' ? optionalObject(value.packages, 'packages').jsr : value.jsr,
+      'jsr',
+    ),
     remote: optionalObject(value.remote, 'remote'),
   }
+}
+
+// === NESTING PROBE ==========================================================
+//
+// A lock's `version` string names the generation that WROTE it; it does not
+// determine where that generation's body nests its package sections. Two scraped
+// corpus files disagree with their own declaration — an ordinary Fresh application
+// lock declaring "3" over the v4/v5 top-level nesting, and a hand-authored
+// `deno.lock.future` fixture declaring "4" over the v3 `packages` nesting.
+//
+// Deno resolves the disagreement by running its UPGRADE transforms from the declared
+// version up to the current one, and each transform is a no-op when its own source
+// section is absent. Two consequences follow, both measured against the vendored
+// deno 2.9.4 binary with a dangling specifier — a parse-time corruption check, so it
+// reports whether a section was READ rather than whether it happened to agree:
+//
+//   * A nesting at or ABOVE the declared version is read in full. deno accepts a
+//     "3" document whose sections sit at the top level and names the planted
+//     dangling id, so those 170 packages are live state, not decoration. Refusing
+//     the file would refuse a lock `deno install` works with.
+//   * A nesting BELOW the declared version is invisible. No downgrade transform
+//     exists, so a `packages` key under a "4" or "5" declaration is unknown to the
+//     reader, is dropped on the next write, and the lock regenerates from scratch.
+//     deno plants no corruption error there. Reading it would mint a graph deno
+//     never builds, so this adapter does not read it either — but it must not
+//     vanish without a word, so it is reported as an orphan.
+//   * When two nestings are populated at once, the transform MOVES the lower one
+//     onto the higher one's keys, so the lowest populated nesting at or above the
+//     declared version wins and the rest are overwritten.
+//
+// Emptiness matters: moving an absent or empty section is a no-op, so only a section
+// with at least one entry can claim the nesting.
+const NESTING_ORDER: readonly DenoNesting[] = ['v2', 'v3', 'v45']
+
+function nestingOfVersion(version: DenoVersion): DenoNesting {
+  return version === '2' ? 'v2' : version === '3' ? 'v3' : 'v45'
+}
+
+function lowestVersionOfNesting(nesting: DenoNesting): DenoVersion {
+  return nesting === 'v2' ? '2' : nesting === 'v3' ? '3' : '4'
+}
+
+function populatedSections(document: JsonObject): DenoOrphanedSection[] {
+  const sections: DenoOrphanedSection[] = []
+  const add = (nesting: DenoNesting, path: string, value: unknown): void => {
+    if (!isObject(value)) return
+    const count = Object.keys(value).length
+    if (count > 0) sections.push({ nesting, path, count })
+  }
+  // A top-level `npm` holding `specifiers`/`packages` is v2's own container, not a
+  // v4/v5 entry map, so it must not be counted as evidence of both nestings.
+  const npm = document.npm
+  const isV2Container = isObject(npm) && (isObject(npm.packages) || isObject(npm.specifiers))
+  if (isV2Container) {
+    add('v2', 'npm.specifiers', (npm as JsonObject).specifiers)
+    add('v2', 'npm.packages', (npm as JsonObject).packages)
+  }
+  const packages = document.packages
+  if (isObject(packages)) {
+    add('v3', 'packages.specifiers', packages.specifiers)
+    add('v3', 'packages.jsr', packages.jsr)
+    add('v3', 'packages.npm', packages.npm)
+  }
+  add('v45', 'specifiers', document.specifiers)
+  add('v45', 'jsr', document.jsr)
+  if (!isV2Container) add('v45', 'npm', npm)
+  return sections
+}
+
+function probeNesting(
+  document: JsonObject,
+  declaredVersion: DenoVersion,
+): Readonly<{ version: DenoVersion; orphaned: readonly DenoOrphanedSection[] }> {
+  const declaredNesting = nestingOfVersion(declaredVersion)
+  const sections = populatedSections(document)
+  const readable = NESTING_ORDER.slice(NESTING_ORDER.indexOf(declaredNesting))
+  const winner = readable.find(nesting => sections.some(section => section.nesting === nesting))
+    ?? declaredNesting
+  return {
+    version: winner === declaredNesting ? declaredVersion : lowestVersionOfNesting(winner),
+    orphaned: sections.filter(section => section.nesting !== winner),
+  }
+}
+
+/** The document says one of these sections exists; the declared version cannot reach
+ * it. Absence of a diagnostic here would be the silent loss. */
+function orphanedSectionDiagnostics(
+  orphaned: readonly DenoOrphanedSection[],
+  declaredVersion: DenoVersion,
+  severity: 'warning' | 'error',
+  outcome: string,
+): Diagnostic[] {
+  return orphaned.map(section => ({
+    code: severity === 'error' ? 'DENO_ORPHANED_SECTION_DROPPED' : 'DENO_ORPHANED_SECTION_IGNORED',
+    subject: `top-level:${section.path}`,
+    severity,
+    message: `deno adapter: ${section.path} holds ${section.count} `
+      + `entr${section.count === 1 ? 'y' : 'ies'} nested the deno-lockfile-`
+      + `${section.nesting === 'v45' ? 'v4/v5' : section.nesting} way, which a `
+      + `deno-v${declaredVersion} document does not reach, so deno itself never `
+      + `reads it; ${outcome}`,
+    data: {
+      feature: `top-level:${section.path}`,
+      sourceFormat: `deno-v${declaredVersion}`,
+      nesting: section.nesting,
+      count: section.count,
+    },
+  }))
 }
 
 function createParseContext(
@@ -1015,7 +1172,12 @@ function createParseContext(
   return {
     builder: newBuilder(),
     layout,
-    diagnostics: [],
+    diagnostics: orphanedSectionDiagnostics(
+      layout.orphanedSections,
+      layout.declaredVersion,
+      'warning',
+      'it is left out of the graph rather than read as if it were reachable',
+    ),
     edgeKeys: new Set(),
     parsedByNative: new Map(),
     nativeByNode: new Map(),
@@ -1744,7 +1906,9 @@ function sealDenoGraph(context: DenoParseContext, input: string): Graph {
   try {
     const graph = context.builder.seal()
     const sidecar: DenoSidecar = {
-      version: context.layout.version,
+      version: context.layout.declaredVersion,
+      layoutVersion: context.layout.version,
+      orphanedSections: context.layout.orphanedSections,
       originalInput: input,
       document: context.layout.document,
       nativeByNode: context.nativeByNode,

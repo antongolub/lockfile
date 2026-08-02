@@ -27,7 +27,7 @@ import {
   emitSri,
   isEmptyIntegrity,
   isTarballOrigin,
-  urlFragmentSha1,
+  tarballSha1ForUrlFragment,
   type Integrity,
 } from '../recipe/integrity.ts'
 import {
@@ -1341,12 +1341,35 @@ export function projectedCanonicalResolutions(
   return projected
 }
 
+/**
+ * The hashes a MINTED entry's `integrity` line carries, given the `resolved` string the
+ * emitter derived for it. yarn 1 records a tarball sha1 in exactly ONE carrier: when
+ * `resolved` ends in `#<sha1>`, that digest is NOT repeated in the SRI. A minted entry
+ * therefore reads `resolved "…tgz#<sha1>"` + `integrity sha512-…`, which is what yarn
+ * itself writes and what `--frozen-lockfile` accepts; emitting a space-joined
+ * `sha512-… sha1-…` instead would desync the lock and get it rewritten.
+ *
+ * NO checksum is lost: the one digest dropped from the SRI is precisely the one the
+ * fragment we just wrote carries. Entries emitted from the verbatim `nativeResolution`
+ * sidecar never take this path, so a round-tripped lock that really does state the sha1
+ * in both carriers keeps both, byte-identically.
+ */
+function integrityBesideFragment(
+  integrity: Integrity,
+  resolved: string | undefined,
+): Integrity {
+  if (resolved === undefined) return integrity
+  const hashes = integrity.hashes.filter(hash =>
+    !(hash.algorithm === 'sha1' && resolved.endsWith(`#${hash.digest}`)))
+  return hashes.length === integrity.hashes.length ? integrity : { hashes }
+}
+
 /** Integrity after a minted payload is serialized to classic's two carriers and
- * reparsed: SRI-emittable hashes acquire the neutral `sri` provenance. A
- * `url-fragment` sha1 is removed from the projected Integrity only when the
- * emitter actually carries it in `resolved`; otherwise it stays and makes the
- * strict snapshot expose the checksum drop. Unsupported origins stay for the
- * same fail-closed reason. */
+ * reparsed: SRI-emittable hashes acquire the neutral `sri` provenance, and the sha1 the
+ * `resolved` fragment carries is dropped (the emitter does not repeat it in the SRI —
+ * see `integrityBesideFragment`). A sha1 the emitter could NOT carry in `resolved`
+ * stays, so the strict snapshot exposes the checksum drop. Unsupported origins stay for
+ * the same fail-closed reason. */
 export function projectedCanonicalIntegrities(
   graph: Graph,
   options: Pick<YarnClassicStringifyOptions, 'registryFor'> = {},
@@ -1356,20 +1379,13 @@ export function projectedCanonicalIntegrities(
   for (const node of graph.nodes()) {
     const payload = graph.tarballOf(node.id)
     if (payload?.nativeResolution !== undefined || payload?.integrity === undefined) continue
-    const sha1Fragment = urlFragmentSha1(payload.integrity)
     const registryBase = options.registryFor?.(node.name) ?? inferBase(node.name)
     const resolved = deriveResolvedFromCanonical(
       payload.resolution,
       payload.integrity,
       registryBase,
     )
-    const carriesSha1Fragment = sha1Fragment !== undefined
-      && resolved?.includes(`#${sha1Fragment}`) === true
-    const hashes = payload.integrity.hashes
-      .filter(hash => !(carriesSha1Fragment
-        && hash.algorithm === 'sha1'
-        && hash.origin === 'url-fragment'
-        && hash.digest === sha1Fragment))
+    const hashes = integrityBesideFragment(payload.integrity, resolved).hashes
       .map(hash => isTarballOrigin(hash.origin)
         ? { ...hash, origin: 'sri' as const }
         : hash)
@@ -1392,7 +1408,7 @@ export function deriveResolvedFromCanonical(
   // matching yarn 1's convention so a bumped entry stays `--frozen-lockfile`-clean.
   // (Round-tripped nodes take the verbatim `nativeResolution` sidecar; this path is the
   // mint fallback.)
-  const sha1Fragment = integrity !== undefined ? urlFragmentSha1(integrity) : undefined
+  const sha1Fragment = integrity !== undefined ? tarballSha1ForUrlFragment(integrity) : undefined
   const candidate = stringifyForYarnClassic(canon, sha1Fragment !== undefined ? { sha1Fragment } : {})
   // `unknown` canonical returns its raw verbatim — for yarn-berry locators
   // (`<n>@patch:...`, `<n>@npm:<ver>`, etc.) this is NOT a re-parseable
@@ -1477,10 +1493,17 @@ function appendClassicResolutionFields(
   lines: string[],
 ): void {
   const payload = context.graph.tarballOf(node.id)
-  const resolved = formatResolution(payload?.nativeResolution)
+  const native = formatResolution(payload?.nativeResolution)
+  const resolved = native
     ?? deriveResolvedFromCanonical(payload?.resolution, payload?.integrity, context.registryBaseFor(node.name))
   if (resolved !== undefined) lines.push(`  resolved "${escapeQuoted(resolved)}"`)
-  const integrity = payload?.integrity && emitSri(payload.integrity)
+  // Minted entries only: the sha1 the derived `resolved` fragment carries is not repeated
+  // in the SRI (`integrityBesideFragment`). The verbatim-sidecar path keeps the multiset
+  // exactly as parsed, so round-trips stay byte-identical.
+  const emitted = payload?.integrity !== undefined && native === undefined
+    ? integrityBesideFragment(payload.integrity, resolved)
+    : payload?.integrity
+  const integrity = emitted && emitSri(emitted)
   if (integrity !== undefined && integrity !== '') {
     lines.push(`  integrity ${integrity.includes(' ') ? `"${integrity}"` : integrity}`)
   }

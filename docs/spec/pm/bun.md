@@ -574,6 +574,25 @@ bun-text ↔ yarn-berry-v7, pins the same workspace-rekey, canonical-resolution,
 tarball-payload, preamble, and integrity-origin boundary documented in both
 format specs and [`docs/arch/CONVERT.md`](../../arch/CONVERT.md).
 
+## Producer behaviour measured against bun 1.3.14
+
+- **bun rejects an internally inconsistent lock outright.** If the `workspaces`
+  block names a dependency one way and the `packages` block names it another —
+  for instance after an alias is resolved on one side only — bun neither repairs
+  it nor warns:
+
+  ```
+  error: Failed to resolve root prod dependency '@yarnpkg/cli-dist'
+  InvalidPackageInfo: failed to parse lockfile: 'bun.lock'
+  ```
+
+  There is no partial acceptance: either both blocks agree or the file is unusable.
+
+- **A blank line separates every `packages` entry.** Across 173 scraped locks,
+  166 of the 167 with an observable boundary separate every entry and none is
+  mixed; `configVersion` does not predict the style. The single dense file is not
+  bun output — it carries three-slot entries and no trailing commas.
+
 ## Sources
 
 Authoritative (bun.com/docs + oven-sh blog/source), fetched/searched 2026-06-16;

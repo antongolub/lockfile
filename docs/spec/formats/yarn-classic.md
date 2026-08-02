@@ -118,6 +118,36 @@ this is only how yarn-classic *carries* it.
   as forensic attribution, **not** the integrity multiset (the `url-fragment`
   origin is reserved/unwired — [`_common.md` §3.2](./_common.md#32-origin-tags--the-load-bearing-addition)).
 
+### One sha1, one carrier (minted entries)
+
+yarn 1 states a tarball sha1 in **exactly one** place per entry. A minted
+entry — one with no verbatim `nativeResolution` sidecar, i.e. synthesised from
+registry metadata or converted from another family — therefore emits:
+
+```
+  resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz#<sha1>"
+  integrity sha512-…
+```
+
+The sha1 goes in the `resolved` fragment; the SRI line carries the remaining
+members. Repeating it as `integrity "sha512-… sha1-…"` would emit a
+space-joined shape yarn never writes for a registry dependency, desyncing the
+lock so `--frozen-lockfile` rewrites it.
+
+This is an **emitter** rule, not an origin rule. Any tarball-origin sha1 is a
+correct fragment value — `dist.shasum` (`registry`), a `sha1-` member of a
+source lock's SRI (`sri`), or a recomputed digest — because the fragment is a
+rendering slot, not a provenance claim
+([`_common.md` §3.2](./_common.md#32-origin-tags--the-load-bearing-addition)).
+No checksum is lost: the digest omitted from the SRI is precisely the one the
+fragment carries, and `projectedCanonicalIntegrities` models the same
+subtraction so the strict projection agrees with what is actually written.
+
+Entries emitted from the verbatim `nativeResolution` sidecar never take this
+path, so a round-tripped lock that genuinely states the sha1 in **both**
+carriers keeps both, byte-identically. When the fragment could *not* be
+written, the sha1 stays in the SRI — a drop is surfaced, never silent.
+
 ## Conversion inputs
 
 Workspaces are not encoded in the lockfile. Without `manifests`, only the
