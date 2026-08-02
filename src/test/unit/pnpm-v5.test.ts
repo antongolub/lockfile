@@ -210,7 +210,7 @@ describe('pnpm-v5 — schema deltas (decimal version / slash-separator / undersc
     expect(drift).toBeDefined()
   })
 
-  it('right-to-left peel grammar handles multi-peer chains', () => {
+  it('peer tail grammar handles a `+`-joined multi-peer chain', () => {
     const synthetic = [
       'lockfileVersion: 5.4',
       '',
@@ -218,7 +218,7 @@ describe('pnpm-v5 — schema deltas (decimal version / slash-separator / undersc
       '  host: 1.0.0',
       '',
       'dependencies:',
-      '  host: 1.0.0_react@18.0.0_redux@4.2.0',
+      '  host: 1.0.0_react@18.0.0+redux@4.2.0',
       '',
       'packages:',
       '',
@@ -230,7 +230,7 @@ describe('pnpm-v5 — schema deltas (decimal version / slash-separator / undersc
       '    resolution: {integrity: sha512-x}',
       '    dev: false',
       '',
-      '  /host/1.0.0_react@18.0.0_redux@4.2.0:',
+      '  /host/1.0.0_react@18.0.0+redux@4.2.0:',
       '    resolution: {integrity: sha512-h}',
       '    peerDependencies:',
       '      react: ^18.0.0',
@@ -447,7 +447,7 @@ describe('pnpm-v5 — canonical NodeId multi-peer encoding (v5-specific undersco
     expect(text).toContain('/react-dom/18.2.0_react@18.2.0:')
   })
 
-  it('canonical NodeId multi-peer form `(p1@v1)(p2@v2)` encoded as `_p1@v1_p2@v2` on emit', () => {
+  it('canonical NodeId multi-peer form `(p1@v1)(p2@v2)` encoded as `_p1@v1+p2@v2` on emit', () => {
     const synthetic = [
       'lockfileVersion: 5.4',
       '',
@@ -455,7 +455,7 @@ describe('pnpm-v5 — canonical NodeId multi-peer encoding (v5-specific undersco
       '  host: 1.0.0',
       '',
       'dependencies:',
-      '  host: 1.0.0_react@18.0.0_redux@4.2.0',
+      '  host: 1.0.0_react@18.0.0+redux@4.2.0',
       '',
       'packages:',
       '',
@@ -467,7 +467,7 @@ describe('pnpm-v5 — canonical NodeId multi-peer encoding (v5-specific undersco
       '    resolution: {integrity: sha512-x}',
       '    dev: false',
       '',
-      '  /host/1.0.0_react@18.0.0_redux@4.2.0:',
+      '  /host/1.0.0_react@18.0.0+redux@4.2.0:',
       '    resolution: {integrity: sha512-h}',
       '    peerDependencies:',
       '      react: ^18.0.0',
@@ -479,7 +479,7 @@ describe('pnpm-v5 — canonical NodeId multi-peer encoding (v5-specific undersco
     const host = original.getNode('host@1.0.0(react@18.0.0)(redux@4.2.0)')
     expect(host).toBeDefined()
     const emitted = stringify(original)
-    expect(emitted).toContain('/host/1.0.0_react@18.0.0_redux@4.2.0:')
+    expect(emitted).toContain('/host/1.0.0_react@18.0.0+redux@4.2.0:')
     const reparsed = parse(emitted)
     expect(reparsed.getNode('host@1.0.0(react@18.0.0)(redux@4.2.0)')).toBeDefined()
   })
@@ -804,8 +804,8 @@ describe('peelPeerTail', () => {
     expect(peelPeerTail('_react@18.0.0')).toBeUndefined()
   })
 
-  it('peels multiple underscore peer segments right-to-left, keeping canonical order', () => {
-    const peeled = peelPeerTail('1.0.0_react@18.0.0_redux@4.2.0')
+  it('splits a `+`-joined peer chain, keeping canonical order', () => {
+    const peeled = peelPeerTail('1.0.0_react@18.0.0+redux@4.2.0')
     expect(peeled).toEqual({
       version: '1.0.0',
       peers: [

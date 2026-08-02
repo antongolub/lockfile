@@ -141,11 +141,16 @@ const TOP_LEVEL_ORDER: readonly string[] = [
 
 const TOP_LEVEL_SECTION_KEYS: readonly string[] = ['importers', 'packages']
 
-// Per ADR-0022 §A.pnpm-v5: right-to-left peel grammar.
-// Anchored at end-of-string; peer-name captures optional leading `@`
-// for scoped peers, optional `/sub` segment for scoped names, then
-// `@<version>` up to the next `_` boundary.
-const PEER_TAIL_RE = /_(@?[^_@]+(?:\/[^_@]+)?)@([^_]+)$/
+// Per ADR-0022 §A.pnpm-v5. The peer tail is `<version>_<peers>`, and `+` is
+// overloaded inside `<peers>`: it joins one peer to the next AND stands in for
+// the `/` of a scoped peer name. Measured over 98 tails in the scraped corpus —
+// `_@babel+core@7.18.13` (scoped, 92 of them) beside `_debug@4.3.4+webpack@5.74.0`
+// (two peers).
+//
+// A single `_` is the version boundary, not a peer separator: the 8 corpus keys
+// carrying more than one `_` are package names such as `@types/babel__core`, and
+// peeling from the right on `_` would split those in half.
+const PEER_TAIL_SEPARATOR = '_'
 
 // ADR-0028 INV-RESOLVE (pnpm v5) — the resolution-graph verifier, mirroring the
 // v6/v9 `assertResolveValid` (`_pnpm-flat-core.ts`) over v5's standalone layout:
@@ -1187,21 +1192,30 @@ function derivePnpmResolutionFromCanonical(
   return result.tarball === undefined && result.directory === undefined ? undefined : result
 }
 
+/** The peer tail exactly as pnpm 6 builds it in `createPeersFolderSuffix`:
+ *  each peer rendered `<name with its first `/` as `+`>@<version>`, the list
+ *  sorted and joined with `+`, and one leading `_` for the whole tail. A tail
+ *  over 32 characters is md5-hashed by the producer, which we cannot reproduce
+ *  from a canonical context — see the hashed-context note in the v5 spec. */
+function peerTailForNode(node: Node): string {
+  if (node.peerContext.length === 0) return ''
+  const rendered = node.peerContext
+    .map(p => p.replace('/', '+'))
+    .sort(cmpStr)
+    .join('+')
+  return `_${rendered}`
+}
+
 function packagesKeyForNode(node: Node): string {
-  // v5: `/<name>/<version>[_<peer>@<v>…]` — slash separator, underscore peers.
-  const tail = node.peerContext.length === 0
-    ? ''
-    : node.peerContext.map(p => `_${p}`).join('')
-  return `/${node.name}/${node.version}${tail}`
+  // v5: `/<name>/<version>[_<peer>@<v>[+<peer>@<v>…]]` — slash name separator,
+  // `+`-joined peer tail.
+  return `/${node.name}/${node.version}${peerTailForNode(node)}`
 }
 
 function nodeIdToDependencyValue(node: Node): string {
   // Importer-side `dependencies.<name>: <value>` rendering: bare version with
-  // underscore peer-context tail. Mirrors the packages-key tail rule.
-  const tail = node.peerContext.length === 0
-    ? ''
-    : node.peerContext.map(p => `_${p}`).join('')
-  return `${node.version}${tail}`
+  // the same peer tail as the packages key.
+  return `${node.version}${peerTailForNode(node)}`
 }
 
 // ADR-0028 INV-RESOLVE — the (slot-key, slot-value) pair for one dependency
@@ -1665,18 +1679,46 @@ function addEdgeTolerant(
  * handles the common scoped-peer shape
  * `@scope/name@version` correctly.
  */
+/** Split a v5 peer tail on its overloaded `+`. A segment opening with `@` and
+ *  carrying no second `@` is a scope, so it takes the following segment as its
+ *  name half; a segment with no `@` at all is semver build metadata belonging to
+ *  the version before it. Everything else starts a new peer. */
+function splitPeerTail(tail: string): PeerEntry[] | undefined {
+  const joined: string[] = []
+  for (const segment of tail.split('+')) {
+    const previous = joined.at(-1)
+    if (previous !== undefined && previous.startsWith('@') && !previous.includes('@', 1)) {
+      joined[joined.length - 1] = `${previous}/${segment}`
+    } else if (previous !== undefined && !segment.includes('@')) {
+      joined[joined.length - 1] = `${previous}+${segment}`
+    } else {
+      joined.push(segment)
+    }
+  }
+  const peers: PeerEntry[] = []
+  for (const entry of joined) {
+    const at = entry.lastIndexOf('@')
+    if (at <= 0) return undefined
+    peers.push({ name: entry.slice(0, at), version: entry.slice(at + 1) })
+  }
+  return peers.length > 0 ? peers : undefined
+}
+
 export function peelPeerTail(input: string): { version: string; peers: PeerEntry[] } | undefined {
   if (input.length === 0) return undefined
-  let rest = input
-  const peers: PeerEntry[] = []
-  while (rest.length > 0) {
-    const m = rest.match(PEER_TAIL_RE)
-    if (m === null) break
-    peers.unshift({ name: m[1]!, version: m[2]! })
-    rest = rest.slice(0, rest.length - m[0]!.length)
-  }
-  if (rest.length === 0) return undefined
-  return { version: rest, peers }
+  const boundary = input.indexOf(PEER_TAIL_SEPARATOR)
+  if (boundary < 0) return { version: input, peers: [] }
+  const version = input.slice(0, boundary)
+  if (version.length === 0) return undefined
+  const tail = input.slice(boundary + 1)
+  // A tail carrying no `@` at all is the producer's md5 of a peer set longer
+  // than 32 characters — opaque, and not reversible into peer entries. Carry it
+  // verbatim inside the version so replay stays byte-exact, exactly as before
+  // this grammar was corrected. Recovering those bindings is a separate item.
+  if (!tail.includes('@')) return { version: input, peers: [] }
+  const peers = splitPeerTail(tail)
+  if (peers === undefined) return undefined
+  return { version, peers }
 }
 
 export function resolveDependencyTarget(
