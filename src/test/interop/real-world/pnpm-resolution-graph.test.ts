@@ -165,14 +165,19 @@ describe('pnpm INV-RESOLVE — clean on the corpus (ADR-0028)', () => {
     const graph = parse('pnpm-v9', lock)
     // A package whose two bare-hex snapshot keys differ only by the hash is now
     // two distinct nodes, each carrying its hash token in peerContext; the bare
-    // collapsed node is gone.
+  // collapsed node is gone. The verified 76f7… preimage additionally exposes
+  // seven workspace peers, but BOTH native digests remain in identity: recovery
+  // joins the opaque discriminator rather than replacing it.
     const builds = Array.from(graph.nodes()).filter(nn => nn.name === '@angular/build' && nn.version === '22.0.0-rc.2')
     expect(builds.length).toBe(2)
     expect(graph.getNode('@angular/build@22.0.0-rc.2')).toBeUndefined()
-    for (const nn of builds) {
-      expect(nn.peerContext.length).toBe(1)
-      expect(nn.peerContext[0]).toMatch(/^[0-9a-f]{16,}$/)
-    }
+    const unmatchedHash = '53b8fd9b7f33abb48dff18614cf85bde'
+    const verifiedHash = '76f7ce8ab1496e5ff1686e35b93237c8'
+    const unmatched = builds.find(nn => nn.peerContext.includes(unmatchedHash))
+    const verified = builds.find(nn => nn.peerContext.includes(verifiedHash))
+    expect(unmatched?.peerContext).toEqual([unmatchedHash])
+    expect(verified?.peerContext).toHaveLength(8)
+    expect(verified?.peerContext).toContain(verifiedHash)
     // Round-trip: emit re-parses with BOTH hash-discriminated instances intact
     // (the opaque token rides through serializeNodeId verbatim).
     const reparsed = parse('pnpm-v9', stringify('pnpm-v9', graph, { strict: false }))

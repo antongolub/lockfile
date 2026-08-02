@@ -1,7 +1,7 @@
 # `pnpm-v9` — pnpm `pnpm-lock.yaml` (lockfileVersion 9)
 
 > Status: stable (adapter + pnpm-flat round-trip suite; packages/snapshots split covered).
-> Updated: 2026-08-01
+> Updated: 2026-08-02
 > Provenance: **Source-only**.
 
 ## Compatibility
@@ -159,9 +159,33 @@ suffix are load-bearing for faithful round-trip:
   abbreviates the whole expanded list into a single bare-hex digest segment —
   e.g. `@angular/build@22.0.0-rc.2(53b8fd9b7f33abb48dff18614cf85bde)`. This is
   **not** a patch hash (patches use the labelled `(patch_hash=<sha256>)` form):
-  it is an OPAQUE, non-edge-bearing peer-context discriminator, kept verbatim in
-  node identity so distinct hashed instances stay distinct. The same
-  `name@version` may appear under several distinct hashes.
+  it is an opaque peer-context discriminator, kept verbatim in node identity so
+  distinct hashed instances stay distinct. The same `name@version` may appear
+  under several distinct hashes.
+
+  A hash is non-edge-bearing by default, but it need not stay wholly opaque when
+  the lock carries one complete, unambiguous producer preimage. Reconstruction
+  takes every resolved own peer named by `packages[name@version].peerDependencies`,
+  adds the uniquely observable external peers named by
+  `snapshots[key].transitivePeerDependencies`, renders linked workspace peers
+  with pnpm's encoded directory locator, sorts the resulting peer depPaths, and
+  joins them with `)(`. If SHA-256 of that body, truncated to 32 lowercase hex
+  characters, equals the native token, workspace peers in that exact set become
+  real `peer` edges. The digest remains in node identity for the registry peers
+  still hidden behind it. A missing input, two observable resolutions for one
+  peer name, or a digest mismatch recovers no edge; no subset is guessed.
+
+  > **Read** · `pnpm 11.3.0` · `createPeerDepGraphHash` in `dist/pnpm.cjs` · sorts
+  > resolved peer depPaths, joins them with `)(`, and, above the configured
+  > suffix-length ceiling, replaces that body with the first 32 lowercase hex
+  > characters of SHA-256. Its caller hashes `allResolvedPeers`: own resolved
+  > peers plus external peer resolutions propagated from children.
+
+  `angular/angular@45e8fb5` contains two hashed `@angular/build@22.0.0-rc.2`
+  instances with seven workspace peers apiece. The `76f7…` token has one complete
+  observable 23-peer preimage and therefore binds its seven workspace edges; the
+  `53b8…` token has no complete observable preimage and keeps all seven declared
+  workspace links as explicit drops.
 - Both collapse classes are guarded by a pnpm-specific resolution verifier:
   every declared dep/dev/optional edge must resolve, through the emitted
   adjacency, back to its target id — a miss surfaces as a soft, pnpm-specific

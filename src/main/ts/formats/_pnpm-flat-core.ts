@@ -598,6 +598,13 @@ interface PnpmParseContext {
   readonly importerPaths: string[]
   readonly seenIds: Set<string>
   readonly idByPackagesKey: Map<string, string>
+  /** Native v9 snapshot key → canonical Graph NodeId. A verified hashed peer
+   *  set adds recovered workspace peers to the Graph identity while retaining
+   *  the native digest token, so the two ids are intentionally not identical. */
+  readonly idBySnapshotKey: Map<string, string>
+  /** Workspace peers whose complete producer input re-hashes to the native
+   *  opaque token. Missing or ambiguous inputs leave no entry (fail closed). */
+  readonly recoveredPeersBySnapshotKey: Map<string, Array<{ name: string; version: string; nested: string; recovered: true }>>
   /** NodeIds whose `packages` entry carries a `resolution: {type: directory}` —
    *  pnpm `file:`-protocol LOCAL packages. Part of the project graph rather than
    *  published artifacts, so the seal admits their edges into workspace members
@@ -632,6 +639,8 @@ function createPnpmParseContext(
     importerPaths: [],
     seenIds: new Set<string>(),
     idByPackagesKey: new Map<string, string>(),
+    idBySnapshotKey: new Map<string, string>(),
+    recoveredPeersBySnapshotKey: new Map<string, Array<{ name: string; version: string; nested: string; recovered: true }>>(),
     directoryNodes: new Set<string>(),
   }
 }
@@ -750,7 +759,18 @@ function addPnpmPackageNodes(context: PnpmParseContext): void {
 }
 
 function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
-  const { yaml, shape, builder, diagnostics, sidecar, patchDirectives, packagesMap, seenIds } = context
+  const {
+    yaml,
+    shape,
+    builder,
+    diagnostics,
+    sidecar,
+    patchDirectives,
+    packagesMap,
+    seenIds,
+    idBySnapshotKey,
+    recoveredPeersBySnapshotKey,
+  } = context
   const snapshotsMap = isPlainObject(yaml.snapshots) ? yaml.snapshots : {}
   for (const snapshotKey of Object.keys(snapshotsMap)) {
     const parsed = parsePackagesOrSnapshotKey(snapshotKey)
@@ -766,13 +786,23 @@ function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
       continue
     }
     const { name, version, peers, opaquePeers } = parsed
-    const peerContext = buildPeerContext(peers, sidecar.importerByPath, opaquePeers)
+    const bareKey = `${name}@${version}`
+    const pkgEntry = packagesMap[bareKey]
+    const snapEntry = snapshotsMap[snapshotKey]
+    const recoveredPeers = recoverHashedWorkspacePeers(
+      snapshotKey,
+      parsed,
+      pkgEntry,
+      snapEntry,
+      sidecar.importerByPath,
+    )
+    if (recoveredPeers.length > 0) recoveredPeersBySnapshotKey.set(snapshotKey, recoveredPeers)
+    const peerContext = buildPeerContext([...peers, ...recoveredPeers], sidecar.importerByPath, opaquePeers)
     const nodeId = serializeNodeId(name, version, peerContext)
+    idBySnapshotKey.set(snapshotKey, nodeId)
     if (seenIds.has(nodeId)) continue
     seenIds.add(nodeId)
 
-    const bareKey = `${name}@${version}`
-    const pkgEntry = packagesMap[bareKey]
     if (pkgEntry === undefined) {
       diagnostics.push({
         code: `${shape.diagnosticPrefix}_SNAPSHOTS_MISSING`,
@@ -786,12 +816,133 @@ function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
     recordDirectoryResolution(context, nodeId, pkgEntry)
     const nodeSidecar = sidecar.nodes.get(nodeId)
     if (nodeSidecar !== undefined) nodeSidecar.snapshotKey = snapshotKey
-    const snapEntry = snapshotsMap[snapshotKey]
     if (isPlainObject(snapEntry) && Array.isArray(snapEntry.transitivePeerDependencies)) {
       if (nodeSidecar !== undefined) {
         nodeSidecar.transitivePeerDependencies = (snapEntry.transitivePeerDependencies as string[]).slice()
       }
     }
+  }
+}
+
+/**
+ * Recover only workspace peers hidden by a pnpm-v9 hashed peer-set token, and
+ * only when the complete observable producer input deterministically re-hashes
+ * to that token. The digest itself remains in peerContext: recovered workspace
+ * edges are a useful projection, while registry peers not needed by this model
+ * remain represented by the opaque identity discriminator.
+ *
+ * pnpm 11.3.0 `createPeerDepGraphHash` sorts resolved peer depPaths, joins them
+ * with `)(`, then uses the first 32 lowercase hex characters of SHA-256 when
+ * the suffix is hashed. `allResolvedPeers` contains the package's own resolved
+ * peers plus externally resolved names carried by child depPaths. Any missing
+ * or multiply-resolved input makes the reconstruction ambiguous and therefore
+ * returns no peers.
+ */
+function recoverHashedWorkspacePeers(
+  snapshotKey: string,
+  parsed: ParsedPackagesOrSnapshotKey,
+  pkgEntry: unknown,
+  snapEntry: unknown,
+  importerByPath: Map<string, string>,
+): Array<{ name: string; version: string; nested: string; recovered: true }> {
+  if (parsed.peers.length !== 0 || parsed.opaquePeers.length !== 1) return []
+  if (!isPlainObject(pkgEntry) || !isPlainObject(snapEntry)) return []
+  const token = parsed.opaquePeers[0]!
+  if (!/^[a-f0-9]{32}$/.test(token)) return []
+  if (!isPlainObject(pkgEntry.peerDependencies)) return []
+
+  const peerIdsByName = new Map<string, string>()
+  const workspacePeers: Array<{ name: string; version: string; nested: string; recovered: true }> = []
+  for (const peerName of Object.keys(pkgEntry.peerDependencies).sort(cmpStr)) {
+    const values = resolvedSnapshotValues(snapEntry, peerName)
+    if (values.size > 1) return []
+    const rawValue = values.values().next().value as string | undefined
+    if (rawValue === undefined) continue
+    if (rawValue.startsWith('link:')) {
+      const locator = encodeWorkspaceDirectory(rawValue.slice('link:'.length))
+      if (resolveWorkspacePeerId(locator, importerByPath) === undefined) return []
+      peerIdsByName.set(peerName, `${peerName}@${locator}`)
+      workspacePeers.push({ name: peerName, version: locator, nested: '', recovered: true })
+      continue
+    }
+    const peerId = resolvedPeerId(peerName, rawValue)
+    if (peerId === undefined) return []
+    peerIdsByName.set(peerName, peerId)
+  }
+
+  const nestedPeerIds = collectResolvedNestedPeerIds(snapEntry)
+  const transitiveNames = Array.isArray(snapEntry.transitivePeerDependencies)
+    ? snapEntry.transitivePeerDependencies.filter((name): name is string => typeof name === 'string')
+    : []
+  for (const peerName of [...new Set(transitiveNames)].sort(cmpStr)) {
+    if (peerIdsByName.has(peerName)) continue
+    const candidates = nestedPeerIds.get(peerName)
+    if (candidates === undefined || candidates.size === 0) continue
+    if (candidates.size > 1) return []
+    peerIdsByName.set(peerName, candidates.values().next().value!)
+  }
+
+  const body = [...peerIdsByName.values()].sort(cmpStr).join(')(')
+  if (body.length === 0) return []
+  const actual = createHash('sha256').update(body).digest('hex').slice(0, 32)
+  if (actual !== token) return []
+
+  // The key participates in the proof: an unexpected parser split must not
+  // turn a coincidental entry body into authority for a different snapshot.
+  const expectedPrefix = `${parsed.name}@${parsed.version}(`
+  if (!snapshotKey.startsWith(expectedPrefix)) return []
+  return workspacePeers.sort((left, right) => cmpStr(left.name, right.name))
+}
+
+function resolvedSnapshotValues(entry: Record<string, unknown>, name: string): Set<string> {
+  const values = new Set<string>()
+  for (const blockName of ['dependencies', 'optionalDependencies'] as const) {
+    const block = entry[blockName]
+    if (!isPlainObject(block)) continue
+    const value = block[name]
+    if (typeof value === 'string') values.add(value)
+  }
+  return values
+}
+
+function resolvedPeerId(name: string, rawValue: string): string | undefined {
+  const aliased = parsePackagesOrSnapshotKey(rawValue)
+  if (aliased !== undefined) return rawValue
+  return parsePackagesOrSnapshotKey(`${name}@${rawValue}`) === undefined
+    ? undefined
+    : `${name}@${rawValue}`
+}
+
+function collectResolvedNestedPeerIds(entry: Record<string, unknown>): Map<string, Set<string>> {
+  const byName = new Map<string, Set<string>>()
+  for (const blockName of ['dependencies', 'optionalDependencies'] as const) {
+    const block = entry[blockName]
+    if (!isPlainObject(block)) continue
+    for (const [name, value] of Object.entries(block)) {
+      if (typeof value !== 'string' || value.startsWith('link:')) continue
+      const peerId = resolvedPeerId(name, value)
+      if (peerId === undefined) continue
+      const parsed = parsePackagesOrSnapshotKey(peerId)
+      if (parsed !== undefined) collectNestedPeerIds(parsed.peers, byName)
+    }
+  }
+  return byName
+}
+
+function collectNestedPeerIds(
+  peers: ReadonlyArray<{ name: string; version: string; nested: string }>,
+  byName: Map<string, Set<string>>,
+): void {
+  for (const peer of peers) {
+    let ids = byName.get(peer.name)
+    if (ids === undefined) {
+      ids = new Set<string>()
+      byName.set(peer.name, ids)
+    }
+    ids.add(`${peer.name}@${peer.version}${peer.nested}`)
+    if (peer.nested.length === 0) continue
+    const nested = parsePeerSuffix(peer.nested)
+    if (nested !== undefined) collectNestedPeerIds(nested.peers, byName)
   }
 }
 
@@ -958,18 +1109,10 @@ function addPnpmResolvedImporterDependency(
   context: PnpmParseContext,
   dependency: PnpmImporterDependency,
 ): void {
-  const { shape, builder, diagnostics, sidecar, seenIds } = context
+  const { shape, builder, diagnostics, sidecar } = context
   const { importerPath, srcId, kind, depName, specifier, version } = dependency
-  let targetId = resolveSnapshotTarget(seenIds, depName, version, sidecar.importerByPath)
-  let aliasSlot: string | undefined
-  if (targetId === undefined) {
-    const aliasTarget = resolveAliasedSnapshotTarget(seenIds, version, sidecar.importerByPath)
-    if (aliasTarget !== undefined) {
-      targetId = aliasTarget
-      aliasSlot = depName
-    }
-  }
-  if (targetId === undefined) {
+  const target = resolveParsedDependencyTarget(context, depName, version)
+  if (target === undefined) {
     diagnostics.push({
       code: 'PNPM_UNRESOLVED_DEP',
       severity: 'warning',
@@ -987,6 +1130,7 @@ function addPnpmResolvedImporterDependency(
     return
   }
 
+  const { targetId, aliasSlot } = target
   const attrs: { range: string; alias?: string } = { range: specifier ?? version }
   if (aliasSlot !== undefined) attrs.alias = aliasSlot
   if (!addPnpmImporterEdge(builder, { srcId, targetId, kind, attrs })) return
@@ -1027,17 +1171,17 @@ function addPnpmSnapshotTreeEdges(
   context: PnpmParseContext,
   emittedEdges: Map<string, Set<string>>,
 ): void {
-  const { yaml, shape, builder, diagnostics, sidecar, seenIds } = context
+  const { yaml, seenIds, idBySnapshotKey, recoveredPeersBySnapshotKey } = context
   const snapshotsMap = isPlainObject(yaml.snapshots) ? yaml.snapshots : {}
   for (const snapshotKey of Object.keys(snapshotsMap)) {
     const parsed = parsePackagesOrSnapshotKey(snapshotKey)
     if (parsed === undefined) continue
-    const { name, version, peers, opaquePeers } = parsed
-    const peerContext = buildPeerContext(peers, sidecar.importerByPath, opaquePeers)
-    const srcId = serializeNodeId(name, version, peerContext)
+    const srcId = idBySnapshotKey.get(snapshotKey)
+    if (srcId === undefined) continue
     if (!seenIds.has(srcId)) continue
     const snapEntry = snapshotsMap[snapshotKey]
     if (!isPlainObject(snapEntry)) continue
+    const peers = [...parsed.peers, ...(recoveredPeersBySnapshotKey.get(snapshotKey) ?? [])]
     addResolvedTreeEdges(context, emittedEdges, { srcId, entry: snapEntry, peers })
   }
 }
@@ -1166,7 +1310,7 @@ function addPackageNode(
 interface ResolvedTreeEdgeInput {
   readonly srcId: string
   readonly entry: Record<string, unknown>
-  readonly peers: Array<{ name: string; version: string; nested: string }>
+  readonly peers: Array<{ name: string; version: string; nested: string; recovered?: true }>
 }
 
 interface ResolvedDependencyTarget {
@@ -1381,6 +1525,8 @@ function resolveParsedDependencyTarget(
   depName: string,
   rawValue: string,
 ): ResolvedDependencyTarget | undefined {
+  const mappedDirect = context.idBySnapshotKey.get(`${depName}@${rawValue}`)
+  if (mappedDirect !== undefined) return { targetId: mappedDirect, aliasSlot: undefined }
   const direct = resolveSnapshotTarget(
     context.seenIds,
     depName,
@@ -1388,6 +1534,8 @@ function resolveParsedDependencyTarget(
     context.sidecar.importerByPath,
   )
   if (direct !== undefined) return { targetId: direct, aliasSlot: undefined }
+  const mappedAlias = context.idBySnapshotKey.get(rawValue)
+  if (mappedAlias !== undefined) return { targetId: mappedAlias, aliasSlot: depName }
   const alias = resolveAliasedSnapshotTarget(
     context.seenIds,
     rawValue,
@@ -1434,7 +1582,7 @@ function addResolvedPeerEdge(
   context: PnpmParseContext,
   wired: Set<string>,
   srcId: string,
-  peer: { name: string; version: string; nested: string },
+  peer: { name: string; version: string; nested: string; recovered?: true },
 ): void {
   const workspaceId = resolveWorkspacePeerId(peer.version, context.sidecar.importerByPath)
   if (workspaceId !== undefined) {
@@ -1442,7 +1590,8 @@ function addResolvedPeerEdge(
     return
   }
   const fullVersion = peer.version + normalizeNestedSuffix(peer.nested, context.sidecar.importerByPath)
-  const peerNodeId = resolvePeerTargetById(context.seenIds, peer.name, fullVersion)
+  const peerNodeId = context.idBySnapshotKey.get(`${peer.name}@${peer.version}${peer.nested}`)
+    ?? resolvePeerTargetById(context.seenIds, peer.name, fullVersion)
   if (peerNodeId === undefined) {
     context.diagnostics.push({
       code: 'PNPM_UNRESOLVED_DEP',
@@ -1467,16 +1616,21 @@ function addResolvedWorkspacePeerEdge(
   wired: Set<string>,
   srcId: string,
   workspaceId: string,
-  peer: { name: string; version: string; nested: string },
+  peer: { name: string; version: string; nested: string; recovered?: true },
 ): void {
   recordWorkspacePeerAttribution(context, srcId, workspaceId, peer)
   if (!reserveResolvedEdge(wired, 'peer', workspaceId, undefined)) return
+  const attrs = parsedPeerAttrs(context.sidecar, srcId, peer)
+  // The workspace node is directory-named; the peer slot is package-named.
+  // Keep the declared name on the Graph edge as well as in pnpm's sidecar so
+  // callers do not need adapter-private state to recover the relation's label.
+  if (peer.recovered === true) attrs.alias = peer.name
   addParsedResolvedEdge(
     context.builder,
     srcId,
     workspaceId,
     'peer',
-    parsedPeerAttrs(context.sidecar, srcId, peer),
+    attrs,
   )
 }
 
@@ -2068,6 +2222,7 @@ function emitPnpmStringifyResult(context: PnpmStringifyContext): string {
     out,
     rootNode,
     resolvedNodes,
+    sidecar,
     onDiagnostic: emitDiagnostic,
     workspacePeerProjection,
   })
@@ -2110,12 +2265,15 @@ interface ResolveValidationInput {
   readonly out: YamlMap
   readonly rootNode: Node | undefined
   readonly resolvedNodes: readonly Node[]
+  readonly sidecar: PnpmSidecar | undefined
   readonly onDiagnostic: (d: Diagnostic) => void
   readonly workspacePeerProjection: PnpmWorkspacePeerProjection
 }
 
 interface ResolveValidationContext extends ResolveValidationInput {
   readonly seenIds: Set<string>
+  readonly idBySnapshotKey: Map<string, string>
+  readonly snapshotKeyById: Map<string, string>
   readonly importerByPath: Map<string, string>
   readonly importersMap: Record<string, unknown> | undefined
   readonly snapshotsMap: Record<string, unknown> | undefined
@@ -2144,9 +2302,19 @@ function createResolveValidationContext(input: ResolveValidationInput): ResolveV
       importerByPath.set(node.workspacePath, node.id)
     }
   }
+  const idBySnapshotKey = new Map<string, string>()
+  const snapshotKeyById = new Map<string, string>()
+  for (const node of input.resolvedNodes) {
+    const snapshotKey = input.sidecar?.nodes.get(node.id)?.snapshotKey
+      ?? nodeIdToSnapshotKey(node, input.workspacePeerProjection)
+    idBySnapshotKey.set(snapshotKey, node.id)
+    snapshotKeyById.set(node.id, snapshotKey)
+  }
   return {
     ...input,
     seenIds: new Set<string>(input.resolvedNodes.map(node => node.id)),
+    idBySnapshotKey,
+    snapshotKeyById,
     importerByPath,
     importersMap: objectMap(input.out.importers),
     snapshotsMap: objectMap(input.out.snapshots),
@@ -2196,7 +2364,7 @@ function resolvePackageBlock(
   pkg: Node,
 ): Record<string, unknown> | undefined {
   const key = context.shape.hasSnapshots
-    ? nodeIdToSnapshotKey(pkg, context.workspacePeerProjection)
+    ? (context.snapshotKeyById.get(pkg.id) ?? nodeIdToSnapshotKey(pkg, context.workspacePeerProjection))
     : packagesKeyForNode(pkg, context.shape, context.workspacePeerProjection)
   const entry = context.shape.hasSnapshots
     ? context.snapshotsMap?.[key]
@@ -2250,7 +2418,9 @@ function resolveEmittedTarget(
   value: string | undefined,
 ): string | undefined {
   if (value === undefined) return undefined
-  return resolveSnapshotTarget(context.seenIds, seg, value, context.importerByPath)
+  return context.idBySnapshotKey.get(`${seg}@${value}`)
+    ?? context.idBySnapshotKey.get(value)
+    ?? resolveSnapshotTarget(context.seenIds, seg, value, context.importerByPath)
     ?? resolveAliasedSnapshotTarget(context.seenIds, value, context.importerByPath)
 }
 
