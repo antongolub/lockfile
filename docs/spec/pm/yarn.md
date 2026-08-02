@@ -197,9 +197,9 @@ onto the single cached copy ([PnP Spec](https://yarnpkg.com/advanced/pnp-spec)).
 This guarantees the peer-identity contract without duplicating bytes. It is
 also why one `react` in `yarn info` can appear as many
 `@virtual:…#npm:18.2.0` locators — each is a different peer context, not a
-different download. The graph model's peer-context handling cross-refs
-[`docs/spec/decisions/0006-pnpm-style-peer-context.md`](../decisions/0006-pnpm-style-peer-context.md)
-and the yarn-berry completeness ADRs.
+different download. Peer context is what makes two installs of the same
+version distinct instances rather than duplicates — the same idea pnpm encodes
+in its snapshot-key suffix and npm cannot encode at all.
 
 ---
 
@@ -948,8 +948,7 @@ registry [`docs/spec/registry/yarn-mirror.md`](../registry/yarn-mirror.md),
 [`npm.md`](../registry/npm.md), [`_common.md`](../registry/_common.md);
 model [`docs/spec/04-layouts.md`](../04-layouts.md),
 [`docs/spec/05-protocols.md`](../05-protocols.md),
-[`docs/spec/06-modifiers.md`](../06-modifiers.md); peer context
-[`docs/spec/decisions/0006-pnpm-style-peer-context.md`](../decisions/0006-pnpm-style-peer-context.md).
+[`docs/spec/06-modifiers.md`](../06-modifiers.md).
 
 ## Uncertainty / open
 

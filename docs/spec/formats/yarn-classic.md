@@ -581,7 +581,7 @@ edge classification, and artifact bytes are required to mint Berry checksums.
 
 ## Fixtures
 
-See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.
+Per-case locks and whole-project samples, as described in [Evidence](./README.md#evidence). A claim resting on a real-world lock cites it by upstream identity at the point it is made.
 
 ## Open questions
 

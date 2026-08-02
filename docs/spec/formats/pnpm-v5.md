@@ -181,6 +181,16 @@ function createPeersFolderSuffix (peers) {
 | pnpm 6 | 32 | `md5(s)` as lowercase hex | 32 |
 | pnpm 7+ | 26 | `base32(md5(s))`, RFC 4648, padding stripped, lowercased | 26 |
 
+> **Read** · `pnpm 7.33.7` · `createPeersFolderSuffix` in `dist/pnpm.cjs` · hashes
+> the tail when the rendered name exceeds 26 characters, encoding md5 as unpadded
+> lowercase RFC 4648 base32. `pnpm 6.35.1` uses threshold 32 and md5 as hex.
+
+Neither number is derivable from a lockfile: a lock shows a hashed tail or a plain
+one, never the length at which the producer switched. Both come from the shipped
+bundle, which is why this is a `Read` and not a census — and why a claim that pnpm
+hashes *every* peer set, which the two thresholds contradict, survived as long as it
+did.
+
 Note `name.replace('/', '+')` replaces only the **first** `/`, which for
 `@scope/name` is exactly the scope separator.
 

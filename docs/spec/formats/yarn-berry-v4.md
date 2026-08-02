@@ -12,10 +12,9 @@ family and lives in [`_common.md` §1](./_common.md#1-yarn-berry-emit-invariants
 this spec is the family **anchor** and records the v4-specific deltas
 (no `conditions`, bare inner-block dependency ranges, the v4-only
 `cacheKey: 7`, the `<cacheKey>/<hex>` checksum-prefix round-trip) plus
-the patch-slot recipe detail inline. Modify, enrich, and optimize
-reference published [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
-(modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
-(optimize) for their normative rules.
+the patch-slot recipe detail inline. Graph modification, enrichment and orphan collection are library phases
+rather than properties of this file format; they are specified outside this
+document and are not needed to read or write a `yarn-berry-v4` lock.
 
 ## Compatibility
 
@@ -63,7 +62,7 @@ be EITHER a bare sha512 hex OR a `<cacheKey>/<sha512-hex>` prefixed form
 
 Parse / stringify / graph-level mutate roundtrip / enrich / optimize
 implemented against the fixture matrix at
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v4.lock`.
+the per-case `yarn-berry-v4` locks.
 
 ## Conversion inputs
 
@@ -333,7 +332,7 @@ emit deltas layered on top of that contract:
   (the earliest v4 producer) writes `checksum: 2/<sha512-hex>` — the same
   `<cacheKey>/<hex>` shape v8/v9 use (`10c0/…`) — with NO
   `__metadata.cacheKey` line. Later v4 producers (and the synthetic
-  fixtures generated under `src/test/resources/fixtures/lockfiles/`) write
+  the per-case v4 locks) write
   a bare sha512 hex. The library preserves whichever was parsed, per-node;
   see Emit.
 - `conditions` are absent in the current v4 fixtures and unsupported on
@@ -383,7 +382,7 @@ different origins in every direction and are omitted, never relabelled.
 
 ## Fixtures
 
-See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.
+Per-case locks and whole-project samples, as described in [Evidence](./README.md#evidence). A claim resting on a real-world lock cites it by upstream identity at the point it is made.
 
 ## Open questions
 

@@ -151,13 +151,13 @@ rejects until the required evidence is supplied.
 ## Fixtures and oracle
 
 Genuine npm 12.0.1 artifacts live under
-`src/test/resources/fixtures/npm-v4/`: a native patch project and an imperative
+two npm-4 projects: a native patch project and an imperative
 `.npm-extension` project. The simple matrix fixture is a genuine declarative
 `packageExtensions` lock. Unit coverage checks detection, byte identity,
 carrier validation, sentinel behavior, F5 normalization, and fail-closed
 foreign patch emission.
 
-`src/test/infra/npm-v4-native-oracle.test.ts` generates a v4 patch lock with the
+The native oracle generates a v4 patch lock with the
 pinned `pm-npm-12` binary, asserts the native raw SRI, performs an adapter
 byte-identity round-trip, proves a second mutable generation is byte-identical,
 then certifies the result with npm's frozen mode. The oracle skips when the host

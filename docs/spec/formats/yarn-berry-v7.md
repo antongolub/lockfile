@@ -13,10 +13,9 @@ this spec inherits it and records only the v7-specific deltas inline.
 v7 is a hybrid: it carries v6's raw-hex checksum encoding overlaid with
 v8's quoted-protocol inner ranges (see §Schema sketch below). The
 completion phases (modify / enrich / optimize) are read-side-only in
-this preview (Source-only provenance — no producer yet); their
-normative rules reference published [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
-(modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
-(optimize).
+this preview (Source-only provenance — no producer yet); those are library
+phases rather than properties of this file format, specified outside this
+document and not needed to read or write the lock.
 
 ## Compatibility
 
@@ -66,13 +65,13 @@ Hybrid of v6 (checksum encoding) and v8 (inner-range encoding):
 
 Parse / stringify / graph-level mutate roundtrip / enrich / optimize
 implemented against the fixture matrix at
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v7.lock` (synthesised
+the per-case `yarn-berry-v7` locks (synthesised
 by parsing each existing `yarn-berry-v8.lock` and re-emitting through
 the v7 stringifier; the family pipeline guarantees this is a lossless
 graph roundtrip).
 
 Real-world parse coverage at
-`src/test/resources/fixtures/real-world/{qiwi-uniconfig-master-c5e7d5a,qiwi-nestjs-enterprise-master-1a00233}/yarn.lock`.
+`qiwi/uniconfig@c5e7d5a` and `qiwi/nestjs-enterprise@1a00233`.
 
 ## Conversion inputs
 
@@ -156,10 +155,9 @@ than relabelled between tarball SRI and Berry zip checksums.
 
 ## Fixtures
 
-- Synthetic: `src/test/resources/fixtures/lockfiles/*/yarn-berry-v7.lock`
+- Synthetic: the per-case `yarn-berry-v7` locks
   (8 fixtures generated via v8 → v7 lossless roundtrip).
-- Real-world: `src/test/resources/fixtures/real-world/qiwi-uniconfig-master-c5e7d5a/yarn.lock`
-  and `src/test/resources/fixtures/real-world/qiwi-nestjs-enterprise-master-1a00233/yarn.lock`.
+- Real-world: `qiwi/uniconfig@c5e7d5a` and `qiwi/nestjs-enterprise@1a00233`.
 
 ## Open questions
 

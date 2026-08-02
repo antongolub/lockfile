@@ -13,10 +13,9 @@ this spec inherits it and records only the v8-specific deltas
 (cacheKey `10c0`, quoted protocol-bearing inner-block ranges, the
 `<cacheKey>/<hex>` checksum form, the three
 structured-fields round-trip, and the `::locator=` descriptor nuance)
-inline. Modify, enrich, and optimize reference published
-[ADR-0023](../decisions/0023-graph-modification-and-completion.md)
-(modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
-(optimize) for their normative rules.
+inline. Graph modification, enrichment and orphan collection are library phases
+rather than properties of this file format; they are specified outside this
+document and are not needed to read or write a `yarn-berry-v8` lock.
 
 ## Compatibility
 
@@ -97,7 +96,7 @@ Field order is yarn's exact emitter schedule (see
 
 Parse / stringify / graph-level mutate roundtrip / enrich / optimize
 implemented against the fixture matrix at
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v8.lock`.
+the per-case `yarn-berry-v8` locks.
 
 ## Conversion inputs
 
@@ -155,7 +154,7 @@ roundtrip, no CST-grade fidelity, no unmodelled `__metadata`
 resurrection). The acceptance gate
 ([`_common.md` §1.9](./_common.md#19-acceptance-gate)) is evaluated
 against the v8 fixture set
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v8.lock`. The
+the per-case `yarn-berry-v8` locks. The
 v8-specific deltas inherited on top of the shared contract are:
 
 - `__metadata.version` emits the literal `8`.
@@ -317,7 +316,7 @@ relabelled between tarball SRI and Berry zip checksums.
 
 ## Fixtures
 
-See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.
+Per-case locks and whole-project samples, as described in [Evidence](./README.md#evidence). A claim resting on a real-world lock cites it by upstream identity at the point it is made.
 
 ## Open questions
 

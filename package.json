@@ -36,7 +36,8 @@
     "measure": "npm run build:dist && node src/test/baseline/measure.mjs",
     "measure:verify": "npm run build:dist && node src/test/baseline/measure.mjs --deterministic-only --verify-determinism",
     "_prepublishOnly": "npm run build:dist && npm run test:readme",
-    "test:pairs": "node src/test/e2e/pairs.mjs"
+    "test:pairs": "node src/test/e2e/pairs.mjs",
+    "test:spec": "node src/test/e2e/spec-selfcontained.mjs"
   },
   "dependencies": {
     "node-fetch-native": "^1.6.7",

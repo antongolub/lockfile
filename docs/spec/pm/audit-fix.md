@@ -242,7 +242,8 @@ re-reads it as already-satisfied."
 - npm 7+: `@npmcli/arborist` `lib/audit-report.js`, `lib/vuln.js`, `lib/arborist/build-ideal-tree.js`, `lib/arborist/reify.js`, `lib/arborist/index.js`; `npm-pick-manifest/lib/index.js`; npm `lib/commands/audit.js`; `@npmcli/config` force definition. Read from `pm-npm-10` (Arborist 8) + `pm-npm-11` (Arborist 9) — fix path byte-identical bar npm 11 dropping the `/audits/quick` fallback.
 - npm 6: `lib/audit.js`, `lib/install/audit.js`, `lib/install/save.js` (`pm-npm-6`, 6.14.18).
 - pnpm: bundled `dist/pnpm.cjs` `audit/lib/fix.js` + `audit/lib/audit.js` (`pm-pnpm-6` / `-9` / `-10`).
-- yarn: no native fix; yaf implements the range-bump model for `yarn.lock` (classic + berry) only — `yarn-audit-fix` `src/main/ts/{lockfile.ts,stages.ts,cli.ts}`.
+- yarn: no native fix; yaf implements the range-bump model for `yarn.lock` (classic + berry) only — implemented in `antongolub/yarn-audit-fix`, a separate project, in its
+  `lockfile.ts` / `stages.ts` / `cli.ts`.
 - bun: `bun audit` surface — [`docs/spec/pm/bun.md`](./bun.md); no fix command.
 - **Advisory endpoints (§2), verified first-hand from installed source:** npm-10 `advisories/bulk` + `/audits/quick` fallback, npm-11 `advisories/bulk` only (arborist / npm-audit-report); pnpm `${registry}-/npm/v1/security/audits` (`pnpm.cjs`, pnpm 6.35 / 9.15 / 10.0); yarn-classic `${registry}/-/npm/v1/security/audits` (`pm-yarn-1` 1.22.22 `lib/cli.js`); yarn-berry `/-/npm/v1/security/audits/quick` (`pm-yarn-2` 2.4.3 `bin/yarn.js`).
 - Advisory transport (registry side): [`spec/registry/_common.md §8`](../registry/_common.md#8-advisories--audit-api).

@@ -10,10 +10,9 @@ The completeness contract — stringify, modify, enrich, optimize —
 inherits from [yarn-berry-v9](./yarn-berry-v9.md): the shared,
 version-invariant yarn-berry emit contract lives in
 [`_common.md` §1](./_common.md#1-yarn-berry-emit-invariants-version-invariant),
-and the completion phases (modify / enrich / optimize) reference
-published [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
-(modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
-(optimize). This spec records only the read-side capabilities and the
+and the completion phases (modify / enrich / optimize) are library
+behaviour rather than properties of this file format, specified outside
+this document. This spec records only the read-side capabilities and the
 single on-disk delta from v9 (`__metadata.version: 10`). That inheritance
 claim is measured against real v10 lockfiles from `prettier`,
 `facebook/jest`, and `yarnpkg/berry` master, compared with the 1,760-entry

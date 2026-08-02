@@ -11,10 +11,9 @@ and `__metadata.cacheKey` threading — is shared across the yarn-berry
 family and lives in [`_common.md` §1](./_common.md#1-yarn-berry-emit-invariants-version-invariant);
 this spec inherits it and records only the v5-specific deltas inline.
 The completion phases (modify / enrich / optimize) are read-side-only
-in this preview (Source-only provenance — no producer yet); their
-normative rules reference published [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
-(modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
-(optimize).
+in this preview (Source-only provenance — no producer yet); those are library
+phases rather than properties of this file format, specified outside this
+document and not needed to read or write the lock.
 
 ## Compatibility
 
@@ -54,7 +53,7 @@ inner-block dependency ranges and raw sha512-hex `checksum` values (no
 
 Parse / stringify / graph-level mutate roundtrip / enrich / optimize
 implemented against the fixture matrix at
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v5.lock`.
+the per-case `yarn-berry-v5` locks.
 
 ## Conversion inputs
 
@@ -137,7 +136,7 @@ relabelled between tarball SRI and Berry zip checksums.
 
 ## Fixtures
 
-See the test-bench fixtures under [`src/test/resources/fixtures/`](../../../src/test/resources/fixtures) — `lockfiles/<case>/<format>.lock` for canonical per-case locks (`npm run build:fixtures`), `real-world/` for whole-project samples.
+Per-case locks and whole-project samples, as described in [Evidence](./README.md#evidence). A claim resting on a real-world lock cites it by upstream identity at the point it is made.
 
 ## Open questions
 

@@ -285,13 +285,13 @@ v7 preamble, and omits tarball SRI rather than fabricating a Berry checksum.
 
 ## Fixtures
 
-Synthetic matrix under `src/test/resources/fixtures/lockfiles/<case>/bun-text.lock`
+The per-case `bun-text` locks
 (`simple`, `deps-with-scopes`, `peers-basic`, `peers-multi`,
 `workspaces-basic`, `workspace-cross-refs`, `yarn-crlf`). Real-world corpus:
-`src/test/resources/fixtures/real-world/oven-sh-bun-main-*/bun.lock` (carries a
+`oven-sh/bun@main` (carries a
 live `overrides` + `configVersion`) and `honojs-hono-main-*/bun.lock`. The
 `overrides` / `trustedDependencies` / `patchedDependencies` round-trip is
-covered in `src/test/unit/bun-text.test.ts`.
+covered by the adapter's unit suite.
 
 ## Open questions
 

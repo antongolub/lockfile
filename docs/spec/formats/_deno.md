@@ -199,9 +199,9 @@ and deprecation notices have no representation in v2–v4.
 | v4 | Deno 2.2.8 | 247 |
 | v5 | Deno 2.9.4 | 773 |
 
-Counts are from the measured corpus of 3577 versioned strict-JSON lockfiles
-taken from repositories outside `denoland/deno`; Deno's own conformance fixtures
-are excluded because they contain assertion placeholders rather than real values.
+Counts are over the **versioned strict-JSON** population (3577 files) — see
+[the three populations](#the-three-populations). Deno's own conformance fixtures
+are excluded there because they carry assertion placeholders, not real values.
 The distribution matters for tooling: **no generation is vestigial.** v2 and v3
 together are seven files in ten — Deno does not rewrite a lockfile merely to
 raise its version, so old files persist in repositories indefinitely — and v4,
@@ -278,6 +278,9 @@ One corpus lock carries **357** native ids mentioning `client-sts` for a single
 pair of mutually peer-dependent packages. The canonical NodeId keys the peer
 context by resolved base `name@version`, which is depth-insensitive, so every
 unrolling of one base projects onto one node.
+
+> **Census** · **scraped** population (3678 files) · counted over every scraped
+> lock, including the `denoland` upstream fixtures the other two populations drop.
 
 Measured over all 3678 scraped locks: 167 locks contain a base with more than one
 unrolling, 513 base groups have more than one native id, and in **513 of 513**
@@ -477,8 +480,19 @@ hiding them behind one schema-ambiguous declaration.
 
 ## Corpus and tests
 
-The measured corpus contains **3581 real lockfiles** scraped from public
-repositories, spanning all four generations. **3571 of them replay
+### The three populations
+
+Counts in this file are taken from three **nested** sets, not one corpus. Every
+census elsewhere in the document names which one it used; if a number here looks
+like it disagrees with another, check the population before the number.
+
+| Population | Files | What it is |
+| --- | --: | --- |
+| scraped | 3678 | everything pulled from public repositories |
+| real | 3581 | scraped, minus `denoland` upstream fixtures — those carry deliberate `[WILDCARD]` placeholders and tamper cases rather than real values |
+| versioned strict-JSON | 3577 | real, minus 3 merge-conflicted files that are not strict JSON and 1 pre-v2 flat URL-to-hash map with no `version` key |
+
+The **real** population contains **3581 lockfiles** spanning all four generations. **3571 of them replay
 byte-identically.** Three are merge-conflicted and therefore not strict JSON, one
 is the pre-v2 flat URL-to-hash map with no `version` key, and 6 are refused on
 parse. The gate asserts this as a property rather than a file count — the corpus

@@ -14,9 +14,8 @@ this spec inherits it and records only the v9-specific deltas
 `::locator=` descriptor nuance, the v9 schema-version handshake)
 inline. Modify, enrich, and optimize are read-side-only in this
 preview (Source-only provenance — no producer yet); the completion
-phases reference published [ADR-0023](../decisions/0023-graph-modification-and-completion.md)
-(modify / enrich) and [ADR-0024](../decisions/0024-optimize-phase.md)
-(optimize) for their normative rules.
+phases are library behaviour rather than properties of this file format, and
+are specified outside this document.
 
 ## Compatibility
 
@@ -82,15 +81,14 @@ version-invariant yarn-berry emit contract in
 
 The acceptance gate ([`_common.md` §1.9](./_common.md#19-acceptance-gate))
 is evaluated against the v9 fixture set
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v9.lock`. The
+the per-case `yarn-berry-v9` locks. The
 v9-specific emit deltas inherited on top of the shared contract are the
 cacheKey `10c0` form (`<cacheKey>/<hex>` checksums, see [Quirks](#quirks)),
 the three structured-fields round-trip, and the `::locator=` descriptor
 nuance — all detailed under [Quirks](#quirks) below.
 
 Subsequent phases — modify, enrich, optimize — are read-side-only in
-this preview. Their normative rules live in published
-[ADR-0023](../decisions/0023-graph-modification-and-completion.md)
+this preview. Their normative rules are library behaviour, specified outside this document
 (modification / tree completion / enrich) and
 [ADR-0024](../decisions/0024-optimize-phase.md) (optimize: orphan GC).
 

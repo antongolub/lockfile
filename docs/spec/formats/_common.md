@@ -86,9 +86,8 @@ satisfying the range** from the registry — rather than reuse an older-but-
 satisfying version already present in the graph (which the manager would
 overwrite). Already-resolved descriptors stay pinned (the manager keeps them);
 only newly-introduced descriptors are re-resolved. See the completion
-`resolution` strategy (`'highest'` vs `'prefer-existing'`,
-[`complete/tree-complete.ts`](../../../src/main/ts/complete/tree-complete.ts)):
-the frozen-acceptance invariant requires the manager-faithful strategy.
+`resolution` strategy (`'highest'` vs `'prefer-existing'`): the frozen-acceptance
+invariant requires the manager-faithful strategy.
 
 ### 1.2 Canonical preamble
 
@@ -284,7 +283,7 @@ and a parse → stringify → parse round-trip is byte-faithful (#112).
 yarn-berry SYML writer (`yarnpkg-parsers/sources/syml.ts`,
 `simpleStringPattern`) and validated byte-for-byte against the full
 fixture corpus (every distinct dependency / peerDependency / bin value
-under `src/test/resources/fixtures/**`, 1958 bare + 4613 quoted distinct
+across the fixture corpus, 1958 bare + 4613 quoted distinct
 values, **zero mismatches**). If a future yarn patch diverges, the
 yarn-berry adapter absorbs the divergence (see
 [§1.9](#19-acceptance-gate)).
@@ -621,7 +620,7 @@ writing one anyway is the rewrite above. We record the gap and do not work aroun
 ### 1.9 Acceptance gate
 
 For every fixture under
-`src/test/resources/fixtures/lockfiles/*/yarn-berry-v<N>.lock`:
+the per-case `yarn-berry-v<N>` locks:
 
 1. `parse(stringify(parse(x))).diff(parse(x))` is structurally empty.
 2. `parse(stringify(parse(x))).tarballs()` is iteration-equal to
@@ -726,11 +725,10 @@ recipe.)
 > integrity model: what a hash is, which algorithms exist, what each origin
 > is a hash *of* and how to verify it, the multi-hash case, and the
 > equivalence rule. It is the single source of truth that every per-PM
-> format spec defers to (each PM's "Integrity" subsection points here), and
-> it mirrors the implementation in
-> [`recipe/integrity.ts`](../../../src/main/ts/recipe/integrity.ts) (ADR-0031,
-> amending ADR-0014 §4.F1). Where this prose and that module disagree, the
-> module wins — report the drift.
+> format spec defers to (each PM's "Integrity" subsection points here). It
+> records the model settled by ADR-0031, amending ADR-0014 §4.F1. Where this
+> prose and any implementation disagree, **this prose wins** and the
+> implementation has a defect — report the drift.
 
 **What integrity is.** A package's integrity is *one or more content hashes
 that certify the bytes of the package artefact* (its tarball, or — for
@@ -767,8 +765,7 @@ The model recognises the four [Subresource Integrity](https://www.w3.org/TR/SRI/
 | `sha256` | 32 | 64 | SRI-supported (rare in lockfiles) |
 | `sha1` | 20 | 40 | **legacy** — older npm `integrity`, member of a space-joined yarn-classic SRI, yarn-classic `resolved#<40hex>` URL fragment |
 
-The byte lengths are the validation table `SRI_ALGO_BYTES` in
-[`integrity.ts`](../../../src/main/ts/recipe/integrity.ts). An SRI member whose
+The byte lengths in the table above are the validation table. An SRI member whose
 base64 decodes to the wrong byte length for a **known** algorithm is dropped
 as malformed; an **unknown** algorithm is kept forward-compatibly only above
 a 16-byte plausibility floor (so a typo'd token like `foo-AAAA`, 3 bytes,
@@ -1029,10 +1026,8 @@ To verify a package against a carrier:
    **not** reproduce it. To verify it you must reproduce yarn's zip transform
    and hash the resulting cache entry. This is why a `berry-zip` digest is
    never substituted into, or compared against, a tarball SRI
-   ([§3.3](#33-the-berry-zip--tarball-sri-boundary)). That reproduction is
-   implemented in
-   [`recipe/berry-checksum.ts`](../../../src/main/ts/recipe/berry-checksum.ts)
-   `computeBerryChecksum`: gunzip the tarball, re-pack it under
+   ([§3.3](#33-the-berry-zip--tarball-sri-boundary)). That reproduction is:
+   gunzip the tarball, re-pack it under
    `node_modules/<ident>/` with yarn's libzip conventions (era `mtime`, normalised
    mode, fixed version/order), then sha512 the zip — byte-exact vs yarn's own
    output for STORE (any era) and `mixed` (DEFLATE-iff-smaller) at cacheKey 7/8/9

@@ -35,9 +35,8 @@ than graph-*equivalence-up-to-target*.
 > `0.0.0-snapshot.*`, has **no external readers or writers** (only this library
 > produces or consumes it), and **declares no compatibility contract**. There is
 > therefore no envelope/schema-major bump and no breaking-change ceremony — the
-> body is reworked **in place**. The spec and the implementation
-> (`src/main/ts/formats/lockgraph.ts`) are aligned; this document is normative
-> for both.
+> body is reworked **in place**. This document is normative: an implementation
+> that disagrees with it is wrong, ours included.
 
 ## Defining property — graph identity
 
