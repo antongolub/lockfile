@@ -291,7 +291,12 @@ emit deltas layered on top of that contract:
   a bare numeric literal (`cacheKey: 7` empirically — note the v4-only
   value differs from v5/v6's `8`) — pre-v8 form, no string quoting.
 - Inner `dependencies` / `optionalDependencies` emit the bare form
-  (for example `lodash: 4.17.21`), not v8/v9's quoted protocol.
+  (for example `lodash: 4.17.21`), not v8/v9's quoted protocol. An unmodified
+  source-authored explicit plain range (`lodash: "npm:4.17.21"`) replays with
+  that exact prefix; mint, mutation/rebind, and cross-generation output remain
+  bare. A structural self-alias (`lodash: "npm:lodash@4.17.21"`) always retains
+  `npm:<target>@`, because that prefix carries target identity rather than
+  source-only default-protocol spelling.
 - `checksum` values ROUND-TRIP whatever was parsed (a `berry-zip`-origin
   hash under the shared integrity model,
   [`_common.md` §3](./_common.md#3-integrity-model); berry↔berry is a pure
@@ -328,6 +333,17 @@ emit deltas layered on top of that contract:
   permits interior spaces and `||` in the body, so only a leading `>` or a
   `:` (the v8/v9 `npm:` protocol prefix) forces the quotes. Per-peer
   `peerDependencies` ranges follow the same rule (`react: ^16 || ^17` bare).
+- **Source-authored explicit plain `npm:` is preserved.** The measured v4
+  corpus contains 43 such values across three locks: the exact Yarn rc.18 and
+  rc.19 locks each carry one and require it for unchanged replay, while one
+  unattributed later lock carries 41. Canonical rc.28 rejects an injected
+  explicit prefix for a bare source and normalises it away on write; rc.28,
+  rc.29, and rc.31 also lack `__metadata.cacheKey`, so lock bytes provide no
+  generation discriminator. These producer requirements **cannot both be
+  satisfied by a single unconditional spelling rule**. The adapter deliberately
+  preserves source spelling for unchanged v4 replay and emits bare for mint,
+  mutation/rebind, or conversion. This is the source-presence sidecar boundary
+  in [`_common.md` §4.4](./_common.md#44-graph), not an always-prefix rule.
 - `checksum` cacheKey prefix: BOTH shapes occur in the wild. yarn-2.0
   (the earliest v4 producer) writes `checksum: 2/<sha512-hex>` — the same
   `<cacheKey>/<hex>` shape v8/v9 use (`10c0/…`) — with NO

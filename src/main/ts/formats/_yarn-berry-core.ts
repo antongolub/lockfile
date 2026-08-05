@@ -205,6 +205,13 @@ export interface YarnBerryFamilySidecar {
   // the same lock generation. A cross-generation conversion follows the target
   // generation's canonical prefix policy.
   bareChecksums?: Map<string, number>
+  // Source-authored `npm:<range>` spelling for a PLAIN registry declaration in
+  // bare-emitting Berry generations. The canonical edge keeps the equivalent
+  // bare range; this edge-keyed carrier exists only to replay the original
+  // generation byte-faithfully. It is deliberately cleared by public mutation
+  // and rebind, and the stored lockfile version prevents cross-generation
+  // projection from inheriting source-only spelling.
+  explicitNpmRanges?: Map<string, number>
   metadata?: SymlMap
   unknownMetadataKeys?: readonly string[]
 }
@@ -289,6 +296,7 @@ interface YarnBerryParseContext {
   readonly rawUnresolvedDeps: Map<string, UnresolvedDepRef[]>
   readonly rawEntryKeyDescriptors: Map<string, string[]>
   readonly rawBareChecksums: Map<string, number>
+  readonly rawExplicitNpmRanges: Map<string, number>
   readonly entries: YarnBerryParseEntry[]
   readonly specIndex: Map<string, string>
   readonly patchDescriptorIndex: Map<string, PatchDescriptorCandidate[]>
@@ -379,6 +387,9 @@ interface EdgeLadderContext {
 
 interface EdgeResolutionContext {
   depName: string
+  sourceRange: string
+  sourceLockfileVersion: number
+  explicitNpmRanges: Map<string, number>
   normalizedRange: string
   lookup: string
   srcId: string
@@ -457,7 +468,7 @@ export function rebindAdapterState(
   const sourceSidecar = sidecarByGraph.get(source)
   if (sourceSidecar === undefined) return { graph: target, invalidated: [] }
   const targetSidecar = sidecarByGraph.get(target)
-  const pruned = pruneSidecar(targetSidecar ?? sourceSidecar, target)
+  const pruned = withoutExplicitNpmRanges(pruneSidecar(targetSidecar ?? sourceSidecar, target))
   const sourceSubjects = new Set([
     ...(sourceSidecar.peerDependencies?.keys() ?? []),
     ...(sourceSidecar.conditions?.keys() ?? []),
@@ -971,6 +982,7 @@ function createYarnBerryParseContext(
     rawUnresolvedDeps: new Map<string, UnresolvedDepRef[]>(),
     rawEntryKeyDescriptors: new Map<string, string[]>(),
     rawBareChecksums: new Map<string, number>(),
+    rawExplicitNpmRanges: new Map<string, number>(),
     entries: [],
     specIndex: new Map<string, string>(),
     patchDescriptorIndex: new Map<string, PatchDescriptorCandidate[]>(),
@@ -1264,6 +1276,8 @@ function addYarnBerryEntryEdges(
     ladder,
     srcResolution,
     context.rawUnresolvedDeps,
+    context.rawExplicitNpmRanges,
+    context.config.lockfileVersion,
   )
   add(regular, 'dep')
   add(optional, 'optional')
@@ -1289,6 +1303,7 @@ function createYarnBerrySidecar(context: YarnBerryParseContext): YarnBerryFamily
   if (context.rawUnresolvedDeps.size > 0) sidecar.unresolvedDeps = context.rawUnresolvedDeps
   if (context.rawEntryKeyDescriptors.size > 0) sidecar.entryKeyDescriptors = context.rawEntryKeyDescriptors
   if (context.rawBareChecksums.size > 0) sidecar.bareChecksums = context.rawBareChecksums
+  if (context.rawExplicitNpmRanges.size > 0) sidecar.explicitNpmRanges = context.rawExplicitNpmRanges
   if (context.metadata !== undefined) sidecar.metadata = context.metadata
   if (context.metadata !== undefined) {
     const unknownMetadataKeys = Object.keys(context.metadata)
@@ -1376,7 +1391,7 @@ function mutateWithSidecar(
 
   const nextNodes = identityPreservingRenames(result)
   const remapped = remapSidecar(sidecar, nextNodes, result.graph)
-  const effective = effectiveMutationSidecar(sidecar, remapped)
+  const effective = withoutExplicitNpmRanges(effectiveMutationSidecar(sidecar, remapped))
   const maintained = maintainEntryKeyDescriptors(effective, result.applied, graph, result.graph)
   rememberSidecar(result.graph, maintained)
   return { ...result, graph: withSidecarPropagation(result.graph, maintained) }
@@ -1409,6 +1424,12 @@ function effectiveMutationSidecar(
           : { unknownMetadataKeys: source.unknownMetadataKeys }),
       }
     : remapped
+}
+
+function withoutExplicitNpmRanges(sidecar: YarnBerryFamilySidecar): YarnBerryFamilySidecar {
+  if (sidecar.explicitNpmRanges === undefined) return sidecar
+  const { explicitNpmRanges: _explicitNpmRanges, ...rest } = sidecar
+  return rest
 }
 
 function parseEntryKey(key: string): SpecPart[] {
@@ -1845,17 +1866,52 @@ function addResolvedBerryEdge(
   // Preserve the dependency-block key as an alias when it differs from the
   // resolved target's package name.
   const aliased = context.depName !== nameOf(dstId)
+  const structuralNpmAlias = npmAliasTargetOfRange(context.normalizedRange) !== undefined
   // `npm:` is Berry's spelling of the default registry protocol, not a
   // target-neutral graph fact. Completion already stores the equivalent bare
   // manifest range; parse must land the same canonical value regardless of
   // provenance. Lookup above still uses the prefixed descriptor, while emit
   // reconstructs the generation-specific spelling at its adapter boundary.
-  const range = !aliased && context.normalizedRange.startsWith('npm:')
+  // An npm SELF-alias is different: `npm:<target>@<range>` carries structural
+  // target identity even when `<target>` equals the declaration key, so it
+  // remains canonical rather than being shortened as a plain registry range.
+  const range = !aliased && !structuralNpmAlias && context.normalizedRange.startsWith('npm:')
     ? context.normalizedRange.slice('npm:'.length)
     : context.normalizedRange
   const attrs: { range: string; alias?: string } = { range }
   if (aliased) attrs.alias = context.depName
   builder.addEdge(context.srcId, dstId, kind, attrs)
+
+  if (
+    context.sourceRange.startsWith('npm:')
+    && npmAliasTargetOfRange(context.sourceRange) === undefined
+  ) {
+    context.explicitNpmRanges.set(
+      declarationProtocolKey(context.srcId, dstId, kind, context.depName),
+      context.sourceLockfileVersion,
+    )
+  }
+}
+
+function npmAliasTargetOfRange(range: string): string | undefined {
+  if (!range.startsWith('npm:')) return undefined
+  const body = range.slice('npm:'.length)
+  if (body.startsWith('@')) {
+    const slash = body.indexOf('/')
+    const separator = body.indexOf('@', slash + 1)
+    return slash > 1 && separator > slash + 1 ? body.slice(0, separator) : undefined
+  }
+  const separator = body.indexOf('@')
+  return separator > 0 ? body.slice(0, separator) : undefined
+}
+
+function declarationProtocolKey(
+  src: string,
+  dst: string,
+  kind: EdgeKind,
+  name: string,
+): string {
+  return `${src}\u0000${dst}\u0000${kind}\u0000${name}`
 }
 
 function isOptionalDepFlag(meta: SymlMap, name: string): boolean {
@@ -1878,6 +1934,8 @@ function addEdgesFromBlock(
   // lock. Appended to (keyed by srcId) so emit can re-emit them verbatim into the
   // matching inner-block; omitted (undefined) on paths that don't preserve.
   unresolvedDeps?: Map<string, UnresolvedDepRef[]>,
+  explicitNpmRanges: Map<string, number> = new Map(),
+  sourceLockfileVersion: number = 0,
 ): void {
   if (!block) return
   for (const [depName, depRange] of Object.entries(block)) {
@@ -1897,6 +1955,9 @@ function addEdgesFromBlock(
     // so a more-specific structural match wins over the override/semver rungs.
     const resolutionContext: EdgeResolutionContext = {
       depName,
+      sourceRange: depRange,
+      sourceLockfileVersion,
+      explicitNpmRanges,
       normalizedRange,
       lookup,
       srcId,
@@ -2814,7 +2875,14 @@ function dependencyBlockEntry(
   }
   const aliased = edge.attrs?.alias !== undefined
   const name = edge.attrs?.alias ?? dst.name
-  return { name, range: emittedRangeOfEdge(edge.kind, range, config, aliased), dst: edge.dst }
+  const preserveExplicitNpm = sidecarByGraph.get(graph)?.explicitNpmRanges?.get(
+    declarationProtocolKey(source.id, edge.dst, edge.kind, name),
+  ) === config.lockfileVersion
+  return {
+    name,
+    range: emittedRangeOfEdge(edge.kind, range, config, aliased, preserveExplicitNpm),
+    dst: edge.dst,
+  }
 }
 
 function recordDependencyTarget(
@@ -2861,12 +2929,18 @@ function withUnresolvedDepRefs(
   return sorted
 }
 
-function emittedRangeOfEdge(kind: EdgeKind, range: string, config: YarnBerryFamilyConfig, aliased: boolean = false): string {
+function emittedRangeOfEdge(
+  kind: EdgeKind,
+  range: string,
+  config: YarnBerryFamilyConfig,
+  aliased: boolean = false,
+  preserveExplicitNpm: boolean = false,
+): string {
   if (kind === 'peer') return range
   // Aliased edges encode `npm:<target>@<range>` as their range value —
   // the npm: prefix is structural (it carries the alias-target name), not
   // a bare-form decoration, so the bare-emit shortener does NOT strip it.
-  if (aliased) return range
+  if (aliased || npmAliasTargetOfRange(range) !== undefined) return range
   // Synthesise the default `npm:` protocol for a bare semver range. A parsed
   // edge keeps its `npm:` verbatim, but a freshly-added edge (completion /
   // replaceVersion-refresh) carries the packument's BARE range; emitted bare,
@@ -2875,6 +2949,7 @@ function emittedRangeOfEdge(kind: EdgeKind, range: string, config: YarnBerryFami
   // a prefix-less semver — explicit protocols / GitHub shorthands stay verbatim,
   // and an already-`npm:` range is identity, so round-trip byte-fidelity holds.
   if (config.rangeEmit !== 'bare') return entryKeyRangeOf(range)
+  if (preserveExplicitNpm) return range.startsWith('npm:') ? range : `npm:${range}`
   return range.startsWith('npm:') ? range.slice('npm:'.length) : range
 }
 
@@ -3465,6 +3540,7 @@ function pruneSidecar(sidecar: YarnBerryFamilySidecar, nextGraph: Graph): YarnBe
   const unresolvedDeps = retainLiveNodeMap(sidecar.unresolvedDeps, nextGraph)
   const entryKeyDescriptors = retainLiveNodeMap(sidecar.entryKeyDescriptors, nextGraph)
   const bareChecksums = retainLiveNodeMap(sidecar.bareChecksums, nextGraph)
+  const explicitNpmRanges = retainLiveExplicitNpmRanges(sidecar.explicitNpmRanges, nextGraph)
   if (peerDependencies !== undefined) pruned.peerDependencies = peerDependencies
   if (conditions !== undefined) pruned.conditions = conditions
   if (dependenciesMeta !== undefined) pruned.dependenciesMeta = dependenciesMeta
@@ -3472,6 +3548,7 @@ function pruneSidecar(sidecar: YarnBerryFamilySidecar, nextGraph: Graph): YarnBe
   if (unresolvedDeps !== undefined) pruned.unresolvedDeps = unresolvedDeps
   if (entryKeyDescriptors !== undefined) pruned.entryKeyDescriptors = entryKeyDescriptors
   if (bareChecksums !== undefined) pruned.bareChecksums = bareChecksums
+  if (explicitNpmRanges !== undefined) pruned.explicitNpmRanges = explicitNpmRanges
   if (sidecar.metadata !== undefined) pruned.metadata = sidecar.metadata
   if (sidecar.unknownMetadataKeys !== undefined) {
     pruned.unknownMetadataKeys = sidecar.unknownMetadataKeys
@@ -3761,6 +3838,7 @@ function remapSidecar(
   const unresolvedDeps = rekeyLiveNodeMap(sidecar.unresolvedDeps, nextNodes, nextGraph)
   const entryKeyDescriptors = rekeyLiveNodeMap(sidecar.entryKeyDescriptors, nextNodes, nextGraph)
   const bareChecksums = rekeyLiveNodeMap(sidecar.bareChecksums, nextNodes, nextGraph)
+  const explicitNpmRanges = rekeyExplicitNpmRanges(sidecar.explicitNpmRanges, nextNodes, nextGraph)
   if (peerDependencies !== undefined) remapped.peerDependencies = peerDependencies
   if (conditions !== undefined) remapped.conditions = conditions
   if (dependenciesMeta !== undefined) remapped.dependenciesMeta = dependenciesMeta
@@ -3768,6 +3846,7 @@ function remapSidecar(
   if (unresolvedDeps !== undefined) remapped.unresolvedDeps = unresolvedDeps
   if (entryKeyDescriptors !== undefined) remapped.entryKeyDescriptors = entryKeyDescriptors
   if (bareChecksums !== undefined) remapped.bareChecksums = bareChecksums
+  if (explicitNpmRanges !== undefined) remapped.explicitNpmRanges = explicitNpmRanges
   if (sidecar.metadata !== undefined) remapped.metadata = sidecar.metadata
   if (sidecar.unknownMetadataKeys !== undefined) {
     remapped.unknownMetadataKeys = sidecar.unknownMetadataKeys
@@ -3807,6 +3886,62 @@ function retainLiveNodeMap<V>(
   return next.size === 0 ? undefined : next
 }
 
+function splitDeclarationProtocolKey(
+  key: string,
+): readonly [src: string, dst: string, kind: EdgeKind, name: string] | undefined {
+  const parts = key.split('\u0000')
+  if (parts.length !== 4) return undefined
+  const [src, dst, kind, name] = parts
+  if (
+    src === undefined
+    || dst === undefined
+    || name === undefined
+    || !['dep', 'dev', 'optional', 'peer', 'bundled'].includes(kind ?? '')
+  ) return undefined
+  return [src, dst, kind as EdgeKind, name]
+}
+
+function retainLiveExplicitNpmRanges(
+  source: Map<string, number> | undefined,
+  graph: Graph,
+): Map<string, number> | undefined {
+  if (source === undefined) return undefined
+  const next = new Map<string, number>()
+  for (const [key, version] of source) {
+    const parts = splitDeclarationProtocolKey(key)
+    if (parts === undefined) continue
+    const [src, dst, kind, name] = parts
+    const live = graph.out(src, kind).some(edge => {
+      if (edge.dst !== dst) return false
+      const target = graph.getNode(dst)
+      return (edge.attrs?.alias ?? target?.name) === name
+    })
+    if (live) next.set(key, version)
+  }
+  return next.size === 0 ? undefined : next
+}
+
+function rekeyExplicitNpmRanges(
+  source: Map<string, number> | undefined,
+  nextNodes: Map<string, Node>,
+  graph: Graph,
+): Map<string, number> | undefined {
+  if (source === undefined) return undefined
+  const rekeyed = new Map<string, number>()
+  for (const [key, version] of source) {
+    const parts = splitDeclarationProtocolKey(key)
+    if (parts === undefined) continue
+    const [src, dst, kind, name] = parts
+    rekeyed.set(declarationProtocolKey(
+      nextNodes.get(src)?.id ?? src,
+      nextNodes.get(dst)?.id ?? dst,
+      kind,
+      name,
+    ), version)
+  }
+  return retainLiveExplicitNpmRanges(rekeyed, graph)
+}
+
 function isEmptySidecar(sidecar: YarnBerryFamilySidecar): boolean {
   return sidecar.peerDependencies === undefined
     && sidecar.conditions === undefined
@@ -3815,5 +3950,6 @@ function isEmptySidecar(sidecar: YarnBerryFamilySidecar): boolean {
     && sidecar.unresolvedDeps === undefined
     && sidecar.entryKeyDescriptors === undefined
     && sidecar.bareChecksums === undefined
+    && sidecar.explicitNpmRanges === undefined
     && sidecar.metadata === undefined
 }

@@ -75,7 +75,11 @@ deltas on top of that shared contract are:
   a bare numeric literal (`cacheKey: 8` empirically) — pre-v8 form, no
   string quoting.
 - Inner `dependencies` / `optionalDependencies` emit the bare form
-  (for example `lodash: 4.17.21`), not v8/v9's quoted protocol.
+  (for example `lodash: 4.17.21`), not v8/v9's quoted protocol. Pinned Yarn
+  3.8.7 accepts and write-stabilises a source-authored explicit plain
+  `npm:<range>`, so unchanged replay preserves that prefix; a bare manifest
+  still mints bare, and mutation/rebind/conversion does not inherit the source
+  spelling. Structural `npm:<target>@<range>` aliases are never shortened.
 - `checksum` values round-trip whatever was parsed (the integrity model,
   [`_common.md` §3](./_common.md#3-integrity-model)): the current fixtures
   carry a bare sha512 hex (no `<cacheKey>/` prefix) and stay bare, but a
@@ -90,6 +94,9 @@ deltas on top of that shared contract are:
 - `__metadata.cacheKey` is empirically `8` across the current v6 fixtures.
 - Inner `dependencies` / `optionalDependencies` emit bare ranges
   (`lodash: 4.17.21`), unlike v8/v9's quoted protocol form.
+- Source-authored explicit plain `npm:<range>` is a same-generation fidelity
+  carrier, not the minted default. Pinned Yarn 3.8.7 proves both sides: explicit
+  source output is immutable/write-stable, while a bare manifest mints bare.
 - `checksum` values are raw sha512 hex, not `cacheKey/hash`.
 - **Conditional-checksum policy — `conditions ∩ optionalBuilds`, version-independent.**
   A `conditions:`-bearing locator is bare iff it stays in `optionalBuilds`: reachable

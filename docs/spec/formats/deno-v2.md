@@ -19,6 +19,16 @@ npm.packages
 V2 uses name-to-native-id dependency maps and has no JSR, workspace, or
 redirect carrier. Unknown top-level keys are preserved individually.
 
+> **Census** · 1,214 replayed Deno v2 locks · zero contains a top-level
+> `workspace` section. This is a measured generational fact, not an inference
+> from later Deno schemas.
+
+A Berry `npm:<target>@<range>` self-alias reaches this adapter as a structural
+canonical edge range, not as `EdgeAttrs.alias`. A source-only plain Berry
+`npm:<range>` presence bit is not portable and is deliberately absent after a
+conversion; v2 emits from canonical graph state. This item does not widen the
+existing cross-PM certification surface beyond the supported targets below.
+
 Supported targets are `deno-v3`, `deno-v4`, and all 16 Node-family formats
 (the latter require sibling manifest evidence). `deno-v2 -> deno-v5` is
 fail-closed because v2 lacks complete v5 package metadata and proof that

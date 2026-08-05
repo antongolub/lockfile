@@ -58,6 +58,30 @@ Three kinds of evidence stand behind the format documents:
 > implementation repository, not part of any claim: these specs are meant to be
 > readable, and implementable, without it.
 
+### Root/importer carrier census
+
+The cross-format replay sweep found the following negative-result surface. The
+counts are evidence that no value loss was observed in these populations, not a
+claim that every future producer shape is covered.
+
+| Family | Replayed population | Root/importer carrier result |
+| --- | ---: | --- |
+| pnpm | 70 | 70/70 value-clean by the only measure available; 0/70 were byte-identical, so this row has no independent byte oracle |
+| Bun text | 169 | 169/169 value-clean |
+| Deno v3/v4/v5 | 3,635 | every observed `workspace` key was value-clean |
+| Yarn Classic | N/A | root carrier is not present at the grammar level |
+
+### Portable alias structure versus source spelling
+
+An npm alias range `npm:<target>@<range>` is portable graph structure, including
+the self-alias case where `<target>` equals the declaration key. By contrast, a
+plain Berry v4/v5/v6 `npm:<range>` prefix is source spelling for the default
+registry protocol: unchanged same-generation replay preserves it, while mutation,
+rebind, and conversion follow the target format's canonical spelling. The shared
+rule is normative in [`_common.md` §4.4](./_common.md#44-graph); per-generation
+producer evidence lives in the v4/v5/v6 documents. This distinction prevents a
+fidelity fix from turning into an "always add `npm:`" conversion rule.
+
 ## Index
 
 | Id | Schema marker | Provenance | Doc |

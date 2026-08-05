@@ -1211,7 +1211,11 @@ how the yarn family keys an entry-key descriptor:
 
 - `alias` — an npm-alias consumer descriptor name (`<alias>@npm:<target>@<range>`).
   It **participates in edge identity**, so a canonical *and* an aliased edge from
-  one parent to one target coexist.
+  one parent to one target coexist. A **self-alias** whose declaration key already
+  equals `<target>` does not set this carrier: its structural
+  `npm:<target>@<range>` remains in `range`, because shortening it to
+  `<target>@<range>` loses the registry-alias protocol even though no alternate
+  descriptor name exists.
 - `overrideRange` — the pin an override / yarn `resolutions` forced onto a
   **completed** edge (stamped by completion/remediation when an override governs
   the edge; absent otherwise). It does **not** participate in identity.
@@ -1222,6 +1226,14 @@ pin (see the yarn-classic / yarn-berry resolution-collapse quirk). Every other
 carrier and every other emitter keys by `range`, so the *declared* range always
 survives into the npm / pnpm / bun deps blocks — `overrideRange` never leaks
 outside yarn entry keys.
+
+Berry's plain explicit default protocol is a different case. In v4/v5/v6,
+`npm:<range>` and bare `<range>` have the same canonical edge `range`; the
+source-authored prefix is retained only in a same-generation, edge-addressed
+adapter sidecar. An unmodified parse → stringify replays it exactly. Public
+mutation/rebind clears that source-presence bit, and cross-generation or
+cross-format output follows the target's own canonical spelling. This boundary
+does not apply to the structural self-alias form above.
 
 **Workspaces** are nodes with a known layout position
 (`Node.workspacePath !== undefined`, where the empty string is the root
