@@ -162,11 +162,9 @@ Per-case locks and whole-project samples, as described in [Evidence](./README.md
 > optionalDependencies, peerDependencies, peerDependenciesMeta`, and npm 11 emits
 > ordinary `lockfileVersion: 3` **byte-identical to npm 12** (full-lock diff).
 > npm 12 switches to v4 only when its new patch / extension features are used.
-> **npm 9
-> predates `license`**, so the canonical `npm-3` fixture writer (`pm-npm-9`) omits
-> it — but the lib captures and re-emits `license` verbatim, so an npm 10–12 lock
-> round-trips byte-identical. `pm-npm-12` was added to the PM matrix to keep this
-> pinned.
+> **npm 9 predates `license`** and omits the key; npm 10 and later write it. A
+> reader must therefore treat a missing root `license` as an npm-9-era lock, not
+> as an absent field.
 
 ## Unknown top-level extension keys
 

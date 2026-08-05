@@ -157,11 +157,9 @@ two npm-4 projects: a native patch project and an imperative
 carrier validation, sentinel behavior, F5 normalization, and fail-closed
 foreign patch emission.
 
-The native oracle generates a v4 patch lock with the
-pinned `pm-npm-12` binary, asserts the native raw SRI, performs an adapter
-byte-identity round-trip, proves a second mutable generation is byte-identical,
-then certifies the result with npm's frozen mode. The oracle skips when the host
-Node version is outside npm 12's declared runtime range.
+npm 12 writes the raw patch SRI itself, and a second mutable install over its
+own output leaves the file unchanged — the patch carrier is stable under
+regeneration, not merely on first write.
 
 ## Unknown top-level extension keys
 

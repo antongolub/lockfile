@@ -2,12 +2,12 @@
 
 > Status: implemented preview adapter.
 > Marker: top-level `version: "2"`.
-> Certification: parse/emit structural proof and measured-corpus replay; no
-> separately obtainable pinned producer.
+> Producer: none obtainable. No released Deno binary writes v2, and every
+> pinned one rewrites it to a later version on install, so the format is
+> evidenced by the corpus rather than by a producer run.
 
 `deno-v2` is the concrete public identity for Deno lockfile wire version 2.
-It accepts no other version. Unchanged input replays byte-exactly and
-same-identity mutation emits the v2 layout:
+It accepts no other version. The v2 layout is:
 
 ```text
 version
@@ -19,9 +19,9 @@ npm.packages
 V2 uses name-to-native-id dependency maps and has no JSR, workspace, or
 redirect carrier. Unknown top-level keys are preserved individually.
 
-> **Census** · 1,214 replayed Deno v2 locks · zero contains a top-level
-> `workspace` section. This is a measured generational fact, not an inference
-> from later Deno schemas.
+> **Census** · Deno v2 locks in the corpus (1,214 files) · none carries a
+> top-level `workspace` section. This is a generational fact about v2, measured,
+> not inferred from the later Deno schemas that do define one.
 
 A Berry `npm:<target>@<range>` self-alias reaches this adapter as a structural
 canonical edge range, not as `EdgeAttrs.alias`. A source-only plain Berry

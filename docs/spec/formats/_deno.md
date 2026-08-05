@@ -464,8 +464,8 @@ line endings, and all native-only sections. Same-identity mutation:
 5. preserves unknown top-level/native fields;
 6. emits deterministic two-space JSON plus a final newline.
 
-The committed v5 mutation fixture is byte-identical to Deno 2.9.4 output and
-passes `deno install --frozen` unchanged.
+Deno 2.9.4 accepts a lock in this shape under `deno install --frozen` without
+rewriting it.
 
 The distribution-size ceiling is raised from 1140 kB to 1220 kB with this
 shared implementation. The four adapters are intentional new public format
@@ -492,8 +492,8 @@ like it disagrees with another, check the population before the number.
 | real | 3581 | scraped, minus `denoland` upstream fixtures — those carry deliberate `[WILDCARD]` placeholders and tamper cases rather than real values |
 | versioned strict-JSON | 3577 | real, minus 3 merge-conflicted files that are not strict JSON and 1 pre-v2 flat URL-to-hash map with no `version` key |
 
-The **real** population contains **3581 lockfiles** spanning all four generations. **3571 of them replay
-byte-identically.** Three are merge-conflicted and therefore not strict JSON, one
+The **real** population contains **3581 lockfiles** spanning all four
+generations. Three are merge-conflicted and therefore not strict JSON, one
 is the pre-v2 flat URL-to-hash map with no `version` key, and 6 are refused on
 parse. The gate asserts this as a property rather than a file count — the corpus
 is gitignored scratch that grows whenever it is re-scraped, so an exact count

@@ -174,10 +174,9 @@ this is only how npm-2 *carries* it.
 - Dependency-free v2 has a separate exact producer oracle: the 212-byte
   `Templarian/MaterialDesign-SVG` lock at SHA-256
   `02f1f77bdd6ccac2bd802e20aa4c7e7871b06bf295843e99a6d7fdbdf54e8d98`
-  omits the mirror, carries a root `license`, round-trips byte-identically, and
-  is accepted by pinned npm 8.19.4 `npm ci`. Corpus parse+emit coverage rises
-  from 1,793 to 1,797 and the byte-identical count from 266 to 299; no existing
-  byte-identical file regresses.
+  omits the mirror and carries a root `license`. It shows that a v2 lock with no
+  dependencies legitimately has no `dependencies` mirror, and pinned npm 8.19.4
+  accepts it under `npm ci`.
 - A non-link package entry whose `resolved` field is `file:`, `link:`, or
   `portal:` is a local directory dependency, not workspace identity. Parse
   stores the directory canonical and retains the exact protocol spelling for

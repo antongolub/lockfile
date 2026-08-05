@@ -155,7 +155,8 @@ Mostly self-contained: the lockfile encodes the full hoisted tree.
   exact URLs rather than claiming full-file byte identity.
 - **Emitted in `json-stringify-nice` key order** — the same serialiser arborist
   uses for v2/v3 (npm's `swKeyOrder` was designed to match npm 5/6's historical
-  order), so a generated v1 lock is byte-identical to what npm 6 writes. See
+  order). Key order is therefore a property of the format, not of the writer:
+  reproducing npm 6's output means reproducing that serialiser. See
   [npm-2 Quirks](./npm-2.md#quirks).
 
 ## Degradation rules

@@ -58,18 +58,19 @@ Three kinds of evidence stand behind the format documents:
 > implementation repository, not part of any claim: these specs are meant to be
 > readable, and implementable, without it.
 
-### Root/importer carrier census
+### Root and importer carriers
 
-The cross-format replay sweep found the following negative-result surface. The
-counts are evidence that no value loss was observed in these populations, not a
-claim that every future producer shape is covered.
+Whether a lockfile records the project itself — as opposed to only its
+dependencies — is a per-format decision, and the shapes do not correspond. A
+converter cannot assume the target has anywhere to put a root.
 
-| Family | Replayed population | Root/importer carrier result |
-| --- | ---: | --- |
-| pnpm | 70 | 70/70 value-clean by the only measure available; 0/70 were byte-identical, so this row has no independent byte oracle |
-| Bun text | 169 | 169/169 value-clean |
-| Deno v3/v4/v5 | 3,635 | every observed `workspace` key was value-clean |
-| Yarn Classic | N/A | root carrier is not present at the grammar level |
+| Family | Root / importer carrier |
+| --- | --- |
+| pnpm | an `importers` map keyed by workspace-relative directory; the project root is the `.` key |
+| Bun text | a `workspaces` entry under the empty-string key |
+| Deno v3/v4/v5 | a `workspace` section |
+| Deno v2 | none — the layout defines no workspace carrier |
+| Yarn Classic | none — the grammar has no root entry at all |
 
 ### Portable alias structure versus source spelling
 
