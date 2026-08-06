@@ -1152,7 +1152,15 @@ function captureCanonicalPackageEntries(
   for (const [path, entry] of entries) {
     const node = graph.getNode(entry.nodeId)
     const isManifestPlacement = node?.workspacePath !== undefined
-    if (!differingNodeIds.has(entry.nodeId) && !isManifestPlacement) entries.delete(path)
+    // Sibling disagreement is one reason the projection would not reproduce a
+    // key. A key the projection cannot emit AT ALL is another, and it needs no
+    // sibling to be lost — `hasShrinkwrap`, `extraneous`, `devOptional` and any
+    // npm key we have not modelled reach the emit with nowhere to come from.
+    const carriesUnprojectableKey = Object.keys(entry.nativeEntry)
+      .some(key => !NODE_MODULES_ENTRY_KEYS.has(key))
+    if (!differingNodeIds.has(entry.nodeId) && !isManifestPlacement && !carriesUnprojectableKey) {
+      entries.delete(path)
+    }
   }
   const canonicalEntriesByNodeId = new Map<string, Readonly<Record<string, unknown>>>()
   for (const [path, entry] of entries) {
@@ -1779,6 +1787,46 @@ function buildWorkspaceMemberEntry(
   })
   return body
 }
+
+/**
+ * Every key `buildNodeModulesEntry` is capable of writing.
+ *
+ * Declared beside the builder rather than inferred from a corpus, so the two
+ * are maintained together; `npm-entry-key-drift.test.ts` walks the corpus and
+ * fails if the builder ever emits a key this set does not name.
+ *
+ * The set answers ONE question — can the canonical projection reproduce this
+ * key at all? A source key outside it is unreachable by projection and its only
+ * carrier is the exact-path native record, which is why retention consults this
+ * rather than building a projection per entry to compare values.
+ */
+export const NODE_MODULES_ENTRY_KEYS: ReadonlySet<string> = new Set([
+  'name',
+  'version',
+  'resolved',
+  'integrity',
+  'dev',
+  'optional',
+  'peer',
+  'inBundle',
+  'bundleDependencies',
+  'dependencies',
+  'peerDependencies',
+  'peerDependenciesMeta',
+  'optionalDependencies',
+  'devDependencies',
+  'engines',
+  'funding',
+  'license',
+  'bin',
+  'deprecated',
+  'cpu',
+  'os',
+  'libc',
+  'hasInstallScript',
+  'link',
+  'workspaces',
+])
 
 function buildNodeModulesEntry(
   graph: Graph,

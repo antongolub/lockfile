@@ -125,6 +125,21 @@ this is only how npm-2 *carries* it.
   keys, while canonical graph identity and dependency topology overlay the
   retained record after a mutation. Minted or foreign-PM output is generated
   from canonical package metadata and does not fabricate source-path state.
+- An installed entry may carry a key the canonical package projection has no way
+  to produce — `hasShrinkwrap`, `devOptional`, `extraneous`, and any key npm adds
+  that this model does not represent. Such a key has exactly one carrier, the
+  exact-path source record, and it needs no disagreeing sibling to be lost: there
+  is simply nothing to regenerate it from. Same-family replay therefore retains
+  the source record whenever it carries such a key.
+
+  `hasShrinkwrap` shows why a key's population says nothing about its severity.
+  It marks a package that ships its own `npm-shrinkwrap.json`, which npm must
+  honour over the parent lock.
+
+  > **Measured** · npm 8.19.4 and npm 11.18.0 · `npm ci` offline against a cache
+  > primed only by the source install · a lock keeping
+  > `packages["node_modules/ganache-core"].hasShrinkwrap` installs; a clone
+  > differing only by that key's deletion fails `ENOTCACHED`.
 - Physical installed placements remain authoritative even when their package
   identity equals the root project or a workspace manifest node. Same-format
   replay emits exactly the source-authored placements for those manifest

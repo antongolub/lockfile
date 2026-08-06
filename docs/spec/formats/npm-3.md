@@ -120,6 +120,12 @@ Same as [npm-2](./npm-2.md#conversion-inputs).
   Replay retains the authored alias path and resolves it to the current
   root/workspace/external target; it neither substitutes the target's canonical
   package-name link nor fabricates a link absent from the source.
+- An installed entry may carry a key the canonical package projection cannot
+  produce (`hasShrinkwrap`, `devOptional`, `extraneous`, or an unmodelled npm
+  key). Its only carrier is the exact-path source record, and it needs no
+  disagreeing sibling to be lost. Same-family replay retains the record
+  whenever such a key is present — see the
+  [npm-2 rule](./npm-2.md#quirks) for the measured installer consequence.
 - Inherited path-local handling prevents `dev`, `peer`, and `inBundle` from
   being copied to a same-identity sibling. Real one-field offline controls show
   all three spreads are install-inert, including `peer` under default and
