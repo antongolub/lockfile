@@ -73,6 +73,7 @@ export interface Npm2MirrorSidecar {
 interface Npm2LegacyEntryCapture {
   nodeId: string
   version?: string
+  inBundle?: boolean
 }
 
 interface Npm2LegacyRequireCapture {
@@ -264,6 +265,7 @@ function captureLegacyMirror(
       if (node !== undefined) {
         const capture: Npm2LegacyEntryCapture = { nodeId: node.id }
         if (typeof entry.version === 'string') capture.version = entry.version
+        if (packages[installPath]?.inBundle === true) capture.inBundle = true
         legacyEntriesByInstallPath.set(installPath, capture)
 
         for (const [declaredName, mirrorRange] of Object.entries(entry.requires ?? {})) {
@@ -490,6 +492,7 @@ function buildLegacyNodeEntry(
   // fallback: derive from canonical resolution as last resort.
   const sourceResolved = sidecarResolvedFor(ctx, node)
     ?? deriveLegacyResolvedFromCanonical(tarball?.resolution)
+  let resolved: string | undefined
   if (native !== undefined && !isYarnBerryLocator(native)) {
     // For git entries the resolution itself becomes the `version` field
     // (per the npm-2 legacy mirror fixture) and `from:` records the original
@@ -500,7 +503,7 @@ function buildLegacyNodeEntry(
       const fromSpec = synthesizeFromSpec(ctx, node)
       if (fromSpec !== undefined) entry.from = fromSpec
     } else {
-      entry.resolved = stripRegistrySha1Fragment(native)
+      resolved = stripRegistrySha1Fragment(native)
     }
   } else if (sourceResolved !== undefined && !isYarnBerryLocator(sourceResolved)) {
     // Same git-vs-tarball discrimination on the recovered URL.
@@ -510,18 +513,22 @@ function buildLegacyNodeEntry(
       const fromSpec = synthesizeFromSpec(ctx, node)
       if (fromSpec !== undefined) entry.from = fromSpec
     } else {
-      entry.resolved = stripRegistrySha1Fragment(sourceResolved)
+      resolved = stripRegistrySha1Fragment(sourceResolved)
     }
   }
 
   if (entry.from === undefined) {
-    const sri = emitSriForRegistry(tarball?.integrity, native)
+    resolved = pathLocalStringField(ctx, node, installPath, 'resolved', resolved)
+    if (resolved !== undefined) entry.resolved = resolved
+    const canonicalSri = emitSriForRegistry(tarball?.integrity, native)
+    const sri = pathLocalStringField(ctx, node, installPath, 'integrity', canonicalSri)
     if (sri !== undefined) entry.integrity = sri
   }
 
   const nodeSide = ctx.sidecar?.nodes.get(node.id)
   if (nodeSide?.dev === true) entry.dev = true
   if (nodeSide?.optional === true) entry.optional = true
+  if (captured?.nodeId === node.id && captured.inBundle === true) entry.bundled = true
 
   // requires: dep + dev + optional graph edges (peer excluded — legacy mirror is npm-1-shape).
   const requires: Record<string, string> = {}
@@ -581,18 +588,40 @@ function collectNestedMirror(ctx: LegacyMirrorContext, parentPath: string): Reco
   const seen = new Set<string>()
   for (const [nodeId, sc] of ctx.sidecar.nodes) {
     for (const installPath of sc.installPaths) {
-      if (!installPath.startsWith(prefix)) continue
-      const tail = installPath.slice(prefix.length)
-      if (tail.includes('/node_modules/')) continue
-      if (tail.includes('/')) continue
+      const slot = immediateInstallSlot(installPath, prefix)
+      if (slot === undefined) continue
       if (seen.has(installPath)) continue
       seen.add(installPath)
       const node = ctx.graph.getNode(nodeId)
       if (node === undefined) continue
-      nested[tail] = buildLegacyNodeEntry(ctx, node, installPath)
+      nested[slot] = buildLegacyNodeEntry(ctx, node, installPath)
     }
   }
   return nested
+}
+
+function immediateInstallSlot(installPath: string, prefix: string): string | undefined {
+  if (!installPath.startsWith(prefix)) return undefined
+  const tail = installPath.slice(prefix.length)
+  if (tail === '' || tail.includes('/node_modules/')) return undefined
+  if (!tail.startsWith('@')) return tail.includes('/') ? undefined : tail
+  const scopeSlash = tail.indexOf('/')
+  if (scopeSlash <= 1 || scopeSlash === tail.length - 1) return undefined
+  return tail.indexOf('/', scopeSlash + 1) === -1 ? tail : undefined
+}
+
+function pathLocalStringField(
+  ctx: LegacyMirrorContext,
+  node: Node,
+  installPath: string,
+  key: 'integrity' | 'resolved',
+  canonicalValue: string | undefined,
+): string | undefined {
+  const state = ctx.sidecar?.packageEntriesByPath?.get(installPath)
+  if (state?.nodeId !== node.id || state.canonicalEntry === undefined) return canonicalValue
+  if (state.canonicalEntry[key] !== canonicalValue) return canonicalValue
+  const sourceValue = state.nativeEntry[key]
+  return typeof sourceValue === 'string' ? sourceValue : undefined
 }
 
 function sidecarResolvedFor(ctx: LegacyMirrorContext, node: Node): string | undefined {

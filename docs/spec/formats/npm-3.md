@@ -1,7 +1,7 @@
 # `npm-3` — npm `package-lock.json` (lockfileVersion 3)
 
 > Status: stable (adapter + flat-family round-trip suite).
-> Updated: 2026-07-29
+> Updated: 2026-08-06
 > Provenance: **Official**.
 
 ## Compatibility
@@ -103,6 +103,37 @@ Same as [npm-2](./npm-2.md#conversion-inputs).
   a frozen-install correctness defect**: npm does not need those fields for
   that install, but lockgraph's certification criterion still requires byte
   identity.
+- Installed `packages[path]` records use npm-2's whole-entry path-local replay
+  contract. Two paths with the same package identity may differ in metadata
+  presence, registry origin, checksum spelling, `optional`, `inBundle`,
+  `bundleDependencies`, or future producer keys; none of those facts travels
+  to a sibling path. Canonical graph identity and dependency topology still
+  overlay the retained record after mutation, so a new version, checksum, URL,
+  or dependency block cannot be wrapped in stale native entry data.
+- npm-2's exact placement rule also applies when an installed entry collapses
+  onto the root or a workspace manifest identity. An unchanged same-format
+  replay emits every such source placement and fabricates none that were
+  absent. Otherwise offline npm can fail `ENOTCACHED` after trying to fetch a
+  dropped non-link self placement, while a dropped link placement can fail the
+  frozen gate as `Missing: ... from lock file`.
+- Source-authored `link: true` alias keys are likewise exact layout state.
+  Replay retains the authored alias path and resolves it to the current
+  root/workspace/external target; it neither substitutes the target's canonical
+  package-name link nor fabricates a link absent from the source.
+- Inherited path-local handling prevents `dev`, `peer`, and `inBundle` from
+  being copied to a same-identity sibling. Real one-field offline controls show
+  all three spreads are install-inert, including `peer` under default and
+  `--legacy-peer-deps`, whereas the same mechanism for `optional` can silently
+  omit a reverse-dependent project subtree. Severity therefore comes from the
+  producer control, not from the shared carrier mechanism. Separately routed
+  source-present `dev` losses remain unclassified and bounded against growth.
+- In particular, `resolved` and `integrity` remain exact at the authored path.
+  A checksum substitution can still describe the same tarball under a different
+  algorithm, but a checksum drop removes verification; neither is exact replay.
+  `optional` is also path-local because copying it to a required installation
+  can make npm prune that installation's reverse-dependent subtree and exit
+  successfully. Installed `bundleDependencies` stays on its source package
+  entry so bundled contents are not incorrectly externalized.
 - **Integrity is preserved as a multi-hash multiset.** Every algorithm and every
   member of a space-joined SRI (`sha1-… sha512-…`) is kept verbatim — `sha1`,
   `sha256`, `sha384`, `sha512` — not collapsed to sha512-only. The strongest

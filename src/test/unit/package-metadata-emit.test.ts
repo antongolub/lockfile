@@ -8,6 +8,7 @@ import {
 } from '../../main/ts/graph.ts'
 import { parse, stringify, type FormatId } from '../../main/ts/index.ts'
 import { targetProfileOf } from '../../main/ts/completeness/targets.ts'
+import { PACKAGE_METADATA_FIELDS } from '../../main/ts/registry/payload.ts'
 
 function graphWith(payload: TarballPayload): Graph {
   const root = serializeNodeId('root', '1.0.0', [])
@@ -61,9 +62,20 @@ describe('package metadata emitters', () => {
     const entry = JSON.parse(output).packages['node_modules/pkg']
 
     expect(entry).toMatchObject(payload)
-    expectMetadataFields('npm-3', Object.keys(payload) as PackageMetadataField[])
+    expectMetadataFields('npm-3', [...PACKAGE_METADATA_FIELDS])
     expectStable('npm-2', payload)
-    expectMetadataFields('npm-2', Object.keys(payload) as PackageMetadataField[])
+    expectMetadataFields('npm-2', [...PACKAGE_METADATA_FIELDS])
+  })
+
+  it('emits the canonical installed-package bundle carrier in npm-2/3', () => {
+    const bundledDependencies = ['bundled', '@scope/bundled']
+    for (const format of ['npm-2', 'npm-3'] as const) {
+      const output = expectStable(format, { bundledDependencies })
+      const entry = JSON.parse(output).packages['node_modules/pkg']
+
+      expect(entry.bundleDependencies, format).toEqual(bundledDependencies)
+      expect(targetProfileOf({ format }).capabilities.bundledDependencies).toBe(true)
+    }
   })
 
   it('emits every Yarn Berry supported field from canonical payload', () => {

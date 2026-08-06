@@ -13,6 +13,8 @@ import type { Graph } from '../../main/ts/graph.ts'
 const corpusRoot = resolve('tmp/yarn-corpus/raw')
 const corpusAvailable = existsSync(corpusRoot)
 const suite = corpusAvailable ? describe : describe.skip
+const knownBuiltinPatchRefusal =
+  'v7--madjam002__yarnpnp2nix__test_workspace_yarn.lock@8512577'
 
 const classify = (losses: readonly ProjectionLoss[]): string | undefined => {
   if (losses.some(loss => loss.class === 'berry-checksum')) return 'berry-checksum'
@@ -37,24 +39,23 @@ suite(
     ? 'Yarn Berry external corpus audit'
     : 'Yarn Berry external corpus audit [skipped: gitignored tmp/yarn-corpus/raw is absent]',
   () => {
-    it('strictly replays every supported Berry lock or refuses it for a known reason', () => {
+    it('focuses the known strict-refusal and invalid Berry risk shapes', () => {
       const refused = new Map<string, number>()
       const unexpected: string[] = []
-      let replayed = 0
-      let detected = 0
+      let selected = 0
       let invalid = 0
 
       for (const file of readdirSync(corpusRoot).sort()) {
         const input = readFileSync(resolve(corpusRoot, file), 'utf8')
+        if (file !== knownBuiltinPatchRefusal && !/^<{7} /m.test(input)) continue
         const candidate = detect(input)
         if (candidate === undefined || !candidate.startsWith('yarn-berry-')) continue
         const format = candidate as FormatId
-        detected += 1
+        selected += 1
         let graph: Graph | undefined
         try {
           graph = parse(input, format)
           stringify(graph, format)
-          replayed += 1
           continue
         } catch (error) {
           if (graph === undefined && /expected ':' after key/.test(String((error as Error)?.message))) {
@@ -76,10 +77,12 @@ suite(
       }
 
       const gaps = [...refused].sort().map(([reason, count]) => `${reason}=${count}`).join(' ')
-      console.log(`berry corpus: detected ${detected} | replayed ${replayed} | refused ${gaps} | invalid ${invalid}`)
+      // The declaration-protocol audit owns the full strict-replay boundary;
+      // this raw prefilter keeps only the known refusal and invalidity risks.
+      console.log(`berry risk prefilter: ${selected} | refused ${gaps} | invalid ${invalid}`)
       expect(unexpected, 'refusals outside the known set').toEqual([])
       expect(refused.get('berry-checksum'), 'required builtin patch stays fail-closed').toBe(1)
-      expect(replayed).toBeGreaterThan(0)
+      expect(invalid).toBe(2)
     }, 60_000)
   },
 )

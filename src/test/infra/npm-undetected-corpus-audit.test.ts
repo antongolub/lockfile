@@ -77,12 +77,21 @@ const undetected: readonly UndetectedInput[] = corpus.flatMap(item =>
   detect(item.input) === undefined ? [{ ...item, kind: classify(item.input) }] : [],
 )
 const dependencyFreeV2 = corpus.filter(item => classify(item.input) === 'valid-npm-v2-gap')
-let measuredCoverage: Readonly<{ parsedEmitted: number; byteExact: number }> | undefined
+let measuredCoverage: Readonly<{
+  parsedEmitted: number
+  byteExact: number
+  sourceTargetSealFailures: readonly string[]
+}> | undefined
 
-function measureCoverage(): Readonly<{ parsedEmitted: number; byteExact: number }> {
+function measureCoverage(): Readonly<{
+  parsedEmitted: number
+  byteExact: number
+  sourceTargetSealFailures: readonly string[]
+}> {
   if (measuredCoverage !== undefined) return measuredCoverage
   let parsedEmitted = 0
   let byteExact = 0
+  const sourceTargetSealFailures: string[] = []
   for (const item of corpus) {
     const format = detect(item.input)
     if (format === undefined) continue
@@ -90,11 +99,18 @@ function measureCoverage(): Readonly<{ parsedEmitted: number; byteExact: number 
       const output = stringify(parse(item.input, format), format, { strict: false })
       parsedEmitted += 1
       if (output === item.input) byteExact += 1
-    } catch {
+    } catch (error) {
+      if (String((error as Error).message).includes('edge target missing from node table')) {
+        sourceTargetSealFailures.push(item.file)
+      }
       // Existing known adapter defects remain outside Item B.
     }
   }
-  measuredCoverage = Object.freeze({ parsedEmitted, byteExact })
+  measuredCoverage = Object.freeze({
+    parsedEmitted,
+    byteExact,
+    sourceTargetSealFailures: Object.freeze(sourceTargetSealFailures),
+  })
   return measuredCoverage
 }
 
@@ -164,11 +180,15 @@ suite(
     })
 
     it('never regresses the 1797-file parse+emit floor', () => {
-      expect(measureCoverage().parsedEmitted).toBeGreaterThanOrEqual(1797)
+      const coverage = measureCoverage()
+      expect(coverage.parsedEmitted).toBeGreaterThanOrEqual(1797)
+      // This is the authoritative full-corpus npm source-target seal. The
+      // focused npm-v1 audit raw-prefilters its source-risk/mirror population.
+      expect(coverage.sourceTargetSealFailures).toEqual([])
     }, 180_000)
 
-    it('never regresses the 395-file byte-exact floor', () => {
-      expect(measureCoverage().byteExact).toBeGreaterThanOrEqual(395)
+    it('never regresses the 431-file byte-exact floor', () => {
+      expect(measureCoverage().byteExact).toBeGreaterThanOrEqual(431)
     }, 180_000)
   },
 )

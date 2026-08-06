@@ -92,6 +92,8 @@ import {
   type NpmFamilyStringifyOptions,
   type NpmFlatSidecar,
   type NpmLockfile,
+  type NpmLinkEntrySidecar,
+  type NpmPackageEntrySidecar,
   type NpmRootMeta,
   type NpmSidecar,
   type NpmWorkspacesField,
@@ -120,6 +122,8 @@ interface NpmParseContext {
   builder: ReturnType<typeof newBuilder>
   diagnostics: Diagnostic[]
   nodeSidecar: Map<string, NpmFlatSidecar>
+  packageEntriesByPath: Map<string, NpmPackageEntrySidecar>
+  linkEntriesByPath: Map<string, NpmLinkEntrySidecar>
   edgeRanges: Map<string, string>
   edgeDeclaredNames: Map<string, string>
   reservedEdgeRanges: Map<string, string>
@@ -144,7 +148,59 @@ export function adapterStateSubjects(graph: Graph): readonly string[] {
   const rootSubjects = Object.entries(sidecar?.rootMeta?.nativeRootEntry?.value ?? {})
     .filter(([key, value]) => rootEntryKeyNeedsNativeCarrier(key, value))
     .map(([key]) => `root-entry:${key}`)
-  return [...unknownTopLevelSubjects(sidecar?.unknownTopLevel), ...rootSubjects].sort(cmpStr)
+  const packageEntrySubjects = packageEntryStateSubjects(sidecar?.packageEntriesByPath)
+  const linkEntrySubjects = [...(sidecar?.linkEntriesByPath?.keys() ?? [])]
+    .map(path => `package-link:${path}`)
+  return [
+    ...unknownTopLevelSubjects(sidecar?.unknownTopLevel),
+    ...rootSubjects,
+    ...packageEntrySubjects,
+    ...linkEntrySubjects,
+  ].sort(cmpStr)
+}
+
+const PACKAGE_ENTRY_DEPENDENCY_KEYS = new Set([
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+])
+
+function packageEntryStateSubjects(
+  entries: ReadonlyMap<string, NpmPackageEntrySidecar> | undefined,
+): string[] {
+  if (entries === undefined) return []
+  const byNodeId = new Map<string, NpmPackageEntrySidecar[]>()
+  for (const entry of entries.values()) {
+    const siblings = byNodeId.get(entry.nodeId) ?? []
+    siblings.push(entry)
+    byNodeId.set(entry.nodeId, siblings)
+  }
+  const subjects: string[] = []
+  for (const [path, entry] of entries) {
+    const siblings = byNodeId.get(entry.nodeId) ?? [entry]
+    for (const [key, value] of Object.entries(entry.nativeEntry)) {
+      if (!packageEntryKeyNeedsNativeCarrier(key, value, entry, siblings)) continue
+      subjects.push(`package-entry:${path}:${key}`)
+    }
+  }
+  return subjects.sort(cmpStr)
+}
+
+function packageEntryKeyNeedsNativeCarrier(
+  key: string,
+  value: unknown,
+  entry: NpmPackageEntrySidecar,
+  siblings: readonly NpmPackageEntrySidecar[],
+): boolean {
+  if (key === 'name' || key === 'version' || key === 'link') return false
+  if (PACKAGE_ENTRY_DEPENDENCY_KEYS.has(key)
+    && value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.keys(value).length > 0) return false
+  if (!jsonValueEqual(value, entry.canonicalEntry?.[key])) return true
+  return siblings.some(sibling => !jsonValueEqual(value, sibling.nativeEntry[key]))
 }
 
 function rootEntryKeyNeedsNativeCarrier(key: string, value: unknown): boolean {
@@ -173,12 +229,19 @@ export function rebindAdapterState(
   if (sidecar === undefined) return { graph: target, invalidated: [] }
   const pruned = pruneSidecar(sidecar, target)
   sidecarByGraph.set(target, pruned)
+  const retainedPackageEntrySubjects = new Set(packageEntryStateSubjects(pruned.packageEntriesByPath))
+  const retainedLinkPaths = new Set(pruned.linkEntriesByPath?.keys() ?? [])
   const invalidated = [
     ...[...sidecar.nodes.keys()].filter(id => !pruned.nodes.has(id)),
     ...[...sidecar.edgeRanges.keys()].filter(key => !pruned.edgeRanges.has(key)),
     ...[...sidecar.workspaceByPath.entries()]
       .filter(([path, id]) => pruned.workspaceByPath.get(path) !== id)
       .map(([path]) => `workspace:${path}`),
+    ...packageEntryStateSubjects(sidecar.packageEntriesByPath)
+      .filter(subject => !retainedPackageEntrySubjects.has(subject)),
+    ...[...(sidecar.linkEntriesByPath?.keys() ?? [])]
+      .filter(path => !retainedLinkPaths.has(path))
+      .map(path => `package-link:${path}`),
   ].sort()
   return { graph: target, invalidated }
 }
@@ -307,6 +370,9 @@ export function stringifyFamily(
       workspaceMembers.push(node)
     }
   }
+  const capturedLinkTargetIds = new Set(
+    [...(sidecar?.linkEntriesByPath?.values() ?? [])].map(entry => entry.targetNodeId),
+  )
   for (const node of workspaceMembers) {
     packages[node.workspacePath!] = buildWorkspaceMemberEntry(graph, node, sidecar, config, emitDiagnostic)
     // WS-LINK (ADR-0027 §4): emit the top-level node_modules/<name> symlink for a
@@ -317,11 +383,58 @@ export function stringifyFamily(
     // graph carries no sidecar, so the default (no flag ⇒ linked) links every
     // member.
     const extraneous = sidecar?.nodes.get(node.id)?.extraneous === true
-    if (!extraneous) {
+    if (!extraneous && !capturedLinkTargetIds.has(node.id)) {
       packages[`node_modules/${node.name}`] = {
         resolved: node.workspacePath,
         link: true,
       }
+    }
+  }
+
+  // npm's link key is physical layout, not canonical package identity. Replay
+  // the exact authored alias path while deriving its target from the current
+  // root/workspace node, so rebinding cannot retain a stale `resolved` path.
+  for (const [path, linkState] of sidecar?.linkEntriesByPath ?? []) {
+    const target = graph.getNode(linkState.targetNodeId)
+    if (target === undefined) continue
+    const nativeResolved = linkState.nativeEntry.resolved
+    const installedTargets = plannedInstallPaths.get(target.id) ?? []
+    const resolved = target.workspacePath
+      ?? (typeof nativeResolved === 'string' && installedTargets.includes(nativeResolved)
+        ? nativeResolved
+        : installedTargets[0])
+    if (resolved === undefined) continue
+    packages[path] = {
+      ...cloneNpmRootEntry(linkState.nativeEntry),
+      resolved,
+      link: true,
+    }
+  }
+
+  // A package can also be installed at a node_modules path whose canonical
+  // identity is the project root or a workspace manifest node. npm records
+  // those as distinct physical placements even though the graph deliberately
+  // collapses their identity onto the manifest node. Replay only paths that
+  // were captured from the source; never synthesize a manifest-node placement.
+  const manifestNodes = rootNode === undefined
+    ? workspaceMembers
+    : [rootNode, ...workspaceMembers]
+  for (const node of manifestNodes) {
+    const nodeSide = sidecar?.nodes.get(node.id)
+    const paths = nodeSide?.installPaths ?? []
+    if (paths.length === 0) continue
+    for (const path of paths) {
+      const pathState = sidecar?.packageEntriesByPath?.get(path)
+      const entry = buildManifestPlacementEntry(
+        graph,
+        node,
+        nodeSide,
+        paths,
+        pathState,
+        config,
+        emitDiagnostic,
+      )
+      packages[path] = buildPackageEntryAtPath(entry, pathState, node.id)
     }
   }
 
@@ -333,7 +446,8 @@ export function stringifyFamily(
     const paths = plannedInstallPaths.get(node.id) ?? [`node_modules/${node.name}`]
     const entry = buildNodeModulesEntry(graph, node, nodeSide, paths, config, emitDiagnostic)
     for (const path of paths) {
-      packages[path] = entry
+      const pathState = sidecar?.packageEntriesByPath?.get(path)
+      packages[path] = buildPackageEntryAtPath(entry, pathState, node.id)
     }
   }
 
@@ -527,6 +641,8 @@ function createNpmParseContext(
     builder: newBuilder(),
     diagnostics: [],
     nodeSidecar: new Map(),
+    packageEntriesByPath: new Map(),
+    linkEntriesByPath: new Map(),
     edgeRanges: new Map(),
     edgeDeclaredNames: new Map(),
     reservedEdgeRanges: new Map(),
@@ -659,11 +775,15 @@ function addInstalledPackageNodes(context: NpmParseContext): void {
     config,
     diagnostics,
     idToEntry,
+    linkEntriesByPath,
     options,
     packages,
     patchByPath,
     pathToId,
+    rootId,
+    workspaceByPath,
   } = context
+  const manifestNodeIds = new Set([rootId, ...workspaceByPath.values()])
   // Pass 1b: node_modules/... entries. Workspace-member paths must already be
   // indexed because link resolution below reads `pathToId`.
   for (const [path, entry] of Object.entries(packages)) {
@@ -679,6 +799,10 @@ function addInstalledPackageNodes(context: NpmParseContext): void {
         throw parseFailed(config, `link entry ${JSON.stringify(path)} resolves to unknown workspace ${JSON.stringify(target)}`)
       }
       pathToId.set(path, targetId)
+      linkEntriesByPath.set(path, {
+        targetNodeId: targetId,
+        nativeEntry: entry,
+      })
       continue
     }
 
@@ -739,6 +863,27 @@ function addInstalledPackageNodes(context: NpmParseContext): void {
           tarballPayloadOf(entry, id, diagnostics),
         )
       }
+    } else if (manifestNodeIds.has(id)) {
+      // Root/workspace manifest nodes and installed package entries can share
+      // one canonical identity. The physical entry is captured per path in
+      // pass 2; do not leak its tarball payload onto the project manifest node.
+      // That keeps generated/cross-format graph semantics unchanged while the
+      // exact native placement remains available for same-format replay.
+    } else if (Array.isArray(entry.bundleDependencies)
+      && !Array.isArray(existing.bundleDependencies)) {
+      // npm can omit a package's native bundle carrier at one install path and
+      // include it at another path that collapses to the same canonical node.
+      // Merge the carrier into the already-selected payload rather than making
+      // parse order decide whether the canonical metadata survives.
+      const merged = {
+        ...existing,
+        bundleDependencies: entry.bundleDependencies.slice(),
+      }
+      idToEntry.set(id, merged)
+      builder.setTarball(
+        { name: tailName, version, patch, source },
+        tarballPayloadOf(merged, id, diagnostics),
+      )
     }
   }
 }
@@ -750,6 +895,8 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     diagnostics,
     edgeDeclaredNames,
     edgeRanges,
+    packageEntriesByPath,
+    linkEntriesByPath,
     reservedEdgeRanges,
     nodeSidecar,
     patchByPath,
@@ -757,6 +904,12 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     pathToId,
     workspaceByPath,
   } = context
+  const linkedWorkspaceIds = new Set<string>()
+  for (const [path, entry] of Object.entries(packages)) {
+    if (entry.link !== true || path === '') continue
+    const targetId = pathToId.get(path)
+    if (targetId !== undefined) linkedWorkspaceIds.add(targetId)
+  }
   // Pass 2: edges + per-node sidecar data. `pathToId` is total before this
   // phase begins, so dependency resolution cannot observe a partial node pass.
   for (const [path, entry] of Object.entries(packages)) {
@@ -773,6 +926,14 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     // member that npm did NOT link (present on disk, absent from the install
     // graph) re-emits without a top-level link on replay.
     if (entry.extraneous === true) nodeSide.extraneous = true
+    if (path !== ''
+      && !workspaceByPath.has(path)
+      && entry.link !== true) {
+      packageEntriesByPath.set(path, {
+        nodeId: srcId,
+        nativeEntry: entry,
+      })
+    }
 
     // Adapter-specific per-entry capture (npm-2 mirror: stash `resolved`
     // URL for legacy-mirror emit). Core stays version-neutral — it does
@@ -789,6 +950,13 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     const isRoot = path === ''
     const isWorkspaceMember = workspaceByPath.has(path)
     const treatAsManifest = isRoot || isWorkspaceMember
+    // Same-format replay must not manufacture the conventional top-level
+    // workspace link when the source packages table omitted it. Reuse the
+    // existing layout flag consumed by stringify; generated/foreign graphs
+    // have no npm sidecar and retain the normal synthesize-link behaviour.
+    if (isWorkspaceMember && !linkedWorkspaceIds.has(srcId)) {
+      nodeSide.extraneous = true
+    }
 
     addDepEdges(builder, config, edgeRanges, edgeDeclaredNames, reservedEdgeRanges, path, srcId, entry.dependencies, 'dep', pathToId, diagnostics)
     addDepEdges(builder, config, edgeRanges, edgeDeclaredNames, reservedEdgeRanges, path, srcId, entry.optionalDependencies, 'optional', pathToId, diagnostics)
@@ -916,7 +1084,9 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
     edgeDeclaredNames,
     edgeRanges,
     lf,
+    linkEntriesByPath,
     nodeSidecar,
+    packageEntriesByPath,
     packages,
     rootId,
     workspaceByPath,
@@ -924,12 +1094,14 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
   } = context
   try {
     const graph = builder.seal()
-    sidecarByGraph.set(graph, {
+    const sidecar: NpmSidecar = {
       rootId,
       rootMeta,
       edgeRanges,
       edgeDeclaredNames,
       nodes: nodeSidecar,
+      packageEntriesByPath,
+      linkEntriesByPath,
       workspaceByPath,
       unknownTopLevel: captureUnknownTopLevel(lf as Readonly<Record<string, unknown>>, [
         'name',
@@ -939,8 +1111,10 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
         'packages',
         'dependencies',
       ]),
-    })
+    }
+    sidecarByGraph.set(graph, sidecar)
     config.hooks?.afterParse?.({ graph, lf, packages, rootId, options })
+    captureCanonicalPackageEntries(graph, sidecar, config)
     return graph
   } catch (error) {
     if (error instanceof GraphError) {
@@ -950,6 +1124,59 @@ function sealNpmParseContext(context: NpmParseContext, rootMeta: NpmRootMeta): G
       })
     }
     throw error
+  }
+}
+
+function captureCanonicalPackageEntries(
+  graph: Graph,
+  sidecar: NpmSidecar,
+  config: NpmFamilyConfig,
+): void {
+  const entries = sidecar.packageEntriesByPath
+  if (entries === undefined) return
+  const entriesByNodeId = new Map<string, NpmPackageEntrySidecar[]>()
+  for (const entry of entries.values()) {
+    const siblings = entriesByNodeId.get(entry.nodeId) ?? []
+    siblings.push(entry)
+    entriesByNodeId.set(entry.nodeId, siblings)
+  }
+  const differingNodeIds = new Set<string>()
+  for (const [nodeId, siblings] of entriesByNodeId) {
+    const [firstEntry] = siblings
+    if (firstEntry === undefined || siblings.length < 2) continue
+    const first = firstEntry.nativeEntry
+    if (siblings.some(entry => !packageEntryMetadataEqual(first, entry.nativeEntry))) {
+      differingNodeIds.add(nodeId)
+    }
+  }
+  for (const [path, entry] of entries) {
+    const node = graph.getNode(entry.nodeId)
+    const isManifestPlacement = node?.workspacePath !== undefined
+    if (!differingNodeIds.has(entry.nodeId) && !isManifestPlacement) entries.delete(path)
+  }
+  const canonicalEntriesByNodeId = new Map<string, Readonly<Record<string, unknown>>>()
+  for (const [path, entry] of entries) {
+    const node = graph.getNode(entry.nodeId)
+    if (node === undefined) continue
+    const nodeSidecar = sidecar.nodes.get(node.id)
+    const installPaths = nodeSidecar?.installPaths ?? [path]
+    let canonicalEntry = node.workspacePath === undefined
+      ? canonicalEntriesByNodeId.get(node.id)
+      : undefined
+    if (canonicalEntry === undefined) {
+      canonicalEntry = node.workspacePath === undefined
+        ? buildNodeModulesEntry(graph, node, nodeSidecar, installPaths, config)
+        : buildManifestPlacementEntry(
+            graph,
+            node,
+            nodeSidecar,
+            installPaths,
+            entry,
+            config,
+          )
+      if (node.workspacePath === undefined) canonicalEntriesByNodeId.set(node.id, canonicalEntry)
+    }
+    entry.canonicalEntry = canonicalEntry
   }
 }
 
@@ -966,6 +1193,7 @@ function hasTarballPayload(entry: NpmEntry): boolean {
     || entry.peerDependencies !== undefined
     || entry.peerDependenciesMeta !== undefined
     || entry.hasInstallScript !== undefined
+    || Array.isArray(entry.bundleDependencies)
     || entry.resolved !== undefined
 }
 
@@ -1005,6 +1233,9 @@ function tarballPayloadOf(entry: NpmEntry, subject: string, diagnostics: Diagnos
       Object.entries(entry.peerDependenciesMeta).map(([peer, meta]) => [peer, { ...meta }]))
   }
   if (entry.hasInstallScript !== undefined) payload.hasInstallScript = entry.hasInstallScript
+  if (Array.isArray(entry.bundleDependencies)) {
+    payload.bundledDependencies = entry.bundleDependencies.slice()
+  }
   // ADR-0014 §4.F3 — canonical resolution from npm `resolved` URL.
   if (typeof entry.resolved === 'string' && !entry.link) {
     const canonical = parseResolutionRecipe(entry.resolved, { sourceKind: 'npm-resolved' })
@@ -1138,6 +1369,62 @@ export function buildSyntheticRootEntry(
 
 function cloneNpmRootEntry(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+}
+
+function buildPackageEntryAtPath(
+  canonicalEntry: Readonly<Record<string, unknown>>,
+  pathState: NpmPackageEntrySidecar | undefined,
+  nodeId: string,
+): Record<string, unknown> {
+  if (pathState?.nodeId !== nodeId || pathState.canonicalEntry === undefined) {
+    return cloneNpmRootEntry(canonicalEntry)
+  }
+  const body = cloneNpmRootEntry(pathState.nativeEntry)
+  const baseline = pathState.canonicalEntry
+  const canonicalKeys = new Set([...Object.keys(baseline), ...Object.keys(canonicalEntry)])
+  for (const key of canonicalKeys) {
+    if (!PACKAGE_ENTRY_DEPENDENCY_KEYS.has(key)
+      && jsonValueEqual(baseline[key], canonicalEntry[key])) continue
+    if (Object.hasOwn(canonicalEntry, key)) {
+      body[key] = cloneJsonValue(canonicalEntry[key])
+    } else {
+      delete body[key]
+    }
+  }
+  return body
+}
+
+function cloneJsonValue(value: unknown): unknown {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function packageEntryMetadataEqual(
+  left: Readonly<Record<string, unknown>>,
+  right: Readonly<Record<string, unknown>>,
+): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  for (const key of keys) {
+    if (PACKAGE_ENTRY_DEPENDENCY_KEYS.has(key)) continue
+    if (!jsonValueEqual(left[key], right[key])) return false
+  }
+  return true
+}
+
+function jsonValueEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+    return false
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+    return left.every((value, index) => jsonValueEqual(value, right[index]))
+  }
+  const leftRecord = left as Readonly<Record<string, unknown>>
+  const rightRecord = right as Readonly<Record<string, unknown>>
+  const leftKeys = Object.keys(leftRecord)
+  if (leftKeys.length !== Object.keys(rightRecord).length) return false
+  return leftKeys.every(key => Object.hasOwn(rightRecord, key)
+    && jsonValueEqual(leftRecord[key], rightRecord[key]))
 }
 
 function cloneNativeRootEntry(
@@ -1532,6 +1819,9 @@ function buildNodeModulesEntry(
   if (nodeSide?.optional === true) body.optional = true
   if (nodeSide?.peer === true) body.peer = true
   if (nodeSide?.inBundle === true) body.inBundle = true
+  if (tarball?.bundledDependencies !== undefined) {
+    body.bundleDependencies = [...tarball.bundledDependencies]
+  }
 
   const sidecar = getFlatSidecar(graph)
   const blocks = collectManifestBlocks(graph, node.id, sidecar, emitDiagnostic)
@@ -1565,6 +1855,30 @@ function buildNodeModulesEntry(
     kind: 'installed',
   })
 
+  return body
+}
+
+function buildManifestPlacementEntry(
+  graph: Graph,
+  node: Node,
+  nodeSide: NpmFlatSidecar | undefined,
+  installPaths: readonly string[],
+  pathState: NpmPackageEntrySidecar | undefined,
+  config: NpmFamilyConfig,
+  emitDiagnostic: (d: Diagnostic) => void = () => undefined,
+): Record<string, unknown> {
+  const body = buildNodeModulesEntry(graph, node, nodeSide, installPaths, config, emitDiagnostic)
+  // The graph edges of a root/workspace node describe that project manifest,
+  // not the registry package installed at a self-placement. Keep the installed
+  // entry's own dependency blocks; otherwise replay would copy root/workspace
+  // declarations into a physically distinct packages[path] record.
+  for (const key of PACKAGE_ENTRY_DEPENDENCY_KEYS) {
+    if (pathState !== undefined && Object.hasOwn(pathState.nativeEntry, key)) {
+      body[key] = cloneJsonValue(pathState.nativeEntry[key])
+    } else {
+      delete body[key]
+    }
+  }
   return body
 }
 
@@ -1664,6 +1978,18 @@ export function pruneSidecar(sidecar: NpmSidecar, graph: Graph): NpmSidecar {
   for (const [path, nodeId] of sidecar.workspaceByPath) {
     if (reachableIds.has(nodeId)) workspaceByPath.set(path, nodeId)
   }
+  const packageEntriesByPath = sidecar.packageEntriesByPath === undefined
+    ? undefined
+    : new Map<string, NpmPackageEntrySidecar>()
+  for (const [path, entry] of sidecar.packageEntriesByPath ?? []) {
+    if (reachableIds.has(entry.nodeId)) packageEntriesByPath?.set(path, entry)
+  }
+  const linkEntriesByPath = sidecar.linkEntriesByPath === undefined
+    ? undefined
+    : new Map<string, NpmLinkEntrySidecar>()
+  for (const [path, entry] of sidecar.linkEntriesByPath ?? []) {
+    if (reachableIds.has(entry.targetNodeId)) linkEntriesByPath?.set(path, entry)
+  }
   return {
     rootId: sidecar.rootId !== undefined && reachableIds.has(sidecar.rootId) ? sidecar.rootId : undefined,
     rootMeta: sidecar.rootMeta,
@@ -1671,6 +1997,8 @@ export function pruneSidecar(sidecar: NpmSidecar, graph: Graph): NpmSidecar {
     edgeRanges,
     edgeDeclaredNames,
     workspaceByPath,
+    packageEntriesByPath,
+    linkEntriesByPath,
     unknownTopLevel: sidecar.unknownTopLevel,
   }
 }

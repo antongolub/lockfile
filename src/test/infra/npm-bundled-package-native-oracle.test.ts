@@ -21,6 +21,16 @@ const fixture = resolve('tmp/npm-corpus/raw/tmquan2508__Q-bot-afk__package-lock.
 const corpusAvailable = existsSync(fixture)
 const suite = corpusAvailable ? describe : describe.skip
 const npmPath = 'node_modules/npm'
+const pathLocalWitnessNames = new Set([
+  'ms',
+  'process',
+  'safe-buffer',
+  'safer-buffer',
+  'smart-buffer',
+  'string_decoder',
+  'util-deprecate',
+  'yallist',
+])
 
 function source(): string {
   return readFileSync(fixture, 'utf8')
@@ -65,6 +75,11 @@ function hiddenLock(root: string): unknown {
   return JSON.parse(readFileSync(resolve(root, 'node_modules/.package-lock.json'), 'utf8'))
 }
 
+function packageName(path: string, entry: Record<string, unknown>): string | undefined {
+  if (typeof entry.name === 'string') return entry.name
+  return (`/${path}`).split('/node_modules/').filter(Boolean).at(-1)
+}
+
 suite(
   corpusAvailable
     ? 'npm installed-package bundle carrier native oracle'
@@ -87,6 +102,21 @@ suite(
       const emitted = JSON.parse(stringify(parse(source()))) as typeof authored
       expect(emitted.packages[npmPath]?.bundleDependencies)
         .toEqual(authored.packages[npmPath]?.bundleDependencies)
+    })
+
+    it('replays every collapsed witness entry exactly before npm observes the lock', () => {
+      const authored = JSON.parse(source()) as {
+        packages: Record<string, Record<string, unknown>>
+      }
+      const emitted = JSON.parse(stringify(parse(source()))) as typeof authored
+      const witnessPaths = Object.entries(authored.packages)
+        .filter(([path, entry]) => path !== '' && pathLocalWitnessNames.has(packageName(path, entry) ?? ''))
+        .map(([path]) => path)
+
+      expect(witnessPaths).toHaveLength(23)
+      for (const path of witnessPaths) {
+        expect(emitted.packages[path], path).toEqual(authored.packages[path])
+      }
     })
 
     const native = process.env.LOCKGRAPH_NPM_BUNDLED_OFFLINE_ORACLE === '1' ? it : it.skip

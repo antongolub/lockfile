@@ -1,7 +1,7 @@
 # `npm-2` — npm `package-lock.json` (lockfileVersion 2)
 
 > Status: stable (adapter + flat-family round-trip suite; dual-mode drift covered).
-> Updated: 2026-08-02
+> Updated: 2026-08-06
 > Provenance: **Official**.
 
 ## Compatibility
@@ -117,6 +117,53 @@ this is only how npm-2 *carries* it.
   fields overlay a cloned carrier on emit; graph rebinding retains it, and the
   whole record travels across npm-2 ↔ npm-3. Minted and foreign-PM output
   fabricates none of it.
+- Every installed `packages[path]` record has the corresponding path-local
+  replay contract. npm can write different metadata presence or values for two
+  physical paths that resolve to the same package name and version; those
+  records are not interchangeable. Same-family replay therefore retains the
+  whole source entry at its exact install path, including producer-extension
+  keys, while canonical graph identity and dependency topology overlay the
+  retained record after a mutation. Minted or foreign-PM output is generated
+  from canonical package metadata and does not fabricate source-path state.
+- Physical installed placements remain authoritative even when their package
+  identity equals the root project or a workspace manifest node. Same-format
+  replay emits exactly the source-authored placements for those manifest
+  nodes: it neither drops an authored `packages[path]` entry nor synthesizes an
+  absent one. Dropping a non-link self placement can make offline npm fetch its
+  `resolved` tarball and fail with `ENOTCACHED`; dropping a link placement can
+  instead make npm reject the frozen lock as `Missing: ... from lock file`.
+- A `link: true` entry retains its exact source key, including aliases whose
+  `node_modules/<alias>` segment differs from the target package name. Its
+  `resolved` value follows the current root, workspace, or external installed
+  target after graph rebinding. Same-format replay does not replace an authored
+  alias with a conventional `node_modules/<target-name>` link, and it does not
+  create a link at either spelling when the source carried none.
+- `resolved` and `integrity` are part of that path-local contract. A URL from a
+  sibling installation must not replace the path's authored registry or mirror
+  origin. Likewise, an authored checksum must neither disappear nor be copied
+  to a source-absent path. Replacing sha1 with sha512 for the same package
+  version may still verify the same tarball, but it is not exact replay;
+  removing the checksum eliminates verification entirely.
+- The `optional` flag belongs to the physical package entry, not merely to the
+  package identity. A source-authored `optional: true` is replayed only at that
+  path, and absence is not copied from another installation. This distinction
+  is correctness-bearing: marking a required entry optional can make npm omit
+  the reverse-dependent subtree and exit successfully instead of failing the
+  required install.
+- The `dev`, `peer`, and `inBundle` flags are likewise not copied from one
+  physical path to a same-identity sibling. Real one-field offline controls
+  show all three spreads are install-inert, including `peer` under both default
+  resolution and `--legacy-peer-deps`, so this is a replay-fidelity rule. The
+  mechanism alone does not predict severity: the analogous `optional` spread
+  can instead omit a reverse-dependent project subtree and still exit zero.
+  Separately routed source-present `dev` losses remain unclassified and are
+  bounded against growth rather than folded into this sibling-spread rule.
+- An installed package's native `bundleDependencies` array is retained on the
+  package entry that carries it. It names dependencies shipped inside that
+  package tarball; dropping the carrier can make npm externalize those contents
+  and attempt registry or cache resolution that the source lock did not need.
+  Canonical bundled-dependency metadata remains available for generated and
+  cross-format output.
 - The family boundary is producer-measured, not inferred from a general npm
   classification. The real corpus exposes the identical fourteen-key root
   vocabulary in npm-2 and npm-3, and pinned npm 8.19.4 `npm ci` returns
@@ -160,6 +207,14 @@ this is only how npm-2 *carries* it.
   `@yarnpkg/cli-dist` mirrors as `dependencies.pm-x.version =
   "npm:@yarnpkg/cli-dist@<version>"`; keying the mirror by the canonical name
   instead leaves npm to repopulate the alias entry on its next writing run.
+- A scoped legacy-mirror slot such as `@scope/pkg` is one immediate child even
+  though its package name contains `/`. A package below that scoped child is
+  emitted in the scoped entry's own `dependencies` map rather than flattened
+  into the scoped entry's parent. When the corresponding source
+  `packages[path]` entry has `inBundle: true`, its legacy-mirror entry carries
+  `bundled: true`. The legacy mirror is npm 6's install input rather than a
+  derived display, so its `resolved` and `integrity` values retain the same
+  per-path source fidelity while the canonical baseline remains unchanged.
 - npm may write a different range spelling into the legacy mirror than into
   the authoritative `packages` entry when an override was applied. The flat
   package declaration retains the authored range (for example `^1.2.5`), while

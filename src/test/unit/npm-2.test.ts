@@ -150,6 +150,76 @@ describe('npm-2 — dual-mode parse preconditions', () => {
 })
 
 describe('npm-2 — legacy `dependencies` mirror emit', () => {
+  interface LegacyMirrorTestEntry {
+    bundled?: boolean
+    dependencies?: Record<string, LegacyMirrorTestEntry>
+    version?: string
+  }
+
+  const scopedNestedSource = JSON.stringify({
+    name: 'scoped-nested-root',
+    version: '1.0.0',
+    lockfileVersion: 2,
+    requires: true,
+    packages: {
+      '': {
+        name: 'scoped-nested-root',
+        version: '1.0.0',
+        dependencies: { parent: '1.0.0' },
+      },
+      'node_modules/parent': {
+        version: '1.0.0',
+        dependencies: { '@scope/direct': '1.0.0' },
+      },
+      'node_modules/parent/node_modules/@scope/direct': {
+        version: '1.0.0',
+        inBundle: true,
+        dependencies: { leaf: '1.0.0' },
+      },
+      'node_modules/parent/node_modules/@scope/direct/node_modules/leaf': {
+        version: '1.0.0',
+        inBundle: true,
+      },
+    },
+    dependencies: {
+      parent: {
+        version: '1.0.0',
+        requires: { '@scope/direct': '1.0.0' },
+        dependencies: {
+          '@scope/direct': {
+            version: '1.0.0',
+            bundled: true,
+            requires: { leaf: '1.0.0' },
+            dependencies: {
+              leaf: { version: '1.0.0', bundled: true },
+            },
+          },
+        },
+      },
+    },
+  }, null, 2)
+
+  const scopedNestedMirror = (): Record<string, LegacyMirrorTestEntry> =>
+    (JSON.parse(stringify(parse(scopedNestedSource))) as {
+      dependencies: Record<string, LegacyMirrorTestEntry>
+    }).dependencies
+
+  it('keeps a scoped direct child in its parent mirror and preserves `bundled`', () => {
+    expect(scopedNestedMirror().parent?.dependencies?.['@scope/direct']).toMatchObject({
+      version: '1.0.0',
+      bundled: true,
+    })
+  })
+
+  it('keeps a deeper child below the scoped parent instead of flattening it', () => {
+    const parent = scopedNestedMirror().parent
+    expect(parent?.dependencies?.['@scope/direct']?.dependencies?.leaf).toMatchObject({
+      version: '1.0.0',
+      bundled: true,
+    })
+    expect(parent?.dependencies?.leaf).toBeUndefined()
+  })
+
   it('retains an aliased top-level slot and its npm-qualified version', () => {
     const source = JSON.stringify({
       name: 'alias-root',

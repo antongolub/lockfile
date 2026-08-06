@@ -375,6 +375,28 @@ export interface NpmFlatSidecar {
   npmExtensionApplied?: unknown
 }
 
+/** Native `packages[path]` state whose meaning belongs to one physical
+ * installation path rather than to the canonical package identity. */
+export interface NpmPackageEntrySidecar {
+  nodeId: string
+  /** Whole source-authored `packages[path]` record. Same-family replay uses
+   *  this exact-path carrier for native metadata presence and values; graph
+   *  identity/topology still comes from the canonical entry. */
+  nativeEntry: Readonly<Record<string, unknown>>
+  /** Canonical installed-entry projection at parse time. A later graph rebind
+   *  overlays every key whose canonical value changed, so native state cannot
+   *  replay a stale checksum, URL, identity, or dependency block. */
+  canonicalEntry?: Readonly<Record<string, unknown>>
+}
+
+/** Native npm `link: true` entry keyed by its physical alias path. The target
+ *  node carries canonical workspace/root identity; the source path remains
+ *  layout state because it may differ from `node_modules/<target.name>`. */
+export interface NpmLinkEntrySidecar {
+  targetNodeId: string
+  nativeEntry: Readonly<Record<string, unknown>>
+}
+
 export interface NpmSidecar {
   rootId?: string
   rootMeta?: NpmRootMeta
@@ -386,6 +408,13 @@ export interface NpmSidecar {
   edgeDeclaredNames: Map<string, string>
   // Node-level sidecar keyed by NodeId.
   nodes: Map<string, NpmFlatSidecar>
+  // Installed-entry sidecar keyed by the exact `packages` path. npm can carry
+  // different whole records for two paths that collapse to one canonical NodeId.
+  // Optional because npm-1 reuses NpmSidecar but has no flat `packages` table.
+  packageEntriesByPath?: Map<string, NpmPackageEntrySidecar>
+  // Exact source-authored link aliases. Optional because npm-1 and generated /
+  // foreign graphs have no flat packages-table link carrier.
+  linkEntriesByPath?: Map<string, NpmLinkEntrySidecar>
   // Workspace member path lookup: workspacePath -> NodeId.
   workspaceByPath: Map<string, string>
   /** Producer-tolerated, adapter-unknown project-level keys. Same-format only. */

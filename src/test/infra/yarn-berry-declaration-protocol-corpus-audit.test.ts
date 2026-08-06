@@ -7,10 +7,12 @@ import {
   stringify,
   type FormatId,
 } from '../../main/ts/index.ts'
+import type { ProjectionLoss } from '../../main/ts/api/errors.ts'
 import {
   parse as parseSyml,
   type SymlMap,
 } from '../../main/ts/formats/_yarn-syml.ts'
+import type { Graph } from '../../main/ts/graph.ts'
 
 type BerryFormat = Extract<FormatId, `yarn-berry-v${number}`>
 type ProtocolKind = 'alias' | 'plain'
@@ -117,7 +119,23 @@ function combine(into: ProtocolStats, from: ProtocolStats): void {
 const generations = new Map<BerryFormat, GenerationStats>()
 const total = generationStats()
 const invalidFiles: string[] = []
+const strictRefused = new Map<string, number>()
+const strictUnexpected: string[] = []
+let strictReplayed = 0
 let byteExact = 0
+
+function isKnownBuiltinPatchRefusal(
+  graph: Graph,
+  losses: readonly ProjectionLoss[],
+): boolean {
+  return losses.length > 0 && losses.every(loss => {
+    if (loss.class !== 'berry-checksum' || typeof loss.subject !== 'string') return false
+    const native = graph.tarballOf(loss.subject)?.nativeResolution
+    if (native === undefined || !native.includes('builtin<compat/fsevents>')) return false
+    return graph.in(loss.subject).some(edge =>
+      edge.kind !== 'optional' && edge.attrs?.optional !== true)
+  })
+}
 
 function statsFor(format: BerryFormat): GenerationStats {
   const existing = generations.get(format)
@@ -137,14 +155,28 @@ beforeAll(() => {
     generation.detected += 1
     total.detected += 1
 
-    let output: string
+    let graph: Graph
     try {
-      output = stringify(format, parse(format, input), { strict: false })
+      graph = parse(format, input)
     } catch {
       generation.invalid += 1
       total.invalid += 1
       invalidFiles.push(file)
       continue
+    }
+
+    let output: string
+    try {
+      output = stringify(format, graph)
+      strictReplayed += 1
+    } catch (error) {
+      const losses = (error as { losses?: readonly ProjectionLoss[] }).losses ?? []
+      if (isKnownBuiltinPatchRefusal(graph, losses)) {
+        strictRefused.set('berry-checksum', (strictRefused.get('berry-checksum') ?? 0) + 1)
+      } else {
+        strictUnexpected.push(`${file}: ${String((error as Error)?.message).slice(0, 180)}`)
+      }
+      output = stringify(format, graph, { strict: false })
     }
     generation.replayed += 1
     total.replayed += 1
@@ -216,6 +248,13 @@ suite(
       for (const file of invalidFiles) {
         expect(readFileSync(resolve(corpusRoot, file), 'utf8')).toMatch(/^<{7} /m)
       }
+      // This is the authoritative full-corpus strict-replay boundary. The focused
+      // risk audit must not grow a second adapter pass over the full population.
+      expect({
+        replayed: strictReplayed,
+        refused: strictRefused.get('berry-checksum'),
+        unexpected: strictUnexpected,
+      }).toEqual({ replayed: 384, refused: 1, unexpected: [] })
     })
 
     it('preserves every explicit alias-form declaration value', () => {
