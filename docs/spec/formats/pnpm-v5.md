@@ -109,6 +109,24 @@ this is only how pnpm *carries* it.
 
 ## Quirks
 
+### Numeric-looking scalars carry a YAML type
+
+A quoted decimal is a **string**; a bare one is a **number**. The distinction is
+load-bearing wherever a dependency range happens to look numeric — a manifest
+declaring `"babel-loader": "8"` produces `babel-loader: '8'` in `specifiers`, and
+pnpm compares that string against the manifest under a frozen install.
+
+Emitting it bare changes its type, the comparison no longer matches, and the lock
+is refused. The inverse rule holds equally: a genuine bare number must stay bare,
+or a numeric setting silently becomes a string.
+
+> **Measured** · pnpm 6.35.1 · `pnpm install --frozen-lockfile` · a lock whose
+> root `specifiers` keeps `babel-loader: '8'` is accepted; the same lock with only
+> the quotes removed fails `ERR_PNPM_OUTDATED_LOCKFILE`.
+
+The rule is a property of the YAML codec, so it holds identically on
+[v6](./pnpm-v6.md) and [v9](./pnpm-v9.md).
+
 - Package id grammar: `/<name>/<version>` for plain, `/<name>/<version>_<peerHash>`
   for peer-virtualised, `/<name>/<version>_<peerHash><sub>` for chained.
   This is **the** reference for "how pnpm encodes peerContext" — the model's

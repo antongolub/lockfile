@@ -289,6 +289,29 @@ model's peer-edge `optional` attribute for bound peers, with a verbatim sidecar
 carrier for optional peers pnpm never resolved into an edge). `os` / `cpu` /
 `engines` / `hasBin` / `resolution.integrity` were already preserved.
 
+- A quoted decimal scalar is a **string** and a bare one is a **number**; the
+  codec preserves that distinction in every scalar context, including keys.
+  A dependency range that looks numeric (`'8'`) must stay quoted or a frozen
+  install rejects the lock — see the
+  [pnpm-v5 rule](./pnpm-v5.md#numeric-looking-scalars-carry-a-yaml-type).
+
+### `optional` on a snapshot entry
+
+A `snapshots` entry may carry `optional: true`. It belongs to the resolved-tree
+record, not to the `packages` metadata baseline — no observed producer writes it
+into `packages` on this generation.
+
+The bit is **not** implied by `os` / `cpu` / `libc`. Those gates answer whether a
+package is *eligible* on the current platform; `optional` answers whether failing
+to materialise an eligible snapshot is *soft*. Both can appear on the same entry
+and neither can be derived from the other.
+
+> **Measured** · pnpm 9.15.9 · `pnpm install --frozen-lockfile --offline` against a
+> store primed only by the source install · a lock whose snapshot keeps
+> `optional: true` installs; the same lock with only that bit removed fails
+> `ERR_PNPM_NO_OFFLINE_TARBALL`, because pnpm then treats the reached snapshot as
+> mandatory and requests a tarball the source install never needed.
+
 ### npm aliases
 
 - A dependency installed under an alias (`react-is-cjs: "npm:react-is@^17"`) is

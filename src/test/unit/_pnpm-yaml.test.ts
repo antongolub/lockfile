@@ -11,7 +11,8 @@ describe('readYaml', () => {
   it('reads a block scalar (`key: |`) as an empty string and skips its body lines', () => {
     // The literal-block body is consumed but not preserved — the value collapses to ''.
     const y = readYaml('key: |\n  line one\n  line two\nother: 5\n')
-    expect(y).toEqual({ key: '', other: '5' })
+    // A bare decimal token is a YAML number; only a quoted one is a string.
+    expect(y).toEqual({ key: '', other: 5 })
   })
 
   it('reads a folded block scalar (`key: >`) the same way (empty string, body skipped)', () => {
@@ -32,7 +33,7 @@ describe('readYaml', () => {
   it('parses a flow item that has no colon by dropping it', () => {
     // A flow map whose second item lacks a `:` is skipped; the valid one survives.
     const y = readYaml('m: {a: 1, bogus}\n')
-    expect(y).toEqual({ m: { a: '1' } })
+    expect(y).toEqual({ m: { a: 1 } })
   })
 
   it('reads an explicit key (`? <key>` / `: <value>`) whose value mapping starts on the `:` line', () => {
@@ -58,7 +59,7 @@ describe('readYaml', () => {
 
   it('reads an explicit key whose value block starts on the line after `:`', () => {
     const y = readYaml('m:\n  ? long-key\n  :\n    a: 1\n')
-    expect(y).toEqual({ m: { 'long-key': { a: '1' } } })
+    expect(y).toEqual({ m: { 'long-key': { a: 1 } } })
   })
 
   it('reads an explicit key with an inline empty-map value (`: {}`)', () => {
@@ -84,7 +85,7 @@ describe('readYaml', () => {
     // skipped, so later documents overwrite earlier top-level keys. Pinned as a
     // regression guard for the entry loop, not endorsed as document support.
     const y = readYaml('---\na: 1\nm:\n  x: first\n---\nb: 2\nm:\n  y: second\n')
-    expect(y).toEqual({ a: '1', b: '2', m: { y: 'second' } })
+    expect(y).toEqual({ a: 1, b: 2, m: { y: 'second' } })
   })
 
   it('reads an explicit key longer than YAML\'s 1024-character implicit-key limit verbatim', () => {
@@ -101,7 +102,9 @@ describe('emitYaml', () => {
       { topLevelOrder: ['fm', 'arr', 'empt', 'flag', 'q'] },
     )
     expect(out).toBe(
-      'fm: {a: 1, b: 2}\n\narr:\n- x\n- y\n\nempt: []\n\nflag: true\n\nq: \'9.0\'\n',
+      // The map was built with STRINGS, so they emit quoted — a numeric-looking
+      // string must not come back as a number.
+      'fm: {a: \'1\', b: \'2\'}\n\narr:\n- x\n- y\n\nempt: []\n\nflag: true\n\nq: \'9.0\'\n',
     )
   })
 

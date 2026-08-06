@@ -280,6 +280,14 @@ export interface PnpmNodeSidecar {
   transitivePeerDependencies?: string[]
   /** v6-only: per-entry dev flag. Treated as `false` if absent. */
   dev?: boolean
+  /** Per-entry `optional` bit, captured from whichever entry is the generation's
+   *  AUTHORITATIVE RESOLVED-TREE record: `snapshots[key]` on v9, `packages[key]`
+   *  on v6. It is NOT derivable from `os`/`cpu`/`libc`, which answer whether a
+   *  package is ELIGIBLE on this platform; this bit answers whether failing to
+   *  materialise an eligible snapshot is SOFT. Drop it and pnpm treats the
+   *  reached snapshot as mandatory and fetches a tarball the source install
+   *  never needed. */
+  optional?: boolean
 }
 
 export interface PnpmEdgeSidecar {
@@ -821,6 +829,9 @@ function addPnpmSnapshotPackageNodes(context: PnpmParseContext): void {
         nodeSidecar.transitivePeerDependencies = (snapEntry.transitivePeerDependencies as string[]).slice()
       }
     }
+    if (isPlainObject(snapEntry) && snapEntry.optional === true && nodeSidecar !== undefined) {
+      nodeSidecar.optional = true
+    }
   }
 }
 
@@ -1267,6 +1278,11 @@ function pnpmNodeSidecar(pkgEntry: unknown): PnpmNodeSidecar {
   if (Array.isArray(pkgEntry.os)) nodeSc.os = (pkgEntry.os as string[]).slice()
   if (Array.isArray(pkgEntry.cpu)) nodeSc.cpu = (pkgEntry.cpu as string[]).slice()
   if (Array.isArray(pkgEntry.libc)) nodeSc.libc = (pkgEntry.libc as string[]).slice()
+  // v6 keeps the resolved tree inline, so `packages[key]` IS the authoritative
+  // record here. A v9 `packages[bareKey]` is the metadata baseline and never
+  // carries the bit, so this stays a no-op there and the snapshots loop below
+  // supplies it — no generation branch needed.
+  if (pkgEntry.optional === true) nodeSc.optional = true
   return nodeSc
 }
 
@@ -2679,6 +2695,7 @@ function buildPackageEntry(
   writePackagePeerMetadata(context)
   writePackageInlineDependencies(context)
   writePackageDevFlag(context)
+  writePackageOptionalFlag(context)
   return context.entry
 }
 
@@ -2853,6 +2870,18 @@ function writePackageDevFlag(context: PackageEntryContext): void {
   if (context.shape.devFlag) context.entry.dev = context.nodeSc?.dev ?? false
 }
 
+// v6 writes `optional` last in an inline package entry, after `dev`. Absence
+// stays absence: a source without the bit must not gain one.
+//
+// Gated on `hasSnapshots` because the bit belongs to the generation's
+// AUTHORITATIVE resolved-tree record. Where a `snapshots` block exists it lives
+// there and `packages` is the metadata baseline; emitting it in both would
+// fabricate a key no v9 producer writes.
+function writePackageOptionalFlag(context: PackageEntryContext): void {
+  if (context.shape.hasSnapshots) return
+  if (context.nodeSc?.optional === true) context.entry.optional = true
+}
+
 function buildSnapshotEntry(
   graph: Graph,
   sidecar: PnpmSidecar | undefined,
@@ -2927,6 +2956,9 @@ function buildSnapshotEntry(
   if (nodeSc?.transitivePeerDependencies !== undefined && nodeSc.transitivePeerDependencies.length > 0) {
     entry.transitivePeerDependencies = nodeSc.transitivePeerDependencies.slice()
   }
+  // pnpm writes `optional` last in a snapshot entry, after the dependency
+  // blocks and `transitivePeerDependencies`.
+  if (nodeSc?.optional === true) entry.optional = true
 
   return entry
 }

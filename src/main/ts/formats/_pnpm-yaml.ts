@@ -143,13 +143,13 @@ export function emitYaml(
       } else {
         lines.push(`${emitScalarKey(key)}:`)
         for (const item of value) {
-          lines.push(`- ${emitScalar(String(item))}`)
+          lines.push(`- ${emitScalar(item)}`)
         }
       }
     } else if (typeof value === 'boolean') {
       lines.push(`${emitScalarKey(key)}: ${value}`)
     } else {
-      lines.push(`${emitScalarKey(key)}: ${emitScalar(String(value))}`)
+      lines.push(`${emitScalarKey(key)}: ${emitScalar(value)}`)
     }
   }
   return lines.join('\n') + '\n'
@@ -418,6 +418,7 @@ function parseInlineValue(raw: string): unknown {
   if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
     return unquoteKey(trimmed)
   }
+  if (NUMERIC_SCALAR_RE.test(trimmed)) return Number(trimmed)
   return trimmed
 }
 
@@ -567,13 +568,13 @@ function emitBlockMapEntry(
     } else {
       lines.push(`${indent}${emittedKey}:`)
       for (const item of value) {
-        lines.push(`${indent}- ${emitScalar(String(item))}`)
+        lines.push(`${indent}- ${emitScalar(item)}`)
       }
     }
   } else if (typeof value === 'boolean') {
     lines.push(`${indent}${emittedKey}: ${value}`)
   } else {
-    lines.push(`${indent}${emittedKey}: ${emitScalar(String(value))}`)
+    lines.push(`${indent}${emittedKey}: ${emitScalar(value)}`)
   }
 }
 
@@ -619,8 +620,8 @@ function emitFlowMap(obj: YamlMap): string {
     else if (typeof value === 'boolean') v = String(value)
     else if (typeof value === 'string') v = emitScalar(value)
     else if (isPlainObject(value)) v = emitFlowMap(value as YamlMap)
-    else if (Array.isArray(value)) v = `[${(value as unknown[]).map(item => emitScalar(String(item))).join(', ')}]`
-    else v = emitScalar(String(value))
+    else if (Array.isArray(value)) v = `[${(value as unknown[]).map(item => emitScalar(item)).join(', ')}]`
+    else v = emitScalar(value)
     parts.push(`${k}: ${v}`)
   }
   return `{${parts.join(', ')}}`
@@ -639,7 +640,25 @@ function keyNeedsQuoting(key: string): boolean {
   return false
 }
 
-function emitScalar(value: string): string {
+// A bare decimal token in the source is a YAML NUMBER; a quoted one is a
+// STRING that merely looks numeric. pnpm's own reader draws that line, so a
+// dependency range authored as `babel-loader: '8'` must not come back as
+// `babel-loader: 8` — the manifest comparison then sees a number where it
+// expects a range and refuses the lock as out of date.
+//
+// Emitting a genuine parsed number bare is the other half: quoting everything
+// numeric-looking would turn real numeric settings into strings, trading one
+// type defect for its mirror.
+const NUMERIC_SCALAR_RE = /^-?\d+(?:\.\d+)?$/
+
+export function isNumericScalarText(value: string): boolean {
+  return NUMERIC_SCALAR_RE.test(value)
+}
+
+function emitScalar(value: unknown): string {
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value !== 'string') return emitScalar(String(value))
+  if (isNumericScalarText(value)) return `'${value}'`
   if (value === '') return "''"
   if (/^(true|false|null|~)$/i.test(value)) return `'${value}'`
   // `@` and `` ` `` are YAML reserved indicators — a plain scalar may not start

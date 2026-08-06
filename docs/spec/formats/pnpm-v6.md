@@ -82,6 +82,19 @@ Compared to v5:
   tarball. This does **not** close the separate native pnpm 5–8 input gap: those
   producers key local packages as bare `file:<dir>`, which the current v6
   packages-key parser still rejects with `PNPM_BAD_ENTRY` (see below).
+- A `packages` entry may carry `optional: true`, written last, after `dev`. v6
+  keeps the resolved tree inline, so the `packages` entry **is** the
+  authoritative record and the bit lives there rather than in a separate
+  snapshots block. It is not implied by `os` / `cpu` / `libc`: those gates answer
+  whether a package is *eligible* on the current platform, while `optional`
+  answers whether failing to materialise an eligible entry is *soft*. See the
+  [pnpm-v9 rule](./pnpm-v9.md#optional-on-a-snapshot-entry) for the measured
+  installer consequence, which is the same on this generation.
+- A quoted decimal scalar is a **string** and a bare one is a **number**; the
+  codec preserves that distinction in every scalar context, including keys.
+  A dependency range that looks numeric (`'8'`) must stay quoted or a frozen
+  install rejects the lock — see the
+  [pnpm-v5 rule](./pnpm-v5.md#numeric-looking-scalars-carry-a-yaml-type).
 - Package ids switch from `/<name>/<ver>` to `/<name>@<ver>` (and
   `/<name>@<ver>(peer@x)` for virtualised). Easier to read; trivial to migrate.
 - `importers.<path>.dependencies.<name>` is now an object `{specifier, version}`
