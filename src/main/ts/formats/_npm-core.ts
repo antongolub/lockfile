@@ -1156,8 +1156,9 @@ function captureCanonicalPackageEntries(
     // key. A key the projection cannot emit AT ALL is another, and it needs no
     // sibling to be lost — `hasShrinkwrap`, `extraneous`, `devOptional` and any
     // npm key we have not modelled reach the emit with nowhere to come from.
-    const carriesUnprojectableKey = Object.keys(entry.nativeEntry)
-      .some(key => !NODE_MODULES_ENTRY_KEYS.has(key))
+    const carriesUnprojectableKey = Object.entries(entry.nativeEntry)
+      .some(([key, value]) => !NODE_MODULES_ENTRY_KEYS.has(key)
+        || (RECORD_SHAPED_PAYLOAD_KEYS.has(key) && Array.isArray(value)))
     if (!differingNodeIds.has(entry.nodeId) && !isManifestPlacement && !carriesUnprojectableKey) {
       entries.delete(path)
     }
@@ -1227,7 +1228,14 @@ function tarballPayloadOf(entry: NpmEntry, subject: string, diagnostics: Diagnos
       payload.integrity = integrity
     }
   }
-  if (entry.engines !== undefined) payload.engines = { ...entry.engines }
+  // npm tolerates a legacy ARRAY `engines` (`["node >= 0.8.0"]`). Spreading it
+  // into the record-shaped canonical field turns it into `{"0": "node >= 0.8.0"}`
+  // — a different value, not a different spelling. Decline the shape here so the
+  // exact-path native record stays its only carrier; `RECORD_SHAPED_PAYLOAD_KEYS`
+  // makes retention fire for it.
+  if (entry.engines !== undefined && !Array.isArray(entry.engines)) {
+    payload.engines = { ...entry.engines }
+  }
   if (entry.funding !== undefined) payload.funding = entry.funding
   if (entry.license !== undefined) payload.license = entry.license
   if (entry.bin !== undefined) payload.bin = typeof entry.bin === 'string' ? entry.bin : { ...entry.bin }
@@ -1800,6 +1808,23 @@ function buildWorkspaceMemberEntry(
  * carrier is the exact-path native record, which is why retention consults this
  * rather than building a projection per entry to compare values.
  */
+/**
+ * Canonical payload keys the projection stores as a RECORD.
+ *
+ * npm tolerates a legacy array spelling for some of these. An array cannot be
+ * reproduced from a record-shaped canonical field, so the projection declines it
+ * and the exact-path native record becomes its only carrier — the same rule as a
+ * key the projection cannot emit at all, applied to a shape instead of a name.
+ *
+ * Declared beside `tarballPayloadOf` for the same reason as
+ * `NODE_MODULES_ENTRY_KEYS`: the copy code and its contract stay together.
+ */
+export const RECORD_SHAPED_PAYLOAD_KEYS: ReadonlySet<string> = new Set([
+  'engines',
+  'peerDependencies',
+  'peerDependenciesMeta',
+])
+
 export const NODE_MODULES_ENTRY_KEYS: ReadonlySet<string> = new Set([
   'name',
   'version',
