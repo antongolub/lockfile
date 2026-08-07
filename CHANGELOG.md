@@ -1,3 +1,14 @@
+## [0.6.5](https://github.com/lockgraph/lockgraph/compare/v0.6.4...v0.6.5) (2026-08-07)
+
+### Fixes & improvements
+* fix(npm): stop flattening a legacy array engines into an object ([d213eb2](https://github.com/lockgraph/lockgraph/commit/d213eb2a2bd768463779d1154eb394559b6a5388))
+* fix(npm): retain entries carrying keys the projection cannot emit ([8503090](https://github.com/lockgraph/lockgraph/commit/8503090ea04fc8644c8e86f719c28bf3526105e8))
+* fix(pnpm): preserve snapshot optional bits and numeric scalar types ([76a8b75](https://github.com/lockgraph/lockgraph/commit/76a8b75105d4d980f659df12ae9d14d7b8de54f9))
+* fix(npm): preserve per-path entry metadata and restore vanished install paths ([9049064](https://github.com/lockgraph/lockgraph/commit/9049064ebda0073236a508586bf1fa152849e173))
+* docs: state producer behaviour, not lockgraph scores ([fa0d1fc](https://github.com/lockgraph/lockgraph/commit/fa0d1fc6145583dbaafe40af575ff37200044f23))
+* fix(npm): key installed-entry flags by path, carry bundled dependencie ([da2571d](https://github.com/lockgraph/lockgraph/commit/da2571df6ab8246fbd25b2c0a134260cc93419d3))
+* fix(yarn): preserve source-authored npm: protocol spelling in berry locks ([a301670](https://github.com/lockgraph/lockgraph/commit/a301670f58230def16cc20eaeb72422fc2083c3e))
+
 ## [0.6.4](https://github.com/lockgraph/lockgraph/compare/v0.6.3...v0.6.4) (2026-08-02)
 
 ### Fixes & improvements
