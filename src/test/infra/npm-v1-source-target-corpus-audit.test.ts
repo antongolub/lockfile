@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { detect, parse, stringify } from '../../main/ts/api/format-api.ts'
+import { corpusBudget } from './_corpus-budget.ts'
 
 const corpusRoot = resolve('tmp/npm-corpus/raw')
 const corpusAvailable = existsSync(corpusRoot)
@@ -126,6 +127,6 @@ suite(
       // Full-corpus parse/byte floors and the authoritative zero source-target
       // seal are owned by npm-undetected-corpus-audit.test.ts. This focused
       // audit keeps the source-risk and Chinese-mirror oracles inexpensive.
-    }, 120_000)
+    }, corpusBudget(120_000))
   },
 )

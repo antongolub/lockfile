@@ -117,6 +117,14 @@ this is only how npm-2 *carries* it.
   fields overlay a cloned carrier on emit; graph rebinding retains it, and the
   whole record travels across npm-2 ↔ npm-3. Minted and foreign-PM output
   fabricates none of it.
+- A bare workspace member at `packages[<workspace-path>]` has the same
+  exact-path replay rule, through the workspace projection rather than the
+  installed-entry projection. Same-family replay retains source-owned metadata
+  keys and value shapes that the canonical workspace projection cannot emit;
+  current canonical name, version, and dependency blocks still overlay the
+  retained record after mutation. A moved or removed workspace path invalidates
+  its native record. The root `packages[""]` remains exclusively on the root
+  carrier above, and a source-absent workspace key is never fabricated.
 - Every installed `packages[path]` record has the corresponding path-local
   replay contract. npm can write different metadata presence or values for two
   physical paths that resolve to the same package name and version; those
@@ -307,12 +315,6 @@ remains native and is preserved within the npm/pnpm SRI origin class.
 ## Fixtures
 
 Per-case locks and whole-project samples, as described in [Evidence](./README.md#evidence). A claim resting on a real-world lock cites it by upstream identity at the point it is made.
-
-## Open questions
-
-> **Open:** is `engines`/`funding`/`license` data we can reasonably *not*
-> store, or is it required for emitting valid npm-2 lockfiles? Likely the
-> latter — nominate `meta` as an opt-in `parse({manifests})` source.
 
 ## Unknown top-level extension keys
 

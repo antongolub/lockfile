@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { detect, parse, stringify } from '../../main/ts/index.ts'
 import type { DenoFormatId } from '../../main/ts/api/format-contract.ts'
+import { corpusBudget } from './_corpus-budget.ts'
 
 const corpusRoot = resolve('tmp/deno-corpus/raw')
 const corpusAvailable = existsSync(corpusRoot)
@@ -138,6 +139,6 @@ suite(
       // Every generation we claim to support must be represented, or the replay
       // proves less than it appears to.
       expect([...detected.keys()].sort()).toEqual(['deno-v2', 'deno-v3', 'deno-v4', 'deno-v5'])
-    }, 60_000)
+    }, corpusBudget(60_000))
   },
 )

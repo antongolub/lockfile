@@ -9,6 +9,8 @@ const corpusAvailable = existsSync(corpusRoot)
 const suite = corpusAvailable ? describe : describe.skip
 const fields = ['integrity', 'resolved', 'license', 'dev', 'peer', 'inBundle'] as const
 type Field = typeof fields[number]
+const workspaceFields = ['engines', 'hasInstallScript', 'extraneous'] as const
+type WorkspaceField = typeof workspaceFields[number]
 
 interface FieldMeasurement {
   readonly added: number
@@ -24,6 +26,7 @@ interface Measurement {
   readonly missingNonLinkPaths: number
   readonly replayed: number
   readonly fields: Readonly<Record<Field, FieldMeasurement>>
+  readonly workspaceFields: Readonly<Record<WorkspaceField, FieldMeasurement>>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -54,6 +57,19 @@ function measure(): Measurement {
     siblingTransfer: 0,
     unrelated: 0,
   }])) as Record<Field, {
+    added: number
+    changed: number
+    dropped: number
+    siblingTransfer: number
+    unrelated: number
+  }>
+  const mutableWorkspace = Object.fromEntries(workspaceFields.map(field => [field, {
+    added: 0,
+    changed: 0,
+    dropped: 0,
+    siblingTransfer: 0,
+    unrelated: 0,
+  }])) as Record<WorkspaceField, {
     added: number
     changed: number
     dropped: number
@@ -119,6 +135,23 @@ function measure(): Measurement {
         if (transferred) mutable[field].siblingTransfer += 1
         else mutable[field].unrelated += 1
       }
+      const isWorkspacePath = path !== ''
+        && !path.startsWith('node_modules/')
+        && !path.includes('/node_modules/')
+      if (!isWorkspacePath) continue
+      for (const field of workspaceFields) {
+        const before = rawSourceEntry[field]
+        const after = isRecord(emittedEntry) ? emittedEntry[field] : undefined
+        if (valueKey(before) === valueKey(after)) continue
+        const kind = before === undefined ? 'added' : after === undefined ? 'dropped' : 'changed'
+        mutableWorkspace[field][kind] += 1
+        const transferred = siblings.some(([siblingPath, sibling]) =>
+          siblingPath !== path
+          && valueKey(sibling[field]) === valueKey(after)
+          && valueKey(sibling[field]) !== valueKey(before))
+        if (transferred) mutableWorkspace[field].siblingTransfer += 1
+        else mutableWorkspace[field].unrelated += 1
+      }
     }
   }
 
@@ -131,6 +164,10 @@ function measure(): Measurement {
       field,
       Object.freeze({ ...mutable[field] }),
     ])) as Record<Field, FieldMeasurement>),
+    workspaceFields: Object.freeze(Object.fromEntries(workspaceFields.map(field => [
+      field,
+      Object.freeze({ ...mutableWorkspace[field] }),
+    ])) as Record<WorkspaceField, FieldMeasurement>),
   })
   return cached
 }
@@ -174,10 +211,13 @@ suite(
       })
     }, 180_000)
 
-    it('closes sibling license transfers while keeping unrelated drops separately visible', () => {
+    it('preserves license after attributing the parked partial drops to workspace paths', () => {
       const { siblingTransfer, unrelated } = measure().fields.license
       console.info('npm path-local entry unrelated license divergences', { unrelated })
       expect(siblingTransfer).toBe(0)
+      // This was deliberately carried as 142 unattributed unrelated drops
+      // until the bare-workspace carrier identified and closed the mechanism.
+      expect(unrelated).toBe(0)
     }, 180_000)
 
     it('never spreads NodeId-local flags to a sibling install path', () => {
@@ -191,10 +231,25 @@ suite(
           siblingTransfer: 0,
         })
       }
-      expect(flagFields.dev.dropped).toBeLessThanOrEqual(7)
-      expect(flagFields.dev.unrelated).toBeLessThanOrEqual(7)
+      // These seven dev drops were kept as a bounded, unattributed inventory
+      // until the bare-workspace carrier proved they share that exact mechanism.
+      expect(flagFields.dev).toMatchObject({ dropped: 0, unrelated: 0 })
       expect(flagFields.peer).toMatchObject({ dropped: 0, unrelated: 0 })
       expect(flagFields.inBundle).toMatchObject({ dropped: 0, unrelated: 0 })
     }, 180_000)
+
+    for (const field of workspaceFields) {
+      it(`preserves workspace-path ${field} value and absence exactly`, () => {
+        const measurement = measure().workspaceFields[field]
+        console.info(`npm workspace-path ${field} divergences`, measurement)
+        expect(measurement).toEqual({
+          added: 0,
+          changed: 0,
+          dropped: 0,
+          siblingTransfer: 0,
+          unrelated: 0,
+        })
+      }, 180_000)
+    }
   },
 )

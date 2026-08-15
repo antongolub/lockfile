@@ -13,6 +13,7 @@ import {
   type SymlMap,
 } from '../../main/ts/formats/_yarn-syml.ts'
 import type { Graph } from '../../main/ts/graph.ts'
+import { corpusBudget } from './_corpus-budget.ts'
 
 type BerryFormat = Extract<FormatId, `yarn-berry-v${number}`>
 type ProtocolKind = 'alias' | 'plain'
@@ -230,7 +231,7 @@ beforeAll(() => {
     combine(total.plain, generation.plain)
     combine(total.alias, generation.alias)
   }
-}, 120_000)
+}, corpusBudget(120_000))
 
 suite(
   corpusAvailable

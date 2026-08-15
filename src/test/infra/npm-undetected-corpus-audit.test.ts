@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { LockfileError } from '../../main/ts/api/errors.ts'
 import { detect, parse, stringify } from '../../main/ts/api/format-api.ts'
+import { corpusBudget } from './_corpus-budget.ts'
 
 const corpusRoot = resolve('tmp/npm-corpus/raw')
 const corpusAvailable = existsSync(corpusRoot)
@@ -185,10 +186,10 @@ suite(
       // This is the authoritative full-corpus npm source-target seal. The
       // focused npm-v1 audit raw-prefilters its source-risk/mirror population.
       expect(coverage.sourceTargetSealFailures).toEqual([])
-    }, 180_000)
+    }, corpusBudget(180_000))
 
     it('never regresses the 431-file byte-exact floor', () => {
       expect(measureCoverage().byteExact).toBeGreaterThanOrEqual(431)
-    }, 180_000)
+    }, corpusBudget(180_000))
   },
 )

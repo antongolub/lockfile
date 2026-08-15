@@ -16,6 +16,8 @@ const digest = (algorithm: 'sha1' | 'sha512', value: string): string =>
   `${algorithm}-${createHash(algorithm).update(value).digest('base64')}`
 const oldIntegrity = digest('sha512', 'left')
 const newIntegrity = digest('sha512', 'new-canonical')
+const workspacePath = 'packages/workspace-with-native-metadata'
+const cleanWorkspacePath = 'packages/workspace-without-native-metadata'
 
 const leftEntry = {
   version: '1.0.0',
@@ -68,6 +70,41 @@ function source(): string {
 }
 
 function replay(graph = parse(source())): Record<string, Record<string, unknown>> {
+  return (JSON.parse(stringify(graph)) as {
+    packages: Record<string, Record<string, unknown>>
+  }).packages
+}
+
+function workspaceSource(): string {
+  return `${JSON.stringify({
+    name: 'npm-workspace-entry-metadata',
+    version: '1.0.0',
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      '': {
+        name: 'npm-workspace-entry-metadata',
+        version: '1.0.0',
+        workspaces: ['packages/*'],
+        rootFutureField: { carrier: 'root-meta-only' },
+      },
+      [workspacePath]: {
+        name: '@fixture/native-metadata',
+        version: '1.0.0',
+        engines: ['node >=18'],
+        hasInstallScript: true,
+        extraneous: true,
+        futureWorkspaceField: { carrier: 'workspace-path' },
+      },
+      [cleanWorkspacePath]: {
+        name: '@fixture/clean-workspace',
+        version: '1.0.0',
+      },
+    },
+  }, null, 2)}\n`
+}
+
+function replayWorkspace(graph = parse(workspaceSource())): Record<string, Record<string, unknown>> {
   return (JSON.parse(stringify(graph)) as {
     packages: Record<string, Record<string, unknown>>
   }).packages
@@ -141,5 +178,44 @@ describe('npm package-entry metadata is install-path-local', () => {
       expect(entry.integrity).not.toBe(oldIntegrity)
       expect(entry.resolved).not.toBe(oldResolved)
     }
+  })
+
+  it('replays a whole source-authored workspace entry at its exact bare path', () => {
+    expect(replayWorkspace()[workspacePath]).toEqual({
+      name: '@fixture/native-metadata',
+      version: '1.0.0',
+      engines: ['node >=18'],
+      hasInstallScript: true,
+      extraneous: true,
+      futureWorkspaceField: { carrier: 'workspace-path' },
+    })
+  })
+
+  it('does not fabricate native workspace keys and keeps the root on NpmRootMeta', () => {
+    const graph = parse(workspaceSource())
+    const packages = replayWorkspace(graph)
+    for (const key of ['engines', 'hasInstallScript', 'extraneous', 'futureWorkspaceField']) {
+      expect(Object.hasOwn(packages[cleanWorkspacePath]!, key)).toBe(false)
+    }
+    const subjects = adapterStateSubjects(graph)
+    expect(subjects).toContain('root-entry:rootFutureField')
+    expect(subjects.some(subject => subject.startsWith('package-entry::'))).toBe(false)
+  })
+
+  it('invalidates workspace-native state when the same node moves to another workspacePath', () => {
+    const graph = parse(workspaceSource())
+    const workspace = graph.getNode('@fixture/native-metadata@1.0.0')!
+    const moved = graph.mutate(mutator => {
+      mutator.replaceNode(workspace.id, { ...workspace, workspacePath: 'packages/moved' })
+    }).graph
+    const rebound = rebindAdapterState(graph, moved).graph
+
+    expect(adapterStateSubjects(rebound)
+      .filter(subject => subject.startsWith(`package-entry:${workspacePath}:`)))
+      .toEqual([])
+    expect(replayWorkspace(rebound)['packages/moved']).toEqual({
+      name: '@fixture/native-metadata',
+      version: '1.0.0',
+    })
   })
 })

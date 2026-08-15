@@ -110,6 +110,13 @@ Same as [npm-2](./npm-2.md#conversion-inputs).
   to a sibling path. Canonical graph identity and dependency topology still
   overlay the retained record after mutation, so a new version, checksum, URL,
   or dependency block cannot be wrapped in stale native entry data.
+- Bare workspace members inherit npm-2's exact-path workspace replay rule.
+  Their source-owned metadata and legacy value shapes are merged against the
+  workspace projection, not the installed self-placement projection; canonical
+  manifest fields remain mutation-authoritative. A changed workspace path
+  invalidates the native record, while source-absent keys and minted or foreign
+  workspace entries fabricate no native metadata. `packages[""]` continues to
+  use only the separate root carrier.
 - npm-2's exact placement rule also applies when an installed entry collapses
   onto the root or a workspace manifest identity. An unchanged same-format
   replay emits every such source placement and fabricates none that were
@@ -189,9 +196,9 @@ relabelled across the boundary.
 
 Per-case locks and whole-project samples, as described in [Evidence](./README.md#evidence). A claim resting on a real-world lock cites it by upstream identity at the point it is made.
 
-## Open questions
+## Per-entry `license` across the v3 era
 
-> **Resolved (audited against npm 12.0.1, 2026-07):** **npm 10 introduced the
+> **Read** · npm 12.0.1, audited 2026-07 · **npm 10 introduced the
 > per-entry `license` field** — the last descriptor addition, and the *only* field
 > diff across the v3 era. npm 10, 11, 12 share the field set `version, resolved,
 > integrity, link, dev, optional, devOptional, inBundle, hasInstallScript,

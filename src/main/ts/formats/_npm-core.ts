@@ -374,7 +374,10 @@ export function stringifyFamily(
     [...(sidecar?.linkEntriesByPath?.values() ?? [])].map(entry => entry.targetNodeId),
   )
   for (const node of workspaceMembers) {
-    packages[node.workspacePath!] = buildWorkspaceMemberEntry(graph, node, sidecar, config, emitDiagnostic)
+    const path = node.workspacePath!
+    const canonicalEntry = buildWorkspaceMemberEntry(graph, node, sidecar, config, emitDiagnostic)
+    const pathState = sidecar?.packageEntriesByPath?.get(path)
+    packages[path] = buildPackageEntryAtPath(canonicalEntry, pathState, node.id)
     // WS-LINK (ADR-0027 §4): emit the top-level node_modules/<name> symlink for a
     // workspace member UNLESS it is `extraneous` — npm omits the link for a member
     // present on disk but absent from the install graph (an extraneous member would
@@ -926,9 +929,7 @@ function addNpmPackageEdges(context: NpmParseContext): void {
     // member that npm did NOT link (present on disk, absent from the install
     // graph) re-emits without a top-level link on replay.
     if (entry.extraneous === true) nodeSide.extraneous = true
-    if (path !== ''
-      && !workspaceByPath.has(path)
-      && entry.link !== true) {
+    if (path !== '' && entry.link !== true) {
       packageEntriesByPath.set(path, {
         nodeId: srcId,
         nativeEntry: entry,
@@ -1173,16 +1174,24 @@ function captureCanonicalPackageEntries(
       ? canonicalEntriesByNodeId.get(node.id)
       : undefined
     if (canonicalEntry === undefined) {
-      canonicalEntry = node.workspacePath === undefined
-        ? buildNodeModulesEntry(graph, node, nodeSidecar, installPaths, config)
-        : buildManifestPlacementEntry(
-            graph,
-            node,
-            nodeSidecar,
-            installPaths,
-            entry,
-            config,
-          )
+      if (node.workspacePath === undefined) {
+        canonicalEntry = buildNodeModulesEntry(graph, node, nodeSidecar, installPaths, config)
+      } else if (node.workspacePath === path) {
+        // A bare workspace member and an installed self-placement are distinct
+        // npm projections. Baseline the former with the workspace builder;
+        // using buildManifestPlacementEntry here would make the native merge
+        // overlay the wrong canonical values while still looking plausible.
+        canonicalEntry = buildWorkspaceMemberEntry(graph, node, sidecar, config)
+      } else {
+        canonicalEntry = buildManifestPlacementEntry(
+          graph,
+          node,
+          nodeSidecar,
+          installPaths,
+          entry,
+          config,
+        )
+      }
       if (node.workspacePath === undefined) canonicalEntriesByNodeId.set(node.id, canonicalEntry)
     }
     entry.canonicalEntry = canonicalEntry
@@ -2049,13 +2058,16 @@ export function pruneSidecar(sidecar: NpmSidecar, graph: Graph): NpmSidecar {
   }
   const workspaceByPath = new Map<string, string>()
   for (const [path, nodeId] of sidecar.workspaceByPath) {
-    if (reachableIds.has(nodeId)) workspaceByPath.set(path, nodeId)
+    if (graph.getNode(nodeId)?.workspacePath === path) workspaceByPath.set(path, nodeId)
   }
   const packageEntriesByPath = sidecar.packageEntriesByPath === undefined
     ? undefined
     : new Map<string, NpmPackageEntrySidecar>()
   for (const [path, entry] of sidecar.packageEntriesByPath ?? []) {
-    if (reachableIds.has(entry.nodeId)) packageEntriesByPath?.set(path, entry)
+    if (!reachableIds.has(entry.nodeId)) continue
+    const wasWorkspaceEntry = sidecar.workspaceByPath.get(path) === entry.nodeId
+    if (wasWorkspaceEntry && graph.getNode(entry.nodeId)?.workspacePath !== path) continue
+    packageEntriesByPath?.set(path, entry)
   }
   const linkEntriesByPath = sidecar.linkEntriesByPath === undefined
     ? undefined
