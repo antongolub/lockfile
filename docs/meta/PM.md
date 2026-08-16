@@ -3,21 +3,20 @@
 Every JavaScript package manager we know of: what it is for, whether it writes a
 lockfile of its own, and whether lockgraph reads that format.
 
+For the five that matter, [PM_COMPARE.md](./PM_COMPARE.md) compares them feature by
+feature and version by version — which lockfile version each one reads and writes,
+how they lay out `node_modules`, what their locks may remember, and why there are so
+many of them. This file is the census; that one is the comparison.
+
 Several widely used tools are commonly called package managers and are not one.
 They are listed here too, in their own sections, because knowing what a tool
 *does not* produce is as useful as knowing what it does.
 
 Measured 2026-07-28. Adoption figures move; the lockfile column does not.
 
-## 0. How to read the tables
-
-| column | meaning |
-|---|---|
-| **Lockfile** | the file the tool writes itself; `delegates` means it drives another manager and that manager's lockfile is what lands on disk |
-| **lockgraph** | whether this repository parses and emits that format |
-
 A tool with no lockfile of its own cannot be a conversion source or target, no
-matter how widely it is used.
+matter how widely it is used. `delegates` means it drives another manager, and that
+manager's lockfile is what lands on disk.
 
 ---
 
@@ -28,12 +27,12 @@ account for effectively all public JavaScript projects.
 
 | Tool | Purpose | Lockfile | Default registry | lockgraph |
 |---|---|---|---|---|
-| [npm](https://github.com/npm/cli) | The default manager, bundled with Node.js. Reference implementation of the registry protocol. | `package-lock.json` (v1–v4), `npm-shrinkwrap.json` | `registry.npmjs.org` | yes — `npm-1` … `npm-4` |
-| [Yarn](https://github.com/yarnpkg/yarn) (Classic, 1.x) | The first credible npm alternative: deterministic installs, offline mirror, workspaces. Maintenance only. | `yarn.lock` (v1 syntax) | `registry.yarnpkg.com` | yes — `yarn-classic` |
-| [Yarn Berry](https://github.com/yarnpkg/berry) (2.x–4.x) | Rewrite around Plug'n'Play: no `node_modules`, packages resolved from zip archives. | `yarn.lock` (YAML, `__metadata.version` 4–10) | `registry.yarnpkg.com` | yes — `yarn-berry-v4` … `v10` |
-| [pnpm](https://github.com/pnpm/pnpm) | Content-addressable store plus a symlinked `node_modules`: strict dependency isolation and disk reuse. | `pnpm-lock.yaml` (v5, v6, v9) | `registry.npmjs.org` | yes — `pnpm-v5`, `pnpm-v6`, `pnpm-v9` |
+| [npm](https://github.com/npm/cli) | The default manager, bundled with Node.js. Reference implementation of the registry protocol. | `package-lock.json`, `npm-shrinkwrap.json` | `registry.npmjs.org` | yes — `npm-1` … `npm-4` |
+| [Yarn](https://github.com/yarnpkg/yarn) (Classic, 1.x) | The first credible npm alternative: deterministic installs, offline mirror, workspaces. Maintenance only. | `yarn.lock` | `registry.yarnpkg.com` | yes — `yarn-classic` |
+| [Yarn Berry](https://github.com/yarnpkg/berry) (2.x–4.x) | Rewrite around Plug'n'Play: no `node_modules`, packages resolved from zip archives. | `yarn.lock` (YAML) | `registry.yarnpkg.com` | yes — `yarn-berry-v4` … `v10` |
+| [pnpm](https://github.com/pnpm/pnpm) | Content-addressable store plus a symlinked `node_modules`: strict dependency isolation and disk reuse. | `pnpm-lock.yaml` | `registry.npmjs.org` | yes — `pnpm-v5`, `pnpm-v6`, `pnpm-v9` |
 | [Bun](https://github.com/oven-sh/bun) | Runtime with a built-in installer; speed-first, npm-registry compatible. | `bun.lock` (text), `bun.lockb` (binary, superseded) | `registry.npmjs.org` | text yes — `bun-text`; binary detect-only |
-| [Deno](https://github.com/denoland/deno) | Runtime with an integrated manager spanning three sources: npm packages, JSR modules and remote URLs. | `deno.lock` (v2–v5) | `registry.npmjs.org` + `jsr.io` | yes — `deno-v2` … `deno-v5`; same-format npm-section, nine intra-Deno targets, and manifest-backed npm-subgraph projection |
+| [Deno](https://github.com/denoland/deno) | Runtime with an integrated manager spanning three sources: npm packages, JSR modules and remote URLs. | `deno.lock` | `registry.npmjs.org` + `jsr.io` | yes — `deno-v2` … `deno-v5`; same-format npm-section, nine intra-Deno targets, and manifest-backed npm-subgraph projection |
 
 Registries are covered separately in [REGISTRIES.md](./REGISTRIES.md).
 

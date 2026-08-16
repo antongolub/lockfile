@@ -289,6 +289,11 @@ model's peer-edge `optional` attribute for bound peers, with a verbatim sidecar
 carrier for optional peers pnpm never resolved into an edge). `os` / `cpu` /
 `engines` / `hasBin` / `resolution.integrity` were already preserved.
 
+`requiresBuild` is not a v9 package or snapshot field. Pinned pnpm 10.34.5
+writes it in neither section, matching its absence from a 65-lock v9 corpus.
+The adapter therefore does not synthesize the older inline carrier when
+emitting this generation.
+
 - A quoted decimal scalar is a **string** and a bare one is a **number**; the
   codec preserves that distinction in every scalar context, including keys.
   A dependency range that looks numeric (`'8'`) must stay quoted or a frozen

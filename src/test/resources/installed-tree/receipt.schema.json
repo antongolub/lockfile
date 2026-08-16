@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lockgraph.dev/schemas/installed-tree-oracle-receipt-v1.json",
+  "title": "Lockgraph sampled installed-tree oracle receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "createdAt",
+    "platform",
+    "concurrency",
+    "pressureClassifier",
+    "classification",
+    "familySummary",
+    "fixtures"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "platform": { "enum": ["linux", "darwin", "win32"] },
+    "concurrency": { "const": 1 },
+    "pressureClassifier": { "const": "deferred" },
+    "classification": { "$ref": "#/$defs/classification" },
+    "familySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["npm", "pnpm"],
+      "properties": {
+        "npm": { "$ref": "#/$defs/familyCount" },
+        "pnpm": { "$ref": "#/$defs/familyCount" }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fixtureReceipt" }
+    }
+  },
+  "$defs": {
+    "classification": {
+      "enum": [
+        "PASS",
+        "PRODUCT_DEFECT",
+        "QUALIFICATION_REGRESSION",
+        "AMBIGUOUS_EXECUTION"
+      ]
+    },
+    "qualificationReason": {
+      "enum": [
+        null,
+        "BINARY_MISSING",
+        "WRITER_MISMATCH",
+        "COMPANION_MISSING",
+        "PRIVATE_REGISTRY",
+        "FIXTURE_UNREACHABLE",
+        "FIXTURE_HASH_MISMATCH",
+        "SOURCE_ONLINE_FAILED",
+        "SOURCE_REWRITE",
+        "SOURCE_OFFLINE_OPEN",
+        "SOURCE_TREE_NONDETERMINISTIC",
+        "SOURCE_REBUILD_FAILED"
+      ]
+    },
+    "familyCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "qualified", "executed", "passed"],
+      "properties": {
+        "requested": { "type": "integer", "minimum": 0 },
+        "qualified": { "type": "integer", "minimum": 0 },
+        "executed": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "leg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "exitCode", "signal", "durationMs", "output"],
+      "properties": {
+        "status": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "exitCode": { "type": ["integer", "null"] },
+        "signal": { "type": ["string", "null"] },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "output": { "type": "string" }
+      }
+    },
+    "fixtureReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "qualification",
+        "classification",
+        "tool",
+        "source",
+        "replay",
+        "evidence"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "enum": ["npm", "pnpm"] },
+        "qualification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "enum": ["QUALIFIED", "REFUSED"] },
+            "reason": { "$ref": "#/$defs/qualificationReason" }
+          }
+        },
+        "classification": { "$ref": "#/$defs/classification" },
+        "tool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["alias", "version", "runtime"],
+          "properties": {
+            "alias": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "runtime": { "type": "string", "minLength": 1 }
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "online",
+            "offline",
+            "treeDigests",
+            "rebuild",
+            "rebuildWorkDigest",
+            "rebuildTreeDigest"
+          ],
+          "properties": {
+            "online": { "$ref": "#/$defs/leg" },
+            "offline": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/leg" },
+              "maxItems": 2
+            },
+            "treeDigests": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 2
+            },
+            "rebuild": { "$ref": "#/$defs/leg" },
+            "rebuildWorkDigest": { "type": ["string", "null"] },
+            "rebuildTreeDigest": { "type": ["string", "null"] }
+          }
+        },
+        "replay": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "conversionDigest",
+            "offline",
+            "treeDigest",
+            "rebuild",
+            "rebuildWorkDigest",
+            "rebuildTreeDigest"
+          ],
+          "properties": {
+            "conversionDigest": { "type": ["string", "null"] },
+            "offline": { "$ref": "#/$defs/leg" },
+            "treeDigest": { "type": ["string", "null"] },
+            "rebuild": { "$ref": "#/$defs/leg" },
+            "rebuildWorkDigest": { "type": ["string", "null"] },
+            "rebuildTreeDigest": { "type": ["string", "null"] }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nativeOutput", "treeDiff", "rebuildDiff", "networkAttempts"],
+          "properties": {
+            "nativeOutput": { "type": "string" },
+            "treeDiff": { "type": "array", "items": { "type": "string" } },
+            "rebuildDiff": { "type": "array", "items": { "type": "string" } },
+            "networkAttempts": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

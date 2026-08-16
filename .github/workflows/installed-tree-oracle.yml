@@ -1,0 +1,45 @@
+name: Installed-tree oracle
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installed-tree-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm-pnpm-pr-sample:
+    name: npm + pnpm PR sample
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Retain the Node 18 runtime selector
+        run: echo "LOCKGRAPH_NODE18=$(command -v node)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Retain the Node 22 runtime selector
+        run: echo "LOCKGRAPH_NODE22=$(command -v node)" >> "$GITHUB_ENV"
+
+      - run: npm ci
+      - run: npm run build:dist
+      - run: npm run test:installed-tree
+
+      - name: Upload the typed receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-tree-oracle-receipt
+          path: target/installed-tree-oracle/receipt.json
+          if-no-files-found: error

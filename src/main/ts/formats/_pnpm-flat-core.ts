@@ -276,6 +276,10 @@ export interface PnpmNodeSidecar {
   os?: string[]
   cpu?: string[]
   libc?: string[]
+  /** v6 packages-entry build-script carrier. pnpm uses this source-authored bit
+   *  to populate pending builds; it is not derivable from other metadata. v9
+   *  producers do not write it in either native section. */
+  requiresBuild?: boolean
   /** v9 snapshots extras — preserved across versions for round-trip stability. */
   transitivePeerDependencies?: string[]
   /** v6-only: per-entry dev flag. Treated as `false` if absent. */
@@ -1278,6 +1282,7 @@ function pnpmNodeSidecar(pkgEntry: unknown): PnpmNodeSidecar {
   if (Array.isArray(pkgEntry.os)) nodeSc.os = (pkgEntry.os as string[]).slice()
   if (Array.isArray(pkgEntry.cpu)) nodeSc.cpu = (pkgEntry.cpu as string[]).slice()
   if (Array.isArray(pkgEntry.libc)) nodeSc.libc = (pkgEntry.libc as string[]).slice()
+  if (pkgEntry.requiresBuild === true) nodeSc.requiresBuild = true
   // v6 keeps the resolved tree inline, so `packages[key]` IS the authoritative
   // record here. A v9 `packages[bareKey]` is the metadata baseline and never
   // carries the bit, so this stays a no-op there and the snapshots loop below
@@ -2694,6 +2699,7 @@ function buildPackageEntry(
   writePackageMetadata(context)
   writePackagePeerMetadata(context)
   writePackageInlineDependencies(context)
+  writePackageRequiresBuildFlag(context)
   writePackageDevFlag(context)
   writePackageOptionalFlag(context)
   return context.entry
@@ -2868,6 +2874,14 @@ function writePackageDependencyBlocks(
 
 function writePackageDevFlag(context: PackageEntryContext): void {
   if (context.shape.devFlag) context.entry.dev = context.nodeSc?.dev ?? false
+}
+
+// pnpm v6 writes `requiresBuild` on the inline packages entry, immediately
+// before `dev`. Absence stays absence. v9 has no producer-owned equivalent in
+// packages or snapshots, so a split-layout target must not gain one.
+function writePackageRequiresBuildFlag(context: PackageEntryContext): void {
+  if (context.shape.hasSnapshots) return
+  if (context.nodeSc?.requiresBuild === true) context.entry.requiresBuild = true
 }
 
 // v6 writes `optional` last in an inline package entry, after `dev`. Absence

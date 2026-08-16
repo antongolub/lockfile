@@ -217,6 +217,8 @@ interface PnpmV5NodeSidecar {
   hasBin?: boolean
   os?: string[]
   cpu?: string[]
+  /** Source-authored packages-entry bit that schedules dependency builds. */
+  requiresBuild?: boolean
   dev?: boolean
   optional?: boolean
   /** Verbatim workspace `link:` dependency slots keyed `${kind}\0${targetNodeId}`
@@ -776,6 +778,7 @@ function addPackageNode(
     if (pkgEntry.hasBin === true) nodeSc.hasBin = true
     if (Array.isArray(pkgEntry.os)) nodeSc.os = (pkgEntry.os as string[]).slice()
     if (Array.isArray(pkgEntry.cpu)) nodeSc.cpu = (pkgEntry.cpu as string[]).slice()
+    if (pkgEntry.requiresBuild === true) nodeSc.requiresBuild = true
     if (typeof pkgEntry.dev === 'boolean') nodeSc.dev = pkgEntry.dev
     if (typeof pkgEntry.optional === 'boolean') nodeSc.optional = pkgEntry.optional
   }
@@ -1443,7 +1446,9 @@ function buildPackageEntry(
     }
   }
 
-  // dev / optional per-entry flags.
+  // Build / dev / optional per-entry flags. Absence of `requiresBuild` stays
+  // absence; the bit is native lock state, not derivable graph metadata.
+  if (nodeSc?.requiresBuild === true) entry.requiresBuild = true
   const dev = nodeSc?.dev ?? false
   entry.dev = dev
   if (nodeSc?.optional === true) entry.optional = true

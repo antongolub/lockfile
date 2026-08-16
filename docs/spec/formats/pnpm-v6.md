@@ -90,6 +90,11 @@ Compared to v5:
   answers whether failing to materialise an eligible entry is *soft*. See the
   [pnpm-v9 rule](./pnpm-v9.md#optional-on-a-snapshot-entry) for the measured
   installer consequence, which is the same on this generation.
+- A `packages` entry may carry `requiresBuild: true`, written before `dev`.
+  pnpm uses this source-authored bit to record pending dependency build scripts;
+  it is not derivable from `hasBin` or other package metadata. Same-format
+  replay preserves the bit, and absence remains absence. This is the same
+  inline carrier as [pnpm-v5](./pnpm-v5.md#requiresbuild-on-a-package-entry).
 - A quoted decimal scalar is a **string** and a bare one is a **number**; the
   codec preserves that distinction in every scalar context, including keys.
   A dependency range that looks numeric (`'8'`) must stay quoted or a frozen

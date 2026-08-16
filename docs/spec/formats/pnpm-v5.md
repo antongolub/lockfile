@@ -127,6 +127,19 @@ or a numeric setting silently becomes a string.
 The rule is a property of the YAML codec, so it holds identically on
 [v6](./pnpm-v6.md) and [v9](./pnpm-v9.md).
 
+### `requiresBuild` on a package entry
+
+A `packages` entry may carry `requiresBuild: true`. pnpm uses the bit when it
+records pending dependency build scripts; it is not implied by `hasBin` or any
+other package metadata. Same-format replay preserves a source-authored true
+value, while an entry that omits the key remains key-free. The field is written
+before the entry's `dev` flag.
+
+The v5 implementation owns a standalone parse/stringify pipeline because its
+package-key and importer shapes predate the shared v6/v9 layout; native carriers
+must therefore be handled explicitly in that adapter as well as in the shared
+core.
+
 - Package id grammar: `/<name>/<version>` for plain, `/<name>/<version>_<peerHash>`
   for peer-virtualised, `/<name>/<version>_<peerHash><sub>` for chained.
   This is **the** reference for "how pnpm encodes peerContext" — the model's
