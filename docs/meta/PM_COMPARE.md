@@ -1,7 +1,9 @@
 # PM_COMPARE — what the package managers actually do differently
 
-[PM.md](./PM.md) lists every manager that exists. This one compares the five that
-matter, version by version, to answer why there are so many of them.
+[PM.md](./PM.md) is the census — every manager that exists, the lockfile it writes
+and the registry it leans on. This file is the comparison: the five that matter,
+version by version, answering why there are so many of them. The registries
+themselves are in [REGISTRIES.md](./REGISTRIES.md).
 
 ## Versions, dates and the runtime they need
 
@@ -57,6 +59,27 @@ Node's supported lines, so npm carries three parallel lines because Node does.
 Writing an older version back needs an explicit flag on npm and is impossible
 everywhere else. The lockfile is a one-way ratchet, which is why a team cannot
 casually try another manager.
+
+## Registry
+
+| | npm 6 | npm 7–8 | npm 9–11 | npm 12 | Yarn 1 | Yarn 2 | Yarn 3 | Yarn 4 | pnpm 6 | pnpm 7–8 | pnpm 9–10 | pnpm 11 | Bun 1.0–1.1 | Bun 1.2+ | Deno 1 | Deno 2 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Reads `.npmrc` | ✅ | ← | ← | ← | ✅ | ✅ | ← | ← | ✅ | ← | ← | ← | ✅ | ← | ✅ | ← |
+| Own config file | ❌ | ← | ← | ← | `.yarnrc` | `.yarnrc.yml` | ← | ← | ❌ | ← | ← | ← | `bunfig.toml` | ← | `deno.json` | ← |
+
+Which host each one defaults to is in [PM.md](./PM.md#1-primary-package-managers),
+where it identifies the tool; what those hosts are is in
+[REGISTRIES.md](./REGISTRIES.md). What differs *behaviourally* is the configuration.
+
+**All five read `.npmrc`**, so a token placed there works everywhere. What they add
+on top does not interoperate: Yarn Classic reads `.yarnrc`, Berry replaced it with
+`.yarnrc.yml`, Bun adds `bunfig.toml`, Deno adds `deno.json`, and npm and pnpm add
+nothing. A scope-to-registry mapping written for one is invisible to the others, so
+resolution has to be scoped to the ecosystem asking — a planted `.yarnrc.yml` must
+not influence an npm resolve.
+
+Deno is the only one that speaks a second registry protocol natively, which is why
+a `deno.lock` can hold packages no Node-family lock has anywhere to put.
 
 ## Installed layout
 
@@ -119,18 +142,38 @@ casually try another manager.
 
 | | npm 6 | npm 7–8 | npm 9–11 | npm 12 | Yarn 1 | Yarn 2 | Yarn 3 | Yarn 4 | pnpm 6 | pnpm 7–8 | pnpm 9–10 | pnpm 11 | Bun 1.0–1.1 | Bun 1.2+ | Deno 1 | Deno 2 |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| `audit` | ✅ | ✅ | ← | ← | ✅ | ✅ | ← | ← | ✅ | ← | ← | ← | ❌ | ✅ ⚠️ | ❌ | ✅ |
+| `audit` | ✅ | ✅ | ← | ← | ✅ | ✅ | ← | ← | ✅ | ← | ← | ← | ❌ | ✅ ⚠️ | ❌ | ✅ ⚠️ |
 | `audit fix` | ✅ | ← | ← | ← | ❌ | ❌ | ← | ← | ⚠️ | ← | ← | ← | ❌ | ⚠️ | ⚠️ | ← |
 
 - **Bun `audit`** — arrives in 1.2.15, not at the 1.2 boundary where the text
-  lockfile does.
+  lockfile does. **Deno `audit`** — arrives in 2.5.5; 2.2.8 has no such subcommand
+  at all.
 - Only npm remediates from advisories by bumping the declared range, respecting
   semver and gating a major behind `--force`. pnpm's manual channel pins an
   **override** on the vulnerable node instead — fixing at the source rather than at
   the consumer, and bypassing the declared range by design.
 - Yarn has no native fix in either line; `yarn-audit-fix` implements the range-bump
   model externally.
-- **Deno** — `deno audit --fix` exists and does not remediate.
+- **Deno ⚠️ — implemented, and inert for a reason outside Deno.** `deno audit`
+  arrived in 2.5.5, `--fix` in 2.8.0, and the implementation is complete: it raises
+  the floor of a vulnerable direct dependency in `package.json` or `deno.json` and
+  regenerates the lockfile. Against the real npm registry it fixes nothing, because
+  npm's bulk advisory endpoint returns no `patched_versions` field, so Deno derives
+  zero fix actions and never reaches its own install path.
+
+  > **Measured** · `deno 2.9.4` · `deno audit --fix` on `minimist` pinned to a
+  > vulnerable version, run twice against the same project with only the registry
+  > host differing · against `registry.npmjs.org` both files are byte-identical
+  > afterwards; against a proxy that injects `patched_versions` into the same
+  > response it prints `Fixed 1 vulnerability`, rewrites the manifest `^1.2.0` →
+  > `^1.2.6` and the lock to `minimist@1.2.8`. Toggling the injection alone flips
+  > the outcome.
+
+  Two consequences. The Deno gap is **registry data, not a missing feature**, so it
+  can close without a Deno release — treat any position that assumes Deno will not
+  remediate as having a short shelf life. And separately, transitive dependencies
+  are skipped by design even when the data is present, reported as
+  `could not be fixed automatically`.
 - **Bun ⚠️ — documented, not in any release.**
   [Bun's documentation specifies `bun audit fix`](https://bun.com/docs/pm/cli/audit#bun-audit-fix)
   in detail: it upgrades each vulnerable package to the **lowest** non-vulnerable
