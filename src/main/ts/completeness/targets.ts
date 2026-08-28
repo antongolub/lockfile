@@ -264,39 +264,50 @@ const lockgraph = capabilities({
 
 // === COMPATIBILITY GUARDS ===================================================
 
+/**
+ * Which manager versions WRITE each format.
+ *
+ * This is the same data every format spec carries in its "Writers — PM semvers
+ * that emit this format" table, so it is kept in the shape a reader can check
+ * against that table one row at a time. It was a nested ternary ladder; a row
+ * that disagrees with its spec is now visible without tracing a chain.
+ *
+ * `minor ?? -1` keeps an absent minor below every threshold. `prerelease` gates
+ * the Berry generations whose feature landed only in a stable release.
+ */
+const FORMAT_WRITERS: Partial<Record<FormatId, (v: ManagerVersion) => boolean>> = {
+  'npm-1': v => v.major >= 5 && v.major <= 6,
+  'npm-2': v => v.major >= 7 && v.major <= 8,
+  'npm-3': v => v.major >= 9,
+  'npm-4': v => v.major >= 12,
+  'yarn-classic': v => v.major === 1,
+  'pnpm-v5': v => v.major >= 3 && v.major <= 7,
+  'pnpm-v6': v => v.major === 8,
+  'pnpm-v9': v => v.major >= 9,
+  'bun-text': v => v.major > 1 || (v.major === 1 && (v.minor ?? -1) >= 2),
+  'yarn-berry-v4': v => v.major >= 2,
+  'yarn-berry-v5': v => v.major > 3 || (v.major === 3 && (v.minor ?? -1) >= 1),
+  'yarn-berry-v6': v => v.major > 3 || (v.major === 3 && (v.minor ?? -1) >= 2),
+  'yarn-berry-v7': v => yarnV7Compatible(v),
+  'yarn-berry-v8': v => v.major >= 4 && v.prerelease === undefined,
+  'yarn-berry-v9': v => v.major > 4
+    || (v.major === 4 && (v.minor ?? -1) >= 14 && v.prerelease === undefined),
+  'yarn-berry-v10': v => v.major > 4
+    || (v.major === 4 && (v.minor ?? -1) >= 17 && v.prerelease === undefined),
+  // `lockgraph` has no producer to be compatible with, so no row: the default
+  // below refuses it, which is what the ladder did explicitly.
+}
+
 function assertCompatible(format: FormatId, version: ManagerVersion | undefined): void {
   if (version === undefined) return
-  const major = version.major
-  const minor = version.minor
-  const yarnCompatible =
-    format === 'yarn-berry-v4' ? major >= 2
-      : format === 'yarn-berry-v5' ? major > 3 || (major === 3 && (minor ?? -1) >= 1)
-        : format === 'yarn-berry-v6' ? major > 3 || (major === 3 && (minor ?? -1) >= 2)
-          : format === 'yarn-berry-v7' ? yarnV7Compatible(version)
-            : format === 'yarn-berry-v8' ? major >= 4 && version.prerelease === undefined
-              : format === 'yarn-berry-v9' ? major > 4
-                || (major === 4 && (minor ?? -1) >= 14 && version.prerelease === undefined)
-                : format === 'yarn-berry-v10' ? major > 4
-                  || (
-                    major === 4
-                    && (minor ?? -1) >= 17
-                    && version.prerelease === undefined
-                  )
-                  : false
-  const compatible =
-    format === 'npm-1' ? major >= 5 && major <= 6
-      : format === 'npm-2' ? major >= 7 && major <= 8
-        : format === 'npm-3' ? major >= 9
-          : format === 'npm-4' ? major >= 12
-          : format === 'yarn-classic' ? major === 1
-            : format === 'pnpm-v5' ? major >= 3 && major <= 7
-              : format === 'pnpm-v6' ? major === 8
-                : format === 'pnpm-v9' ? major >= 9
-                  : format === 'bun-text' ? major > 1 || (major === 1 && (minor ?? -1) >= 2)
-                    : isDenoFormat(format) ? major >= 1
-                      : format === 'lockgraph' ? false
-                      : yarnCompatible
-  if (!compatible) throw new TypeError(`target manager version is incompatible with ${format}`)
+  // Every Deno generation is written by some Deno 1+; the format itself pins
+  // which, so the version check stays at the family level.
+  const writes = isDenoFormat(format)
+    ? (v: ManagerVersion) => v.major >= 1
+    : FORMAT_WRITERS[format]
+  if (writes === undefined || !writes(version)) {
+    throw new TypeError(`target manager version is incompatible with ${format}`)
+  }
 }
 
 function yarnV7Compatible(version: ManagerVersion): boolean {

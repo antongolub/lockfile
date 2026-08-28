@@ -572,19 +572,48 @@ function sortByStableJson<T>(values: T[]): T[] {
     .map(entry => entry.value)
 }
 
+/**
+ * What a conversion TARGET contributes to a comparison beyond the graph itself.
+ *
+ * Every field here answers the same question — how does this target see a value
+ * the graph stores generically? A Berry target renames the workspace root and
+ * may or may not prefix its checksums; a Deno target rewrites declaration
+ * ranges; a lossy target drops metadata fields the graph still holds. None of
+ * it is a property of the graph, and none of it is meaningful without a target.
+ *
+ * These arrived one at a time as positional parameters and reached eleven. They
+ * are one concept, so they travel as one value.
+ */
+export interface TargetProjection {
+  readonly overrides?: readonly OverrideConstraint[]
+  readonly workspaceNames?: ReadonlyMap<string, string>
+  readonly resolutions?: ReadonlyMap<string, ResolutionCanonical>
+  readonly integrities?: ReadonlyMap<string, Integrity | undefined>
+  readonly metadataDrops?: ReadonlyMap<string, ReadonlySet<PackageMetadataField>>
+  readonly peerDependencies?: ReadonlyMap<string, Readonly<Record<string, string>>>
+  readonly edgeRanges?: ReadonlyMap<string, string>
+  /** Berry renames the workspace root to `<name>@0.0.0-use.local`. */
+  readonly nativeBerryWorkspaceRoot?: boolean
+  /** Berry-zip and canonical targets carry a `<cacheKey>/` checksum prefix. */
+  readonly berryChecksumCacheKey?: boolean
+}
+
 export function canonicalGraphSnapshot(
   graph: Graph,
   contract: ConversionContract,
-  overrides?: readonly OverrideConstraint[],
-  workspaceNames?: ReadonlyMap<string, string>,
-  projectedResolutions?: ReadonlyMap<string, ResolutionCanonical>,
-  projectedIntegrities?: ReadonlyMap<string, Integrity | undefined>,
-  projectedMetadataDrops?: ReadonlyMap<string, ReadonlySet<PackageMetadataField>>,
-  projectNativeBerryWorkspaceRoot = false,
-  projectBerryChecksumCacheKey = true,
-  projectedPeerDependencies?: ReadonlyMap<string, Readonly<Record<string, string>>>,
-  projectedEdgeRanges?: ReadonlyMap<string, string>,
+  projection: TargetProjection = {},
 ): string {
+  const {
+    overrides,
+    workspaceNames,
+    resolutions: projectedResolutions,
+    integrities: projectedIntegrities,
+    metadataDrops: projectedMetadataDrops,
+    peerDependencies: projectedPeerDependencies,
+    edgeRanges: projectedEdgeRanges,
+    nativeBerryWorkspaceRoot: projectNativeBerryWorkspaceRoot = false,
+    berryChecksumCacheKey: projectBerryChecksumCacheKey = true,
+  } = projection
   const projectedRootIds = new Map<string, string>()
   if (projectNativeBerryWorkspaceRoot) {
     for (const node of graph.nodes()) {
@@ -779,20 +808,18 @@ export function canonicalProjectionGraphSnapshot(
     target,
     projectedStructuralMetadataDrops(graph, target),
   )
-  return canonicalGraphSnapshot(
-    graph,
-    contract,
+  return canonicalGraphSnapshot(graph, contract, {
     overrides,
     workspaceNames,
-    projectedResolutions,
-    projectedIntegrities,
-    projectedMetadataDrops,
-    target.startsWith('yarn-berry-'),
-    targetProfile.capabilities.integrity === 'berry-zip'
+    resolutions: projectedResolutions,
+    integrities: projectedIntegrities,
+    metadataDrops: projectedMetadataDrops,
+    peerDependencies: projectedPeerDependencies,
+    edgeRanges: projectedEdgeRanges,
+    nativeBerryWorkspaceRoot: target.startsWith('yarn-berry-'),
+    berryChecksumCacheKey: targetProfile.capabilities.integrity === 'berry-zip'
       || targetProfile.capabilities.integrity === 'canonical',
-    projectedPeerDependencies,
-    projectedEdgeRanges,
-  )
+  })
 }
 
 function projectedDenoPeerDependencies(

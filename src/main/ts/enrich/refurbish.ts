@@ -352,6 +352,248 @@ async function mapPool<T, R>(
 
 // === REFURBISHMENT PIPELINE =================================================
 
+type RefurbishCandidate =
+  | { kind: 'defer'; id: NodeId }
+  | { kind: 'fetch'; node: Node; payload: TarballPayload; cacheKey: string }
+
+type ResolvedRefurbishment =
+  | { kind: 'defer'; id: NodeId; diagnostic?: Diagnostic }
+  | { kind: 'fill'; node: Node; merged: TarballPayload }
+
+interface RefurbishResolutionContext {
+  readonly format: string
+  readonly npmTarballs: NpmTarballSource
+  readonly berryChecksums: YarnBerryChecksumSource | undefined
+  readonly recompute: Recompute | undefined
+  readonly artifactResources: ArtifactResourcePolicy | undefined
+  readonly liveMeter: ArtifactLiveMeter
+}
+
+async function selectChecksumStrategy(
+  graph: Graph,
+  cacheKey: string | undefined,
+  npmTarballs: NpmTarballSource,
+  artifactResources: ArtifactResourcePolicy | undefined,
+  liveMeter: ArtifactLiveMeter,
+): Promise<Recompute | undefined> {
+  if (cacheKey !== undefined && berryCacheKeyReproducible(cacheKey)) {
+    // pako OWNS STORE + mixed 7/8/9 (order-calibrated). Its verdict is FINAL: an
+    // `undefined` here is an ACTIVE "this lock is foreign to pako" defer (a
+    // discriminating anchor matched neither order) — NOT a cue to try a
+    // different-generation backend. libzip 3.x is zlib-ng / cacheKey-10; letting it
+    // fill a 7/8/9 lock (which it can license off a generation-independent STORE
+    // sibling) writes cacheKey-10 bytes yarn rejects (YN0018). So NO libzip fallback
+    // for a pako-reproducible cacheKey — pako refuses ⇒ defer.
+    return selectPakoProfile(
+      graph,
+      cacheKey,
+      npmTarballs,
+      artifactResources,
+      liveMeter,
+    )
+  }
+  if (cacheKey === undefined) return undefined
+  // ONLY a cacheKey pako can't reproduce (mixed 10 = zlib-ng, explicit `cN`) may
+  // fall to the OPTIONAL `@yarnpkg/libzip` — trusted solely on a positive `match`.
+  return (await calibrate(
+    graph,
+    cacheKey,
+    npmTarballs,
+    computeBerryChecksumViaLibzip,
+    artifactResources,
+    liveMeter,
+  )) === 'match'
+    ? computeBerryChecksumViaLibzip
+    : undefined
+}
+
+function classifyRefurbishCandidates(
+  graph: Graph,
+  format: string,
+  seed: ReadonlySet<NodeId> | undefined,
+  cacheKey: string | undefined,
+  reproducible: boolean,
+  canSupply: boolean,
+): RefurbishCandidate[] {
+  const checksumFree = yarnBerryChecksumFreeNodes(graph, format)
+  const candidates: RefurbishCandidate[] = []
+  for (const node of graph.nodes()) {
+    if (seed !== undefined && !seed.has(node.id)) continue
+    if (node.workspacePath !== undefined) continue
+    const payload: TarballPayload = graph.tarballOf(node.id) ?? {}
+    const existingBerry = emitBerryChecksum(payload.integrity ?? emptyIntegrity())
+    // A Berry digest is usable only in the byte domain named by its cacheKey.
+    // When the requested target cacheKey differs, the node is a target-checksum
+    // gap even though its source-domain digest remains valuable verification
+    // evidence for the fetched npm tarball.
+    if (existingBerry !== undefined
+      && (payload.berryChecksumCacheKey === undefined
+        || payload.berryChecksumCacheKey === cacheKey)) continue
+    // Yarn's own writer leaves this entry checksum-null (the conditioned ∩
+    // optionalBuilds − resolutionDependencies source rule); filling the gap
+    // would only be deleted again on the next install.
+    if (checksumFree.has(node.id)) continue
+    // Alias-only npm entries are bare by design; their resolved target locator
+    // carries the checksum in every Berry generation.
+    if (isBareYarnBerryNpmAliasNode(graph, node.id)) continue
+    // Fetch iff there is SOME way to a CORRECT digest — byte-reproduce it OR ask the
+    // oracle for yarn's own. A patch, an indeterminable cacheKey, or neither → defer
+    // (never a wrong value).
+    if (node.patch !== undefined || cacheKey === undefined || (!reproducible && !canSupply)) {
+      candidates.push({ kind: 'defer', id: node.id }); continue
+    }
+    candidates.push({ kind: 'fetch', node, payload, cacheKey })
+  }
+  return candidates
+}
+
+async function resolveRefurbishCandidate(
+  candidate: RefurbishCandidate,
+  context: RefurbishResolutionContext,
+): Promise<ResolvedRefurbishment> {
+  if (candidate.kind !== 'fetch') return candidate
+  // Fast path: a caller-supplied digest (e.g. sha512 of yarn's own `.yarn/cache`
+  // archive) skips the fetch + repack entirely. The cache FILENAME carries the
+  // locator hash, not the digest — see spec/pm/yarn.md §2.3.
+  let hex = context.berryChecksums !== undefined
+    ? await context.berryChecksums.berryChecksum(
+        candidate.node.name,
+        candidate.node.version,
+        candidate.cacheKey,
+      )
+    : undefined
+  if (hex === undefined) {
+    // The oracle couldn't supply. RECOMPUTE only with a calibrated backend; a
+    // non-reproducible `mixed`/`cN` cacheKey DEFERS rather than write a wrong value
+    // (yarn recomputes on install). The candidate existed because the oracle MIGHT
+    // have supplied — it didn't, so fall back to reproduce-or-defer.
+    if (context.recompute === undefined) {
+      return { kind: 'defer', id: candidate.node.id }
+    }
+    let tgz: Uint8Array | undefined
+    try {
+      tgz = await loadTarball(
+        context.npmTarballs,
+        candidate.node,
+        candidate.payload,
+      )
+    } catch (error) {
+      if (error instanceof ArtifactByteFailure) {
+        return {
+          kind: 'defer',
+          id: candidate.node.id,
+          diagnostic: error.diagnostic,
+        }
+      }
+      return { kind: 'defer', id: candidate.node.id }
+    }
+    if (tgz === undefined) return { kind: 'defer', id: candidate.node.id }
+    let releaseDirect: (() => void) | undefined
+    try {
+      if (!hasRequestLoader(context.npmTarballs)) {
+        releaseDirect = context.liveMeter.acquire(tgz.byteLength)
+      }
+      const limits = artifactResourceLimits(
+        context.artifactResources,
+        toTarballKey(candidate.node),
+      )
+      hex = await context.recompute(
+        tgz,
+        candidate.node.name,
+        candidate.cacheKey,
+        limits,
+        context.liveMeter,
+      )
+    } catch (error) {
+      if (error instanceof ArtifactEnvelopeError) {
+        return {
+          kind: 'defer',
+          id: candidate.node.id,
+          diagnostic: enrichArtifactLimit(
+            toTarballKey(candidate.node),
+            error.representation,
+            error.limitBytes,
+            error.origin,
+          ),
+        }
+      }
+      // e.g. parseTar rejected an unsupported entry (symlink) → defer
+      return { kind: 'defer', id: candidate.node.id }
+    } finally {
+      releaseDirect?.()
+      releaseTarball(context.npmTarballs, tgz)
+    }
+    // backend couldn't pack — defer
+    if (hex === undefined) return { kind: 'defer', id: candidate.node.id }
+  }
+
+  // Yarn emits exactly one checksum per entry. A verified source-domain
+  // berry-zip member is therefore superseded by the target-domain member;
+  // retaining both would be unemittable and selecting the old first member
+  // would produce bytes Yarn rejects. Unrelated tarball hashes are preserved.
+  const retainedIntegrity = {
+    hashes: (candidate.payload.integrity?.hashes ?? [])
+      .filter(hash => hash.origin !== 'berry-zip'),
+  }
+  const integrity = mergeIntegrity(
+    retainedIntegrity,
+    { hashes: [{ algorithm: 'sha512', digest: hex, origin: 'berry-zip' }] },
+  )
+  // Prefix-era emit always writes `<cacheKey>/<hex>`, and reparse records that
+  // prefix on the payload. Stamp the same canonical carrier at fill time so a
+  // strict emit→parse probe compares equal. Bare-era v4–v7 stays undefined and
+  // therefore never gains a foreign `8/`/`9/` prefix.
+  const berryChecksumCacheKey = isPrefixEraFormat(context.format)
+    ? candidate.cacheKey
+    : undefined
+  return {
+    kind: 'fill',
+    node: candidate.node,
+    merged: { ...candidate.payload, integrity, berryChecksumCacheKey },
+  }
+}
+
+function commitRefurbishments(
+  graph: Graph,
+  resolved: readonly ResolvedRefurbishment[],
+  onDiagnostic: ((diagnostic: Diagnostic) => void) | undefined,
+): RefurbishResult {
+  const unresolved: Diagnostic[] = []
+  const enriched: NodeId[] = []
+  let next = graph
+  const record = (diagnostic: Diagnostic): void => {
+    next = next.mutate(mutation => { mutation.diagnostic(diagnostic) }).graph
+    unresolved.push(diagnostic)
+    onDiagnostic?.(diagnostic)
+  }
+
+  // Apply sequentially in node order — graph mutation is in-memory + fast, and
+  // ordering keeps `enriched` / diagnostics deterministic regardless of fetch race.
+  for (const result of resolved) {
+    if (result.kind === 'defer') {
+      if (result.diagnostic !== undefined) record(result.diagnostic)
+      record(enrichChecksumDeferred(result.id))
+      continue
+    }
+    const diagnostic = enrichFieldFilled(result.node.id, 'berryChecksum', 'recompute')
+    next = next.mutate(mutation => {
+      mutation.setTarball({
+        name: result.node.name,
+        version: result.node.version,
+        patch: result.node.patch,
+        source: result.node.source,
+      }, result.merged)
+      mutation.diagnostic(diagnostic)
+    }).graph
+    enriched.push(result.node.id)
+    unresolved.push(diagnostic)
+    onDiagnostic?.(diagnostic)
+  }
+
+  if (unresolved.length === 0) record(enrichNoop())
+  return { graph: next, enriched, unresolved }
+}
+
 /**
  * Fill install-required fields the graph's own format needs (v1: the yarn-berry
  * `checksum`). `format` is the lock's own format (caller-supplied, from
@@ -373,20 +615,10 @@ export async function refurbish(
     ? npmTarballs.liveMeter
     : new ArtifactLiveMeter(opts.artifactResources)
 
-  const unresolved: Diagnostic[] = []
-  const enriched:   NodeId[]     = []
-  let   next:       Graph        = graph
-  const record = (d: Diagnostic): void => {
-    next = next.mutate(m => { m.diagnostic(d) }).graph
-    unresolved.push(d)
-    if (onDiagnostic !== undefined) onDiagnostic(d)
-  }
-
   // Only yarn-berry targets have a recomputable berry `checksum`; for npm/pnpm/
   // bun the install-required integrity is already completion-filled.
   if (!isBerryFormat(format)) {
-    record(enrichNoop())
-    return { graph: next, enriched, unresolved }
+    return commitRefurbishments(graph, [], onDiagnostic)
   }
 
   const cacheKey = opts.cacheKey ?? berryCacheKeyFor(
@@ -419,34 +651,13 @@ export async function refurbish(
   // On neither the gap defers — or the caller's `yarnBerryChecksums` oracle supplies
   // yarn's own digest below. A wrong digest hard-fails `--immutable`, strictly worse than
   // a clean omit yarn self-heals.
-  let recompute: Recompute | undefined
-  if (cacheKey !== undefined && berryCacheKeyReproducible(cacheKey)) {
-    // pako OWNS STORE + mixed 7/8/9 (order-calibrated). Its verdict is FINAL: an
-    // `undefined` here is an ACTIVE "this lock is foreign to pako" defer (a
-    // discriminating anchor matched neither order) — NOT a cue to try a
-    // different-generation backend. libzip 3.x is zlib-ng / cacheKey-10; letting it
-    // fill a 7/8/9 lock (which it can license off a generation-independent STORE
-    // sibling) writes cacheKey-10 bytes yarn rejects (YN0018). So NO libzip fallback
-    // for a pako-reproducible cacheKey — pako refuses ⇒ defer.
-    recompute = await selectPakoProfile(
-      graph,
-      cacheKey,
-      npmTarballs,
-      opts.artifactResources,
-      liveMeter,
-    )
-  } else if (cacheKey !== undefined) {
-    // ONLY a cacheKey pako can't reproduce (mixed 10 = zlib-ng, explicit `cN`) may
-    // fall to the OPTIONAL `@yarnpkg/libzip` — trusted solely on a positive `match`.
-    if ((await calibrate(
-      graph,
-      cacheKey,
-      npmTarballs,
-      computeBerryChecksumViaLibzip,
-      opts.artifactResources,
-      liveMeter,
-    )) === 'match') recompute = computeBerryChecksumViaLibzip
-  }
+  const recompute = await selectChecksumStrategy(
+    graph,
+    cacheKey,
+    npmTarballs,
+    opts.artifactResources,
+    liveMeter,
+  )
   const reproducible = recompute !== undefined
 
   // 1) Gather fill candidates in content-sorted node order (deterministic).
@@ -458,157 +669,36 @@ export async function refurbish(
   // non-`reproducible` era/compression defers (bare-era v4–v7 or a non-STORE
   // cacheKey — not byte-reproducible in v1, ADR-0035 §6). yarn recomputes a
   // patch's / bare-era / DEFLATE checksum on install.
-  type Cand =
-    | { kind: 'defer'; id: NodeId }
-    | { kind: 'fetch'; node: Node; payload: TarballPayload; cacheKey: string }
   // A caller-supplied `yarnBerryChecksums` oracle can hand us yarn's OWN digest
   // for a cacheKey we CAN'T byte-reproduce — the security-preserving path for a
   // `mixed` bump when yarn is installed: PIN the real integrity instead of omitting
   // it. So a non-reproducible node is still a `fetch` candidate when an oracle exists
   // (the resolved step asks it first, and DEFERS only if it can't supply).
-  const canSupply = berryChecksums !== undefined
-  const checksumFree = yarnBerryChecksumFreeNodes(graph, format)
-  const cands: Cand[] = []
-  for (const node of graph.nodes()) {
-    if (seed !== undefined && !seed.has(node.id)) continue
-    if (node.workspacePath !== undefined) continue
-    const payload: TarballPayload = graph.tarballOf(node.id) ?? {}
-    const existingBerry = emitBerryChecksum(payload.integrity ?? emptyIntegrity())
-    // A Berry digest is usable only in the byte domain named by its cacheKey.
-    // When the requested target cacheKey differs, the node is a target-checksum
-    // gap even though its source-domain digest remains valuable verification
-    // evidence for the fetched npm tarball.
-    if (existingBerry !== undefined
-      && (payload.berryChecksumCacheKey === undefined
-        || payload.berryChecksumCacheKey === cacheKey)) continue
-    // Yarn's own writer leaves this entry checksum-null (the conditioned ∩
-    // optionalBuilds − resolutionDependencies source rule); filling the gap
-    // would only be deleted again on the next install.
-    if (checksumFree.has(node.id)) continue
-    // Alias-only npm entries are bare by design; their resolved target locator
-    // carries the checksum in every Berry generation.
-    if (isBareYarnBerryNpmAliasNode(graph, node.id)) continue
-    // Fetch iff there is SOME way to a CORRECT digest — byte-reproduce it OR ask the
-    // oracle for yarn's own. A patch, an indeterminable cacheKey, or neither → defer
-    // (never a wrong value).
-    if (node.patch !== undefined || cacheKey === undefined || (!reproducible && !canSupply)) {
-      cands.push({ kind: 'defer', id: node.id }); continue
-    }
-    cands.push({ kind: 'fetch', node, payload, cacheKey })
-  }
+  const candidates = classifyRefurbishCandidates(
+    graph,
+    format,
+    seed,
+    cacheKey,
+    reproducible,
+    berryChecksums !== undefined,
+  )
 
   // 2) Recompute CONCURRENTLY — the bottleneck is the per-tarball fetch (network),
   // not the CPU repack. Order-preserving bounded pool.
-  type Resolved =
-    | { kind: 'defer'; id: NodeId; diagnostic?: Diagnostic }
-    | { kind: 'fill';  node: Node; merged: TarballPayload }
-  const resolved = await mapPool(cands, concurrency, async (c): Promise<Resolved> => {
-    if (c.kind !== 'fetch') return c
-    // Fast path: a caller-supplied digest (e.g. sha512 of yarn's own `.yarn/cache`
-    // archive) skips the fetch + repack entirely. The cache FILENAME carries the
-    // locator hash, not the digest — see spec/pm/yarn.md §2.3.
-    let hex = berryChecksums !== undefined
-      ? await berryChecksums.berryChecksum(c.node.name, c.node.version, c.cacheKey)
-      : undefined
-    if (hex === undefined) {
-      // The oracle couldn't supply. RECOMPUTE only with a calibrated backend; a
-      // non-reproducible `mixed`/`cN` cacheKey DEFERS rather than write a wrong value
-      // (yarn recomputes on install). The candidate existed because the oracle MIGHT
-      // have supplied — it didn't, so fall back to reproduce-or-defer.
-      if (recompute === undefined) return { kind: 'defer', id: c.node.id }
-      let tgz: Uint8Array | undefined
-      try {
-        tgz = await loadTarball(npmTarballs, c.node, c.payload)
-      } catch (error) {
-        if (error instanceof ArtifactByteFailure) {
-          return { kind: 'defer', id: c.node.id, diagnostic: error.diagnostic }
-        }
-        return { kind: 'defer', id: c.node.id }
-      }
-      if (tgz === undefined) return { kind: 'defer', id: c.node.id }   // no fetchable tarball
-      let releaseDirect: (() => void) | undefined
-      try {
-        if (!hasRequestLoader(npmTarballs)) {
-          releaseDirect = liveMeter.acquire(tgz.byteLength)
-        }
-        const limits = artifactResourceLimits(
-          opts.artifactResources,
-          toTarballKey(c.node),
-        )
-        hex = await recompute(
-          tgz,
-          c.node.name,
-          c.cacheKey,
-          limits,
-          liveMeter,
-        )   // calibrated pako (STORE / mixed 7/8/9) or libzip (10)
-      } catch (error) {
-        if (error instanceof ArtifactEnvelopeError) {
-          return {
-            kind: 'defer',
-            id: c.node.id,
-            diagnostic: enrichArtifactLimit(
-              toTarballKey(c.node),
-              error.representation,
-              error.limitBytes,
-              error.origin,
-            ),
-          }
-        }
-        return { kind: 'defer', id: c.node.id }   // e.g. parseTar rejected an unsupported entry (symlink) → defer
-      } finally {
-        releaseDirect?.()
-        releaseTarball(npmTarballs, tgz)
-      }
-      if (hex === undefined) return { kind: 'defer', id: c.node.id }   // backend couldn't pack — defer
-    }
-    // Yarn emits exactly one checksum per entry. A verified source-domain
-    // berry-zip member is therefore superseded by the target-domain member;
-    // retaining both would be unemittable and selecting the old first member
-    // would produce bytes Yarn rejects. Unrelated tarball hashes are preserved.
-    const retainedIntegrity = {
-      hashes: (c.payload.integrity?.hashes ?? [])
-        .filter(hash => hash.origin !== 'berry-zip'),
-    }
-    const integrity = mergeIntegrity(
-      retainedIntegrity,
-      { hashes: [{ algorithm: 'sha512', digest: hex, origin: 'berry-zip' }] },
-    )
-    // Prefix-era emit always writes `<cacheKey>/<hex>`, and reparse records that
-    // prefix on the payload. Stamp the same canonical carrier at fill time so a
-    // strict emit→parse probe compares equal. Bare-era v4–v7 stays undefined and
-    // therefore never gains a foreign `8/`/`9/` prefix.
-    const berryChecksumCacheKey = isPrefixEraFormat(format) ? c.cacheKey : undefined
-    return {
-      kind: 'fill',
-      node: c.node,
-      merged: { ...c.payload, integrity, berryChecksumCacheKey },
-    }
-  })
-
-  // 3) Apply sequentially in node order — graph mutation is in-memory + fast, and
-  // ordering keeps `enriched` / diagnostics deterministic regardless of fetch race.
-  for (const r of resolved) {
-    if (r.kind === 'defer') {
-      if (r.diagnostic !== undefined) record(r.diagnostic)
-      record(enrichChecksumDeferred(r.id))
-      continue
-    }
-    const diag = enrichFieldFilled(r.node.id, 'berryChecksum', 'recompute')
-    next = next.mutate(m => {
-      m.setTarball({
-        name: r.node.name,
-        version: r.node.version,
-        patch: r.node.patch,
-        source: r.node.source,
-      }, r.merged)
-      m.diagnostic(diag)
-    }).graph
-    enriched.push(r.node.id)
-    unresolved.push(diag)
-    if (onDiagnostic !== undefined) onDiagnostic(diag)
+  const context: RefurbishResolutionContext = {
+    format,
+    npmTarballs,
+    berryChecksums,
+    recompute,
+    artifactResources: opts.artifactResources,
+    liveMeter,
   }
+  const resolved = await mapPool(
+    candidates,
+    concurrency,
+    candidate => resolveRefurbishCandidate(candidate, context),
+  )
 
-  if (unresolved.length === 0) record(enrichNoop())
-  return { graph: next, enriched, unresolved }
+  // 3) Commit in deterministic candidate order.
+  return commitRefurbishments(graph, resolved, onDiagnostic)
 }

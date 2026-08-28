@@ -33,6 +33,7 @@ import {
 } from '../completeness/diagnostics.ts'
 import {
   completionPolicyAuthorityOf,
+  type CompletionPolicyAuthority,
 } from '../completeness/profile.ts'
 import { targetProfileOf, targetRequestOf } from '../completeness/targets.ts'
 import type {
@@ -549,6 +550,378 @@ function artifactRefs(graph: Graph, enriched: readonly string[]): EvidenceRef[] 
 
 // === ENRICHMENT ORCHESTRATION ===============================================
 
+interface CollectedOperationEvidence {
+  readonly context: EvidenceContext
+  readonly manifestSource: PreparedManifestSource | undefined
+  readonly diagnostics: readonly Diagnostic[]
+}
+
+async function collectOperationEvidence(
+  baseEvidence: EvidenceContext,
+  sources: EnrichSources,
+  sourceFormat: FormatId | undefined,
+  targetFormat: FormatId,
+  workspaceRoot: string,
+): Promise<CollectedOperationEvidence> {
+  const diagnostics: Diagnostic[] = []
+  const manifestSource = await operationManifests(
+    sources.manifests,
+    sourceFormat ?? targetFormat,
+    workspaceRoot,
+  )
+  if (manifestSource !== undefined) diagnostics.push(...manifestSource.diagnostics)
+  let context = baseEvidence
+  if (manifestSource !== undefined) {
+    const before = context
+    context = withEvidence(context, {
+      kind: 'repository-manifests',
+      manifests: manifestSource.manifests,
+      coverage: manifestSource.coverage,
+    })
+    appendEvidenceDiagnostics(diagnostics, before, context)
+  }
+  if (sources.policy !== undefined && sources.config !== undefined) {
+    throw new LockfileError({
+      code: 'INVALID_INPUT',
+      message: 'sources.policy cannot be combined with legacy sources.config',
+    })
+  }
+  const policyEvidence = sources.policy ?? sources.config
+  if (policyEvidence !== undefined) {
+    const before = context
+    context = withEvidence(context, policyEvidence)
+    appendEvidenceDiagnostics(diagnostics, before, context)
+  }
+  return { context, manifestSource, diagnostics }
+}
+
+interface SourceGraphProjection {
+  readonly graph: Graph
+  readonly stateSource: Graph
+  readonly diagnostics: readonly Diagnostic[]
+  readonly phases: readonly EnrichmentDerivationPhase[]
+}
+
+function projectSourceGraph(
+  graph: Graph,
+  sourceFormat: FormatId | undefined,
+  targetRequest: ReturnType<typeof targetRequestOf>,
+  manifests: Record<string, DependencyManifest> | undefined,
+  policy: CompletionPolicyAuthority,
+  policyDiagnostic: Diagnostic | undefined,
+): SourceGraphProjection {
+  const diagnostics: Diagnostic[] = []
+  const phases: EnrichmentDerivationPhase[] = []
+  let working = graph
+  let stateSource = graph
+  if (sourceFormat !== undefined) {
+    const adapted = sourceAdapterEnrich(
+      sourceFormat,
+      graph,
+      sourceFormat === 'yarn-classic' && policy.status !== 'known' ? undefined : manifests,
+      policy.status === 'known' ? policy.overrides : [],
+    )
+    diagnostics.push(...adapted.diagnostics)
+    phases.push({ kind: 'source-adapter', before: graph, after: adapted.graph })
+    working = adapted.graph
+    stateSource = adapted.graph
+  }
+  const sourceProjection = projectYarnBerryDerivedDependencies(
+    working,
+    sourceFormat,
+    targetRequest,
+  )
+  if (sourceProjection.graph !== working) {
+    phases.push({
+      kind: 'target-compatibility',
+      before: working,
+      after: sourceProjection.graph,
+      added: [],
+      wired: [],
+      unwired: sourceProjection.unwired,
+      rooted: [...sourceProjection.graph.roots()]
+        .filter(id => !working.roots().has(id)),
+      unrooted: [...working.roots()]
+        .filter(id => !sourceProjection.graph.roots().has(id)),
+    })
+    working = sourceProjection.graph
+    stateSource = sourceProjection.graph
+  }
+  if (policyDiagnostic !== undefined) working = landDiagnostics(working, [policyDiagnostic])
+  return { graph: working, stateSource, diagnostics, phases }
+}
+
+interface RegistryCompletionTransaction {
+  readonly graph: Graph
+  readonly context: EvidenceContext
+  readonly diagnostics: readonly Diagnostic[]
+  readonly evidenceDiagnostics: readonly Diagnostic[]
+  readonly phases: readonly EnrichmentDerivationPhase[]
+}
+
+async function settleRegistryCompletion(
+  graph: Graph,
+  stateSource: Graph,
+  context: EvidenceContext,
+  registry: MemoizedRegistry | undefined,
+  policy: CompletionPolicyAuthority,
+  contract: ConversionContract,
+  targetRequest: ReturnType<typeof targetRequestOf>,
+): Promise<RegistryCompletionTransaction> {
+  const diagnostics: Diagnostic[] = []
+  const evidenceDiagnostics: Diagnostic[] = []
+  const phases: EnrichmentDerivationPhase[] = []
+  let working = graph
+  let completionAccepted = false
+  let completionDiagnostics: readonly Diagnostic[] = []
+  let completionPhase: Extract<EnrichmentDerivationPhase, { kind: 'completion' }> | undefined
+  const rollbackCompletion = (rollbackDiagnostics: readonly Diagnostic[]): void => {
+    const index = completionPhase === undefined ? -1 : phases.indexOf(completionPhase)
+    if (index >= 0) phases.splice(index, 1)
+    working = landDiagnostics(stateSource, rollbackDiagnostics)
+    completionAccepted = false
+    completionDiagnostics = []
+    completionPhase = undefined
+  }
+
+  if (registry !== undefined && policy.status === 'known') {
+    const completed = await completeTransitives(working, registry.adapter, {
+      overrides: policy.overrides,
+    })
+    const conflictAssessment = await resolutionConflicts(
+      completed.graph,
+      registry,
+      internalEvidenceOf(context),
+    )
+    diagnostics.push(...conflictAssessment.diagnostics)
+    evidenceDiagnostics.push(...conflictAssessment.diagnostics)
+    if (conflictAssessment.conflicts.length === 0) {
+      completionPhase = {
+        kind: 'completion',
+        before: working,
+        after: completed.graph,
+        added: completed.added,
+        wired: completed.wired,
+      }
+      phases.push(completionPhase)
+      working = completed.graph
+      completionAccepted = true
+      completionDiagnostics = completed.unresolved
+    } else {
+      diagnostics.push(...conflictAssessment.conflicts)
+      evidenceDiagnostics.push(...conflictAssessment.conflicts)
+      working = landDiagnostics(working, conflictAssessment.conflicts)
+    }
+  }
+
+  if (registry !== undefined && (contract === 'project' || contract === 'frozen')) {
+    const observed = await registryManifestEvidence(
+      working,
+      registry,
+      internalEvidenceOf(context),
+    )
+    diagnostics.push(...observed.diagnostics)
+    evidenceDiagnostics.push(...observed.diagnostics)
+    if (observed.conflicts.length > 0) {
+      diagnostics.push(...observed.conflicts)
+      evidenceDiagnostics.push(...observed.conflicts)
+      if (completionAccepted) rollbackCompletion(observed.conflicts)
+      else working = landDiagnostics(working, observed.conflicts)
+    } else if (observed.evidence !== undefined) {
+      const before = context
+      const beforeConflicts = internalEvidenceOf(context).conflicts.length
+      context = withEvidence(context, observed.evidence)
+      appendEvidenceDiagnostics(diagnostics, before, context)
+      if (internalEvidenceOf(context).conflicts.length > beforeConflicts
+        && completionAccepted) {
+        rollbackCompletion(context.ledger.diagnostics.slice(before.ledger.diagnostics.length))
+      }
+    }
+  }
+
+  if (completionAccepted) diagnostics.push(...completionDiagnostics)
+  if (completionAccepted) {
+    const before = working
+    const materialized = materializeYarnBerryPluginCompat(before, targetRequest)
+    if (materialized.graph !== before) {
+      phases.push({
+        kind: 'target-compatibility',
+        before,
+        after: materialized.graph,
+        added: materialized.added,
+        wired: materialized.wired,
+        unwired: materialized.unwired,
+        rooted: materialized.rooted,
+        unrooted: materialized.unrooted,
+      })
+      working = materialized.graph
+    }
+  }
+  return { graph: working, context, diagnostics, evidenceDiagnostics, phases }
+}
+
+interface MetadataHydration {
+  readonly graph: Graph
+  readonly diagnostics: readonly Diagnostic[]
+  readonly phases: readonly EnrichmentDerivationPhase[]
+}
+
+function hydrateAuthoritativeMetadata(
+  graph: Graph,
+  context: EvidenceContext,
+  contract: ConversionContract,
+): MetadataHydration {
+  if (hasPackageConflict(internalEvidenceOf(context))
+    || (contract !== 'project' && contract !== 'frozen'
+      && internalEvidenceOf(context).packageManifests.size === 0)) {
+    return { graph, diagnostics: [], phases: [] }
+  }
+  const diagnostics: Diagnostic[] = []
+  const phases: EnrichmentDerivationPhase[] = []
+  let working = graph
+  for (const authority of packageEvidenceBatches(internalEvidenceOf(context))) {
+    const before = working
+    const hydrated = hydrateMetadata(before, authority)
+    diagnostics.push(...hydrated.diagnostics)
+    phases.push({
+      kind: 'metadata',
+      before,
+      after: hydrated.graph,
+      hydrated: hydrated.hydrated,
+    })
+    working = hydrated.graph
+  }
+  return { graph: working, diagnostics, phases }
+}
+
+interface ArtifactEnrichment {
+  readonly graph: Graph
+  readonly diagnostics: readonly Diagnostic[]
+  readonly phases: readonly EnrichmentDerivationPhase[]
+  readonly enriched: readonly string[]
+  readonly inferredCacheKey: string | undefined
+}
+
+async function enrichArtifacts(
+  graph: Graph,
+  target: ReturnType<typeof targetProfileOf>,
+  targetRequest: ReturnType<typeof targetRequestOf>,
+  requestedCacheKey: string | undefined,
+  fallbackCacheKey: string | undefined,
+  artifacts: ReturnType<typeof normalizeArtifactSources> | undefined,
+  artifactResources: ArtifactResourcePolicy | undefined,
+  maxNetworkTrafficBytes: number,
+  networkTrafficOrigin: 'default' | 'global',
+): Promise<ArtifactEnrichment> {
+  if (target.capabilities.integrity !== 'berry-zip' || artifacts === undefined) {
+    return {
+      graph,
+      diagnostics: [],
+      phases: [],
+      enriched: [],
+      inferredCacheKey: undefined,
+    }
+  }
+  const diagnostics: Diagnostic[] = []
+  const artifactCacheKey = requestedCacheKey ?? fallbackCacheKey ?? berryCacheKeyFor(
+    graph,
+    targetRequest.format,
+    'observed-only',
+  )
+  if (!hasBerryChecksumGap(graph, artifactCacheKey)) {
+    return {
+      graph,
+      diagnostics,
+      phases: [],
+      enriched: [],
+      inferredCacheKey: undefined,
+    }
+  }
+  const npmTarballs = artifactTarballSource(
+    artifacts,
+    artifactResources,
+    diagnostic => diagnostics.push(diagnostic),
+    { maxBytes: maxNetworkTrafficBytes, origin: networkTrafficOrigin },
+  )
+  const refurbished = await refurbish(graph, targetRequest.format, {
+    ...artifacts.refurbish,
+    npmTarballs,
+  }, {
+    ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
+    cacheKeyInference: 'observed-only',
+    artifactResources,
+  })
+  diagnostics.push(...refurbished.unresolved)
+  const inferredCacheKey = requestedCacheKey === undefined
+    && fallbackCacheKey === undefined
+    && artifactCacheKey !== undefined
+    && refurbished.enriched.length > 0
+    ? artifactCacheKey
+    : undefined
+  return {
+    graph: refurbished.graph,
+    diagnostics,
+    phases: [{
+      kind: 'artifact',
+      before: graph,
+      after: refurbished.graph,
+      enriched: refurbished.enriched,
+    }],
+    enriched: refurbished.enriched,
+    inferredCacheKey,
+  }
+}
+
+function commitEnrichment(
+  original: Graph,
+  graph: Graph,
+  stateSource: Graph,
+  sourceFormat: FormatId | undefined,
+  baseEvidence: EvidenceContext,
+  context: EvidenceContext,
+  phases: readonly EnrichmentDerivationPhase[],
+  refs: readonly EvidenceRef[],
+  diagnostics: Diagnostic[],
+  evidenceDiagnostics: readonly Diagnostic[],
+  onDiagnostic: EnrichOptions['onDiagnostic'],
+): EnrichResult {
+  const evidenceChanged = context !== baseEvidence || refs.length > 0
+  let working = graph
+  if (working === original && (evidenceChanged || diagnostics.length > 0)) {
+    working = working.mutate(() => {}).graph
+  }
+
+  let transferred = rebindFormatAdapterState(sourceFormat, stateSource, working)
+  if (transferred.invalidated.length > 0) {
+    const diagnostic = enrichAdapterStateInvalidated(
+      sourceFormat ?? 'unknown',
+      transferred.invalidated,
+    )
+    diagnostics.push(diagnostic)
+    const withDiagnostic = landDiagnostics(transferred.graph, [diagnostic])
+    transferred = rebindFormatAdapterState(sourceFormat, transferred.graph, withDiagnostic)
+  }
+  working = transferred.graph
+
+  const changed = working !== original || evidenceChanged || diagnostics.length > 0
+  if (changed) {
+    deriveEnrichedEvidence(
+      original,
+      working,
+      context,
+      phases,
+      refs,
+      evidenceDiagnostics,
+    )
+  }
+  const result = Object.freeze({
+    graph: working,
+    diagnostics: Object.freeze([...diagnostics]),
+  })
+  for (const diagnostic of result.diagnostics) onDiagnostic?.(diagnostic)
+  return result
+}
+
 export function enrich(
   graph: Graph,
   options: EnrichOptions,
@@ -595,38 +968,17 @@ export async function enrich(
   const refs: EvidenceRef[] = []
   const baseEvidence = evidenceOf(graph)
   const sourceFormat = internalEvidenceOf(baseEvidence).source?.format
-  const manifestSource = await operationManifests(
-    sources.manifests,
-    sourceFormat ?? targetRequest.format,
+  const collected = await collectOperationEvidence(
+    baseEvidence,
+    sources,
+    sourceFormat,
+    targetRequest.format,
     workspaceRoot,
   )
-  if (manifestSource !== undefined) diagnostics.push(...manifestSource.diagnostics)
-  let context = baseEvidence
-
-  if (manifestSource !== undefined) {
-    const before = context
-    context = withEvidence(context, {
-      kind: 'repository-manifests',
-      manifests: manifestSource.manifests,
-      coverage: manifestSource.coverage,
-    })
-    appendEvidenceDiagnostics(diagnostics, before, context)
-  }
-  if (sources.policy !== undefined && sources.config !== undefined) {
-    throw new LockfileError({
-      code: 'INVALID_INPUT',
-      message: 'sources.policy cannot be combined with legacy sources.config',
-    })
-  }
-  const policyEvidence = sources.policy ?? sources.config
-  if (policyEvidence !== undefined) {
-    const before = context
-    context = withEvidence(context, policyEvidence)
-    appendEvidenceDiagnostics(diagnostics, before, context)
-  }
-
+  diagnostics.push(...collected.diagnostics)
+  let context = collected.context
   const policy = completionPolicyAuthorityOf(internalEvidenceOf(context))
-  const manifests = mutableManifests(manifestSource?.manifests)
+  const manifests = mutableManifests(collected.manifestSource?.manifests)
   const registryAuthority = orderedRegistry(sources)
   const needsPolicy = registryAuthority !== undefined
     || (sourceFormat === 'yarn-classic' && manifests !== undefined)
@@ -634,228 +986,78 @@ export async function enrich(
     ? undefined
     : enrichOverrideAuthority(policy.status)
   if (policyDiagnostic !== undefined) diagnostics.push(policyDiagnostic)
-  let working = graph
-  let stateSource = graph
-  if (sourceFormat !== undefined) {
-    const adapted = sourceAdapterEnrich(
-      sourceFormat,
-      graph,
-      sourceFormat === 'yarn-classic' && policy.status !== 'known' ? undefined : manifests,
-      policy.status === 'known' ? policy.overrides : [],
-    )
-    diagnostics.push(...adapted.diagnostics)
-    phases.push({ kind: 'source-adapter', before: graph, after: adapted.graph })
-    working = adapted.graph
-    stateSource = adapted.graph
-  }
-  const sourceProjection = projectYarnBerryDerivedDependencies(
-    working,
+  const sourceProjection = projectSourceGraph(
+    graph,
     sourceFormat,
     targetRequest,
+    manifests,
+    policy,
+    policyDiagnostic,
   )
-  if (sourceProjection.graph !== working) {
-    phases.push({
-      kind: 'target-compatibility',
-      before: working,
-      after: sourceProjection.graph,
-      added: [],
-      wired: [],
-      unwired: sourceProjection.unwired,
-      rooted: [...sourceProjection.graph.roots()]
-        .filter(id => !working.roots().has(id)),
-      unrooted: [...working.roots()]
-        .filter(id => !sourceProjection.graph.roots().has(id)),
-    })
-    working = sourceProjection.graph
-    stateSource = sourceProjection.graph
-  }
-  if (policyDiagnostic !== undefined) working = landDiagnostics(working, [policyDiagnostic])
+  diagnostics.push(...sourceProjection.diagnostics)
+  phases.push(...sourceProjection.phases)
+  let working = sourceProjection.graph
+  const stateSource = sourceProjection.stateSource
 
   const registry = registryAuthority === undefined
     ? undefined
     : yarnBerryPluginCompatRegistry(registryAuthority, targetRequest)
   const memoized = registry === undefined ? undefined : memoizeRegistry(registry)
-  let completionAccepted = false
-  let completionDiagnostics: readonly Diagnostic[] = []
-  let completionPhase: Extract<EnrichmentDerivationPhase, { kind: 'completion' }> | undefined
-  const rollbackCompletion = (rollbackDiagnostics: readonly Diagnostic[]): void => {
-    const index = completionPhase === undefined ? -1 : phases.indexOf(completionPhase)
-    if (index >= 0) phases.splice(index, 1)
-    working = landDiagnostics(stateSource, rollbackDiagnostics)
-    completionAccepted = false
-    completionDiagnostics = []
-    completionPhase = undefined
-  }
-  if (memoized !== undefined) {
-    if (policy.status === 'known') {
-      const completed = await completeTransitives(working, memoized.adapter, {
-        overrides: policy.overrides,
-      })
-      const conflictAssessment = await resolutionConflicts(
-        completed.graph,
-        memoized,
-        internalEvidenceOf(context),
-      )
-      diagnostics.push(...conflictAssessment.diagnostics)
-      evidenceDiagnostics.push(...conflictAssessment.diagnostics)
-      if (conflictAssessment.conflicts.length === 0) {
-        completionPhase = {
-          kind: 'completion',
-          before: working,
-          after: completed.graph,
-          added: completed.added,
-          wired: completed.wired,
-        }
-        phases.push(completionPhase)
-        working = completed.graph
-        completionAccepted = true
-        completionDiagnostics = completed.unresolved
-      } else {
-        diagnostics.push(...conflictAssessment.conflicts)
-        evidenceDiagnostics.push(...conflictAssessment.conflicts)
-        working = landDiagnostics(working, conflictAssessment.conflicts)
-      }
-    }
-  }
+  const completion = await settleRegistryCompletion(
+    working,
+    stateSource,
+    context,
+    memoized,
+    policy,
+    contract,
+    targetRequest,
+  )
+  working = completion.graph
+  context = completion.context
+  diagnostics.push(...completion.diagnostics)
+  evidenceDiagnostics.push(...completion.evidenceDiagnostics)
+  phases.push(...completion.phases)
 
-  if (memoized !== undefined && (contract === 'project' || contract === 'frozen')) {
-    const observed = await registryManifestEvidence(
-      working,
-      memoized,
-      internalEvidenceOf(context),
-    )
-    diagnostics.push(...observed.diagnostics)
-    evidenceDiagnostics.push(...observed.diagnostics)
-    if (observed.conflicts.length > 0) {
-      diagnostics.push(...observed.conflicts)
-      evidenceDiagnostics.push(...observed.conflicts)
-      if (completionAccepted) {
-        rollbackCompletion(observed.conflicts)
-      } else {
-        working = landDiagnostics(working, observed.conflicts)
-      }
-    } else if (observed.evidence !== undefined) {
-      const before = context
-      const beforeConflicts = internalEvidenceOf(context).conflicts.length
-      context = withEvidence(context, observed.evidence)
-      appendEvidenceDiagnostics(diagnostics, before, context)
-      if (internalEvidenceOf(context).conflicts.length > beforeConflicts && completionAccepted) {
-        rollbackCompletion(context.ledger.diagnostics.slice(before.ledger.diagnostics.length))
-      }
-    }
-  }
+  const metadata = hydrateAuthoritativeMetadata(working, context, contract)
+  working = metadata.graph
+  diagnostics.push(...metadata.diagnostics)
+  phases.push(...metadata.phases)
 
-  if (completionAccepted) diagnostics.push(...completionDiagnostics)
-
-  if (completionAccepted) {
-    const before = working
-    const materialized = materializeYarnBerryPluginCompat(before, targetRequest)
-    if (materialized.graph !== before) {
-      phases.push({
-        kind: 'target-compatibility',
-        before,
-        after: materialized.graph,
-        added: materialized.added,
-        wired: materialized.wired,
-        unwired: materialized.unwired,
-        rooted: materialized.rooted,
-        unrooted: materialized.unrooted,
-      })
-      working = materialized.graph
-    }
-  }
-
-  if (!hasPackageConflict(internalEvidenceOf(context))
-    && (contract === 'project' || contract === 'frozen'
-      || internalEvidenceOf(context).packageManifests.size > 0)) {
-    for (const authority of packageEvidenceBatches(internalEvidenceOf(context))) {
-      const before = working
-      const hydrated = hydrateMetadata(before, authority)
-      diagnostics.push(...hydrated.diagnostics)
-      phases.push({
-        kind: 'metadata',
-        before,
-        after: hydrated.graph,
-        hydrated: hydrated.hydrated,
-      })
-      working = hydrated.graph
-    }
-  }
-
-  let artifactEnriched: readonly string[] = []
-  let inferredArtifactCacheKey: string | undefined
-  if (target.capabilities.integrity === 'berry-zip'
-    && artifacts !== undefined) {
-    const before = working
-    const artifactCacheKey = requestedCacheKey ?? options.cacheKey ?? berryCacheKeyFor(
-      before,
-      targetRequest.format,
-      'observed-only',
-    )
-    if (hasBerryChecksumGap(before, artifactCacheKey)) {
-      const npmTarballs = artifactTarballSource(
-        artifacts,
-        artifactResources,
-        diagnostic => diagnostics.push(diagnostic),
-        {
-          maxBytes: normalizedGuards.maxNetworkTrafficBytes,
-          origin: normalizedGuards.networkTrafficOrigin,
-        },
-      )
-      const refurbished = await refurbish(before, targetRequest.format, {
-        ...artifacts.refurbish,
-        npmTarballs,
-      }, {
-        ...(artifactCacheKey === undefined ? {} : { cacheKey: artifactCacheKey }),
-        cacheKeyInference: 'observed-only',
-        artifactResources,
-      })
-      diagnostics.push(...refurbished.unresolved)
-      phases.push({
-        kind: 'artifact',
-        before,
-        after: refurbished.graph,
-        enriched: refurbished.enriched,
-      })
-      working = refurbished.graph
-      artifactEnriched = refurbished.enriched
-      if (requestedCacheKey === undefined && options.cacheKey === undefined
-        && artifactCacheKey !== undefined
-        && artifactEnriched.length > 0) inferredArtifactCacheKey = artifactCacheKey
-    }
-  }
+  const artifact = await enrichArtifacts(
+    working,
+    target,
+    targetRequest,
+    requestedCacheKey,
+    options.cacheKey,
+    artifacts,
+    artifactResources,
+    normalizedGuards.maxNetworkTrafficBytes,
+    normalizedGuards.networkTrafficOrigin,
+  )
+  working = artifact.graph
+  diagnostics.push(...artifact.diagnostics)
+  phases.push(...artifact.phases)
 
   if (memoized !== undefined) refs.push(...registryRefs(memoized))
-  if (inferredArtifactCacheKey !== undefined) {
+  if (artifact.inferredCacheKey !== undefined) {
     refs.push({
       kind: 'inference',
-      subject: `berry-cache-key:${inferredArtifactCacheKey}`,
+      subject: `berry-cache-key:${artifact.inferredCacheKey}`,
       source: 'graph-observation',
     })
   }
-  refs.push(...artifactRefs(working, artifactEnriched))
-  const evidenceChanged = context !== baseEvidence || refs.length > 0
-  if (working === graph && (evidenceChanged || diagnostics.length > 0)) {
-    working = working.mutate(() => {}).graph
-  }
-
-  let transferred = rebindFormatAdapterState(sourceFormat, stateSource, working)
-  if (transferred.invalidated.length > 0) {
-    const diagnostic = enrichAdapterStateInvalidated(sourceFormat ?? 'unknown', transferred.invalidated)
-    diagnostics.push(diagnostic)
-    const withDiagnostic = landDiagnostics(transferred.graph, [diagnostic])
-    transferred = rebindFormatAdapterState(sourceFormat, transferred.graph, withDiagnostic)
-  }
-  working = transferred.graph
-
-  const changed = working !== graph || evidenceChanged || diagnostics.length > 0
-  if (changed) {
-    deriveEnrichedEvidence(graph, working, context, phases, refs, evidenceDiagnostics)
-  }
-  const result = Object.freeze({
-    graph: working,
-    diagnostics: Object.freeze([...diagnostics]),
-  })
-  for (const diagnostic of result.diagnostics) options.onDiagnostic?.(diagnostic)
-  return result
+  refs.push(...artifactRefs(working, artifact.enriched))
+  return commitEnrichment(
+    graph,
+    working,
+    stateSource,
+    sourceFormat,
+    baseEvidence,
+    context,
+    phases,
+    refs,
+    diagnostics,
+    evidenceDiagnostics,
+    options.onDiagnostic,
+  )
 }

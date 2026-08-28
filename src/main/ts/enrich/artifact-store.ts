@@ -281,61 +281,79 @@ async function ensureRoot(source: ArtifactStoreSource): Promise<void> {
   await privateDirectory(source, resolve(source.path, '.pins'))
 }
 
+async function createOwnedLock(
+  source: ArtifactStoreSource,
+  lock: string,
+): Promise<() => Promise<void>> {
+  await mkdir(lock, { mode: DIR_MODE })
+  await atomicWrite(source, resolve(lock, 'owner'), `${process.pid}\n`)
+  return async () => {
+    await rm(lock, { recursive: true, force: true })
+  }
+}
+
+type ExistingLockState = 'gone' | 'young' | 'live' | 'stale'
+
+async function existingLockState(lock: string): Promise<ExistingLockState> {
+  let facts
+  try {
+    facts = await lstat(lock)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'gone'
+    throw error
+  }
+  if (!facts.isDirectory() || facts.isSymbolicLink()) {
+    throw new Error('artifact store lock path is not a private directory')
+  }
+  let pid: number | undefined
+  try {
+    const raw = (await readFile(resolve(lock, 'owner'), 'utf8')).trim()
+    pid = /^\d+$/.test(raw) ? Number(raw) : undefined
+  } catch {
+    // A competing creator may be between mkdir and owner rename.
+  }
+  if (pid === undefined) {
+    try {
+      if (Date.now() - (await stat(lock)).mtimeMs < 1_000) return 'young'
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'gone'
+      throw error
+    }
+  }
+  return pid !== undefined && processAlive(pid) ? 'live' : 'stale'
+}
+
+async function retireStaleLock(
+  source: ArtifactStoreSource,
+  lock: string,
+): Promise<boolean> {
+  const stale = resolve(
+    source.path,
+    '.tmp',
+    `${process.pid}-stale-lock-${nonce()}`,
+  )
+  try {
+    await rename(lock, stale)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+  await rm(stale, { recursive: true, force: true })
+  return true
+}
+
 async function acquireLock(source: ArtifactStoreSource): Promise<() => Promise<void>> {
   await ensureRoot(source)
   const lock = resolve(source.path, '.lock')
   for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
     try {
-      await mkdir(lock, { mode: DIR_MODE })
-      await atomicWrite(source, resolve(lock, 'owner'), `${process.pid}\n`)
-      return async () => {
-        await rm(lock, { recursive: true, force: true })
-      }
+      return await createOwnedLock(source, lock)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      let facts
-      try {
-        facts = await lstat(lock)
-      } catch (lockError) {
-        if ((lockError as NodeJS.ErrnoException).code === 'ENOENT') continue
-        throw lockError
-      }
-      if (!facts.isDirectory() || facts.isSymbolicLink()) {
-        throw new Error('artifact store lock path is not a private directory')
-      }
-      let pid: number | undefined
-      try {
-        const raw = (await readFile(resolve(lock, 'owner'), 'utf8')).trim()
-        pid = /^\d+$/.test(raw) ? Number(raw) : undefined
-      } catch {
-        // A competing creator may be between mkdir and owner rename.
-      }
-      if (pid === undefined) {
-        let age
-        try {
-          age = Date.now() - (await stat(lock)).mtimeMs
-        } catch (lockError) {
-          if ((lockError as NodeJS.ErrnoException).code === 'ENOENT') continue
-          throw lockError
-        }
-        if (age < 1_000) {
-          await delay(LOCK_RETRY_MS)
-          continue
-        }
-      }
-      if (pid === undefined || !processAlive(pid)) {
-        const stale = resolve(
-          source.path,
-          '.tmp',
-          `${process.pid}-stale-lock-${nonce()}`,
-        )
-        try {
-          await rename(lock, stale)
-        } catch (lockError) {
-          if ((lockError as NodeJS.ErrnoException).code === 'ENOENT') continue
-          throw lockError
-        }
-        await rm(stale, { recursive: true, force: true })
+      const state = await existingLockState(lock)
+      if (state === 'gone') continue
+      if (state === 'stale') {
+        await retireStaleLock(source, lock)
         continue
       }
       await delay(LOCK_RETRY_MS)
@@ -474,6 +492,144 @@ async function removeUnderLock(
   })
 }
 
+interface PinnedCandidate {
+  readonly candidate: Candidate
+  readonly pin: string
+}
+
+async function selectArtifactCandidate(
+  source: ArtifactStoreSource,
+  alias: ArtifactStoreAlias,
+  subject: string,
+  onDiagnostic: ArtifactStoreDiagnostic,
+  maxCompressedBytes: number | undefined,
+): Promise<PinnedCandidate | ArtifactStoreReadLimit | undefined> {
+  return withLock(source, async () => {
+    const candidate = await candidateOf(source, alias)
+    if (candidate === undefined) return undefined
+    if (!SHA512_HEX.test(candidate.canonical)) {
+      if (candidate.alias !== undefined) await rm(candidate.alias, { force: true })
+      diagnostic(
+        onDiagnostic,
+        'ENRICH_ARTIFACT_STORE_CORRUPT',
+        subject,
+        'found a malformed digest alias; deleted the index and continued',
+      )
+      return undefined
+    }
+    const path = objectPath(source, candidate.canonical)
+    if (!await regularFile(path)) {
+      if (candidate.alias !== undefined) {
+        await rm(candidate.alias, { force: true })
+        diagnostic(
+          onDiagnostic,
+          'ENRICH_ARTIFACT_STORE_CORRUPT',
+          subject,
+          'found a dangling digest alias; deleted the index and continued',
+        )
+      }
+      return undefined
+    }
+    const size = (await stat(path)).size
+    if (maxCompressedBytes !== undefined && size > maxCompressedBytes) {
+      return { exceededBytes: size }
+    }
+    return { candidate, pin: await pin(source, candidate.canonical) }
+  })
+}
+
+type MaterializedCandidate =
+  | Readonly<{ kind: 'verified'; bytes: Uint8Array; path: string }>
+  | Readonly<{ kind: 'next-alias' }>
+  | Readonly<{ kind: 'failed' }>
+
+async function materializeArtifactCandidate(
+  source: ArtifactStoreSource,
+  selected: PinnedCandidate,
+  subject: string,
+  onDiagnostic: ArtifactStoreDiagnostic,
+): Promise<MaterializedCandidate> {
+  const path = objectPath(source, selected.candidate.canonical)
+  let bytes: Uint8Array
+  try {
+    bytes = new Uint8Array(await readFile(path))
+  } catch (error) {
+    await removeUnderLock(source, [selected.pin])
+    diagnostic(
+      onDiagnostic,
+      'ENRICH_ARTIFACT_STORE_READ_FAILED',
+      subject,
+      'could not read a pinned artifact object; continued in source order',
+      { cause: error instanceof Error ? error.message : String(error) },
+    )
+    return { kind: 'failed' }
+  }
+  if (canonicalDigest(bytes) === selected.candidate.canonical) {
+    return { kind: 'verified', bytes, path }
+  }
+  await removeUnderLock(source, [
+    path,
+    ...(selected.candidate.alias === undefined ? [] : [selected.candidate.alias]),
+    selected.pin,
+  ])
+  diagnostic(
+    onDiagnostic,
+    'ENRICH_ARTIFACT_STORE_CORRUPT',
+    subject,
+    'failed canonical SHA-512 self-verification; deleted the object and traversed alias',
+  )
+  return { kind: 'next-alias' }
+}
+
+function artifactReadLease(
+  source: ArtifactStoreSource,
+  selected: PinnedCandidate,
+  materialized: Extract<MaterializedCandidate, { kind: 'verified' }>,
+  subject: string,
+  onDiagnostic: ArtifactStoreDiagnostic,
+): ArtifactStoreHit {
+  let settled = false
+  const settle = async (
+    action: 'accept' | 'reject-alias' | 'release',
+  ): Promise<void> => {
+    if (settled) return
+    settled = true
+    try {
+      await withLock(source, async () => {
+        if (action === 'accept') {
+          const now = new Date()
+          await utimes(materialized.path, now, now)
+        }
+        if (action === 'reject-alias' && selected.candidate.alias !== undefined) {
+          await rm(selected.candidate.alias, { force: true })
+        }
+        await rm(selected.pin, { force: true })
+      })
+    } catch (error) {
+      // This process owns the marker; direct cleanup cannot expose a
+      // not-yet-pinned object even when the shared lock is unavailable.
+      await rm(selected.pin, { force: true })
+      throw error
+    }
+    if (action === 'reject-alias' && selected.candidate.alias !== undefined) {
+      diagnostic(
+        onDiagnostic,
+        'ENRICH_ARTIFACT_STORE_CORRUPT',
+        subject,
+        'failed current-lock verification; deleted only the digest alias and continued',
+      )
+    }
+  }
+  return {
+    bytes: materialized.bytes,
+    canonical: selected.candidate.canonical,
+    viaAlias: selected.candidate.alias !== undefined,
+    accept: () => settle('accept'),
+    rejectAlias: () => settle('reject-alias'),
+    release: () => settle('release'),
+  }
+}
+
 export async function readArtifactStore(
   source: ArtifactStoreSource,
   evidence: ArtifactStoreEvidence,
@@ -482,43 +638,15 @@ export async function readArtifactStore(
   maxCompressedBytes?: number,
 ): Promise<ArtifactStoreHit | ArtifactStoreReadLimit | undefined> {
   for (const evidenceAlias of evidence.aliases) {
-    let selected:
-      | { candidate: Candidate; pin: string }
-      | ArtifactStoreReadLimit
-      | undefined
+    let selected: PinnedCandidate | ArtifactStoreReadLimit | undefined
     try {
-      selected = await withLock(source, async () => {
-        const candidate = await candidateOf(source, evidenceAlias)
-        if (candidate === undefined) return undefined
-        if (!SHA512_HEX.test(candidate.canonical)) {
-          if (candidate.alias !== undefined) await rm(candidate.alias, { force: true })
-          diagnostic(
-            onDiagnostic,
-            'ENRICH_ARTIFACT_STORE_CORRUPT',
-            subject,
-            'found a malformed digest alias; deleted the index and continued',
-          )
-          return undefined
-        }
-        const path = objectPath(source, candidate.canonical)
-        if (!await regularFile(path)) {
-          if (candidate.alias !== undefined) {
-            await rm(candidate.alias, { force: true })
-            diagnostic(
-              onDiagnostic,
-              'ENRICH_ARTIFACT_STORE_CORRUPT',
-              subject,
-              'found a dangling digest alias; deleted the index and continued',
-            )
-          }
-          return undefined
-        }
-        const size = (await stat(path)).size
-        if (maxCompressedBytes !== undefined && size > maxCompressedBytes) {
-          return { exceededBytes: size }
-        }
-        return { candidate, pin: await pin(source, candidate.canonical) }
-      })
+      selected = await selectArtifactCandidate(
+        source,
+        evidenceAlias,
+        subject,
+        onDiagnostic,
+        maxCompressedBytes,
+      )
     } catch (error) {
       diagnostic(
         onDiagnostic,
@@ -532,76 +660,15 @@ export async function readArtifactStore(
     if (selected === undefined) continue
     if ('exceededBytes' in selected) return selected
 
-    const path = objectPath(source, selected.candidate.canonical)
-    let bytes: Uint8Array
-    try {
-      bytes = new Uint8Array(await readFile(path))
-    } catch (error) {
-      await removeUnderLock(source, [selected.pin])
-      diagnostic(
-        onDiagnostic,
-        'ENRICH_ARTIFACT_STORE_READ_FAILED',
-        subject,
-        'could not read a pinned artifact object; continued in source order',
-        { cause: error instanceof Error ? error.message : String(error) },
-      )
-      return undefined
-    }
-    if (canonicalDigest(bytes) !== selected.candidate.canonical) {
-      await removeUnderLock(source, [
-        path,
-        ...(selected.candidate.alias === undefined ? [] : [selected.candidate.alias]),
-        selected.pin,
-      ])
-      diagnostic(
-        onDiagnostic,
-        'ENRICH_ARTIFACT_STORE_CORRUPT',
-        subject,
-        'failed canonical SHA-512 self-verification; deleted the object and traversed alias',
-      )
-      continue
-    }
-
-    let settled = false
-    const settle = async (
-      action: 'accept' | 'reject-alias' | 'release',
-    ): Promise<void> => {
-      if (settled) return
-      settled = true
-      try {
-        await withLock(source, async () => {
-          if (action === 'accept') {
-            const now = new Date()
-            await utimes(path, now, now)
-          }
-          if (action === 'reject-alias' && selected!.candidate.alias !== undefined) {
-            await rm(selected!.candidate.alias, { force: true })
-          }
-          await rm(selected!.pin, { force: true })
-        })
-      } catch (error) {
-        // This process owns the marker; direct cleanup cannot expose a
-        // not-yet-pinned object even when the shared lock is unavailable.
-        await rm(selected!.pin, { force: true })
-        throw error
-      }
-      if (action === 'reject-alias' && selected!.candidate.alias !== undefined) {
-        diagnostic(
-          onDiagnostic,
-          'ENRICH_ARTIFACT_STORE_CORRUPT',
-          subject,
-          'failed current-lock verification; deleted only the digest alias and continued',
-        )
-      }
-    }
-    return {
-      bytes,
-      canonical: selected.candidate.canonical,
-      viaAlias: selected.candidate.alias !== undefined,
-      accept: () => settle('accept'),
-      rejectAlias: () => settle('reject-alias'),
-      release: () => settle('release'),
-    }
+    const materialized = await materializeArtifactCandidate(
+      source,
+      selected,
+      subject,
+      onDiagnostic,
+    )
+    if (materialized.kind === 'failed') return undefined
+    if (materialized.kind === 'next-alias') continue
+    return artifactReadLease(source, selected, materialized, subject, onDiagnostic)
   }
   return undefined
 }
@@ -749,6 +816,164 @@ async function aliasesForWrite(
   return [...aliases.values()]
 }
 
+interface PreparedArtifactWrite {
+  readonly object: string
+  readonly objectExists: boolean
+  readonly aliases: readonly { path: string; content: string }[]
+}
+
+async function prepareArtifactWrite(
+  source: ArtifactStoreSource,
+  evidence: ArtifactStoreEvidence,
+  bytes: Uint8Array,
+  canonical: string,
+  subject: string,
+  onDiagnostic: ArtifactStoreDiagnostic,
+): Promise<PreparedArtifactWrite> {
+  const object = objectPath(source, canonical)
+  let objectExists = await regularFile(object)
+  if (objectExists) {
+    const existingFacts = await stat(object)
+    const existingMatches = existingFacts.size === bytes.byteLength
+      && canonicalDigest(new Uint8Array(await readFile(object))) === canonical
+    if (!existingMatches) {
+      await rm(object, { force: true })
+      objectExists = false
+      diagnostic(
+        onDiagnostic,
+        'ENRICH_ARTIFACT_STORE_CORRUPT',
+        subject,
+        'replaced a canonical object that failed SHA-512 self-verification',
+      )
+    }
+  }
+  return {
+    object,
+    objectExists,
+    aliases: await aliasesForWrite(source, evidence, canonical),
+  }
+}
+
+interface EvictionVictim {
+  readonly object: StableObject
+  readonly aliases: readonly StableAlias[]
+}
+
+type CapacityDecision =
+  | Readonly<{ kind: 'fits'; projectedBytes: number }>
+  | Readonly<{
+      kind: 'evict'
+      projectedBytes: number
+      victims: readonly EvictionVictim[]
+    }>
+  | Readonly<{ kind: 'blocked-by-pins'; projectedBytes: number }>
+
+function artifactWriteAdditions(
+  prepared: PreparedArtifactWrite,
+  state: Awaited<ReturnType<typeof stableState>>,
+  bytes: Uint8Array,
+): number {
+  const aliasPaths = new Set(state.aliases.map(alias => alias.path))
+  return (prepared.objectExists ? 0 : bytes.byteLength)
+    + prepared.aliases.reduce((sum, alias) =>
+      sum + (aliasPaths.has(alias.path) ? 0 : Buffer.byteLength(alias.content)), 0)
+}
+
+async function decideArtifactCapacity(
+  source: ArtifactStoreSource,
+  canonical: string,
+  state: Awaited<ReturnType<typeof stableState>>,
+  additions: number,
+  aliasesBeingWritten: ReadonlySet<string>,
+): Promise<CapacityDecision> {
+  const projectedBytes = state.bytes + additions
+  if (projectedBytes <= source.maxBytes) {
+    return { kind: 'fits', projectedBytes }
+  }
+
+  const pinned = await livePins(source)
+  const candidates = state.objects
+    .filter(candidate =>
+      candidate.canonical !== canonical && !pinned.has(candidate.canonical))
+    .sort((left, right) =>
+      left.mtimeMs - right.mtimeMs
+      || left.canonical.localeCompare(right.canonical))
+  const victims: EvictionVictim[] = []
+  let remainingBytes = projectedBytes
+  for (const object of candidates) {
+    const aliases = state.aliases.filter(alias =>
+      alias.canonical === object.canonical
+      && !aliasesBeingWritten.has(alias.path))
+    victims.push({ object, aliases })
+    remainingBytes -= object.size
+      + aliases.reduce((sum, alias) => sum + alias.size, 0)
+    if (remainingBytes <= source.maxBytes) {
+      return {
+        kind: 'evict',
+        projectedBytes: remainingBytes,
+        victims,
+      }
+    }
+  }
+  return { kind: 'blocked-by-pins', projectedBytes }
+}
+
+async function executeEviction(
+  decision: Extract<CapacityDecision, { kind: 'evict' }>,
+): Promise<void> {
+  for (const victim of decision.victims) {
+    await rm(victim.object.path, { force: true })
+    for (const alias of victim.aliases) await rm(alias.path, { force: true })
+  }
+}
+
+function markEvictionFailure(error: unknown): void {
+  if (error !== null && typeof error === 'object') {
+    Object.assign(error, { artifactStorePhase: 'eviction' })
+  }
+}
+
+interface ArtifactCapacityAccount {
+  readonly state: Awaited<ReturnType<typeof stableState>>
+  readonly additions: number
+  readonly aliasesBeingWritten: ReadonlySet<string>
+}
+
+async function accountArtifactCapacity(
+  source: ArtifactStoreSource,
+  prepared: PreparedArtifactWrite,
+  bytes: Uint8Array,
+  subject: string,
+  onDiagnostic: ArtifactStoreDiagnostic,
+): Promise<ArtifactCapacityAccount> {
+  try {
+    const state = await stableState(source, subject, onDiagnostic)
+    return {
+      state,
+      additions: artifactWriteAdditions(prepared, state, bytes),
+      aliasesBeingWritten: new Set(prepared.aliases.map(alias => alias.path)),
+    }
+  } catch (error) {
+    markEvictionFailure(error)
+    throw error
+  }
+}
+
+async function persistPreparedArtifact(
+  source: ArtifactStoreSource,
+  prepared: PreparedArtifactWrite,
+  bytes: Uint8Array,
+): Promise<void> {
+  if (!prepared.objectExists) await atomicWrite(source, prepared.object, bytes)
+  for (const alias of prepared.aliases) {
+    await atomicWrite(source, alias.path, alias.content)
+  }
+  if (prepared.objectExists) {
+    const now = new Date()
+    await utimes(prepared.object, now, now)
+  }
+}
+
 export async function writeArtifactStore(
   source: ArtifactStoreSource,
   evidence: ArtifactStoreEvidence,
@@ -770,102 +995,55 @@ export async function writeArtifactStore(
 
   try {
     await withLock(source, async () => {
-      const object = objectPath(source, canonical)
-      let objectExists = await regularFile(object)
-      if (objectExists) {
-        const existingFacts = await stat(object)
-        const existingMatches = existingFacts.size === bytes.byteLength
-          && canonicalDigest(new Uint8Array(await readFile(object))) === canonical
-        if (!existingMatches) {
-          await rm(object, { force: true })
-          objectExists = false
-          diagnostic(
-            onDiagnostic,
-            'ENRICH_ARTIFACT_STORE_CORRUPT',
-            subject,
-            'replaced a canonical object that failed SHA-512 self-verification',
-          )
-        }
-      }
-      const aliases = await aliasesForWrite(source, evidence, canonical)
-      const aliasesBeingWritten = new Set(aliases.map(alias => alias.path))
-      let state
-      try {
-        state = await stableState(source, subject, onDiagnostic)
-      } catch (error) {
-        if (error !== null && typeof error === 'object') {
-          Object.assign(error, { artifactStorePhase: 'eviction' })
-        }
-        throw error
-      }
-      const aliasPaths = new Set(state.aliases.map(alias => alias.path))
-      const additions = (objectExists ? 0 : bytes.byteLength)
-        + aliases.reduce((sum, alias) =>
-          sum + (aliasPaths.has(alias.path) ? 0 : Buffer.byteLength(alias.content)), 0)
+      const prepared = await prepareArtifactWrite(
+        source,
+        evidence,
+        bytes,
+        canonical,
+        subject,
+        onDiagnostic,
+      )
+      const account = await accountArtifactCapacity(
+        source,
+        prepared,
+        bytes,
+        subject,
+        onDiagnostic,
+      )
       const pinPath = await pin(source, canonical)
       try {
-        let projected = state.bytes + additions
-        if (projected > source.maxBytes) {
-          try {
-            const pinned = await livePins(source)
-            const victims = state.objects
-              .filter(candidate =>
-                candidate.canonical !== canonical && !pinned.has(candidate.canonical))
-              .sort((left, right) =>
-                left.mtimeMs - right.mtimeMs
-                || left.canonical.localeCompare(right.canonical))
-            const removable = victims.reduce((sum, victim) =>
-              sum + victim.size + state.aliases.reduce((aliasSum, alias) =>
-                alias.canonical === victim.canonical
-                  && !aliasesBeingWritten.has(alias.path)
-                  ? aliasSum + alias.size
-                  : aliasSum, 0), 0)
-            if (projected - removable > source.maxBytes) {
-              diagnostic(
-                onDiagnostic,
-                'ENRICH_ARTIFACT_STORE_CAPACITY_EXCEEDED',
-                subject,
-                'could not free configured capacity without evicting live pinned objects; verified bytes were not persisted',
-                { maxBytes: source.maxBytes, projectedBytes: projected },
-              )
-              return
-            }
-            for (const victim of victims) {
-              await rm(victim.path, { force: true })
-              projected -= victim.size
-              for (const alias of state.aliases) {
-                if (alias.canonical !== victim.canonical) continue
-                if (aliasesBeingWritten.has(alias.path)) continue
-                await rm(alias.path, { force: true })
-                projected -= alias.size
-              }
-              if (projected <= source.maxBytes) break
-            }
-          } catch (error) {
-            if (error !== null && typeof error === 'object') {
-              Object.assign(error, { artifactStorePhase: 'eviction' })
-            }
-            throw error
-          }
+        let capacity: CapacityDecision
+        try {
+          capacity = await decideArtifactCapacity(
+            source,
+            canonical,
+            account.state,
+            account.additions,
+            account.aliasesBeingWritten,
+          )
+        } catch (error) {
+          markEvictionFailure(error)
+          throw error
         }
-        if (projected > source.maxBytes) {
+        if (capacity.kind === 'blocked-by-pins') {
           diagnostic(
             onDiagnostic,
             'ENRICH_ARTIFACT_STORE_CAPACITY_EXCEEDED',
             subject,
             'could not free configured capacity without evicting live pinned objects; verified bytes were not persisted',
-            { maxBytes: source.maxBytes, projectedBytes: projected },
+            { maxBytes: source.maxBytes, projectedBytes: capacity.projectedBytes },
           )
           return
         }
-        if (!objectExists) await atomicWrite(source, object, bytes)
-        for (const alias of aliases) {
-          await atomicWrite(source, alias.path, alias.content)
+        if (capacity.kind === 'evict') {
+          try {
+            await executeEviction(capacity)
+          } catch (error) {
+            markEvictionFailure(error)
+            throw error
+          }
         }
-        if (objectExists) {
-          const now = new Date()
-          await utimes(object, now, now)
-        }
+        await persistPreparedArtifact(source, prepared, bytes)
       } finally {
         await rm(pinPath, { force: true })
       }
