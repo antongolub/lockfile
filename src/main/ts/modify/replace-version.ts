@@ -138,8 +138,24 @@ export async function replaceVersion(
     }
 
     const existing = currentGraph.getNode(targetId)
+    // Applying one replacement to one matched node is always one of two graph
+    // operations, and they are not variants of each other.
+    //
+    // REBIND — the target NodeId is free. The node keeps its place in the graph
+    // and is re-versioned there, so nothing is removed, and the stale outgoing
+    // dependency edges must be cleared for the completion pass to rewire them
+    // from the new manifest. Every orphan seed it produces comes from that
+    // edge refresh, because a rebind removes no node.
+    //
+    // COLLAPSE — the target NodeId is already taken. The old node is retired
+    // into it: incoming edges retarget first, then the node is removed, and its
+    // children may be stranded by that removal. Nothing is minted.
+    //
+    // Both write into the same accumulators below, so which operation ran, and
+    // which of them produced a given orphan seed, is only legible from the
+    // branch you are standing in. The two labels exist so a reader knows which.
     if (existing === undefined) {
-      // Simple rebind via replaceNode.
+      // --- REBIND ---
       const newNode: Node = {
         ...node,
         id:      targetId,
@@ -195,7 +211,7 @@ export async function replaceVersion(
       continue
     }
 
-    // 4. Merge branch — target NodeId already exists.
+    // --- COLLAPSE --- target NodeId already exists.
     // F3: retarget incoming edges FIRST, then removeNode(oldId).
     const incoming = currentGraph.in(node.id).slice()
     const strandedCandidates = currentGraph.out(node.id).map(edge => edge.dst)

@@ -598,46 +598,48 @@ export interface TargetProjection {
   readonly berryChecksumCacheKey?: boolean
 }
 
-export function canonicalGraphSnapshot(
-  graph: Graph,
-  contract: ConversionContract,
-  projection: TargetProjection = {},
-): string {
-  const {
-    overrides,
-    workspaceNames,
-    resolutions: projectedResolutions,
-    integrities: projectedIntegrities,
-    metadataDrops: projectedMetadataDrops,
-    peerDependencies: projectedPeerDependencies,
-    edgeRanges: projectedEdgeRanges,
-    nativeBerryWorkspaceRoot: projectNativeBerryWorkspaceRoot = false,
-    berryChecksumCacheKey: projectBerryChecksumCacheKey = true,
-  } = projection
-  const projectedRootIds = new Map<string, string>()
-  if (projectNativeBerryWorkspaceRoot) {
-    for (const node of graph.nodes()) {
-      if (node.workspacePath === '') {
-        projectedRootIds.set(node.id, `${node.name}@0.0.0-use.local`)
-      }
-    }
+/**
+ * Berry renames a workspace root to `<name>@0.0.0-use.local`. Nodes, edges and
+ * the root list all have to agree about that rename, so it is computed once and
+ * consulted rather than recomputed per section.
+ */
+type RootIdProjection = ReadonlyMap<string, string>
+
+function berryRootIds(graph: Graph, enabled: boolean): RootIdProjection {
+  const ids = new Map<string, string>()
+  if (!enabled) return ids
+  for (const node of graph.nodes()) {
+    if (node.workspacePath === '') ids.set(node.id, `${node.name}@0.0.0-use.local`)
   }
-  const projectedNodeId = (id: string): string => projectedRootIds.get(id) ?? id
-  const nodes = sortByStableJson([...graph.nodes()].map(node => stableValue({
-    id: projectedNodeId(node.id),
+  return ids
+}
+
+const rootIdOf = (ids: RootIdProjection, id: string): string => ids.get(id) ?? id
+
+function snapshotNodes(graph: Graph, rootIds: RootIdProjection): readonly unknown[] {
+  return sortByStableJson([...graph.nodes()].map(node => stableValue({
+    id: rootIdOf(rootIds, node.id),
     name: node.name,
-    version: projectedRootIds.has(node.id) ? '0.0.0-use.local' : node.version,
+    version: rootIds.has(node.id) ? '0.0.0-use.local' : node.version,
     peerContext: node.peerContext,
     ...(node.patch === undefined ? {} : { patch: node.patch }),
     ...(node.source === undefined ? {} : { source: node.source }),
     ...(node.workspacePath === undefined ? {} : { workspacePath: node.workspacePath }),
   })))
-  const edges = sortByStableJson([...graph.nodes()].flatMap(node => [...graph.out(node.id)])
+}
+
+function snapshotEdges(
+  graph: Graph,
+  rootIds: RootIdProjection,
+  projection: TargetProjection,
+  contract: ConversionContract,
+): readonly unknown[] {
+  return sortByStableJson([...graph.nodes()].flatMap(node => [...graph.out(node.id)])
     .map(edge => {
       const source = graph.getNode(edge.src)
       const target = graph.getNode(edge.dst)
       const declaredRange = edge.attrs?.range
-      const targetProjectedRange = projectedEdgeRanges?.get(projectionEdgeKey(
+      const targetProjectedRange = projection.edgeRanges?.get(projectionEdgeKey(
         edge.src,
         edge.kind,
         edge.dst,
@@ -647,17 +649,17 @@ export function canonicalGraphSnapshot(
       const projectedRange = source?.workspacePath !== undefined
         && descriptor !== undefined
         && declaredRange !== undefined
-        && overrides !== undefined
+        && projection.overrides !== undefined
         ? governingOverrideFor(
             descriptor,
-            [workspaceNames?.get(source.id) ?? source.name],
-            overrides,
+            [projection.workspaceNames?.get(source.id) ?? source.name],
+            projection.overrides,
             declaredRange,
           )?.to
         : undefined
       return stableValue({
-        src: projectedNodeId(edge.src),
-        dst: projectedNodeId(edge.dst),
+        src: rootIdOf(rootIds, edge.src),
+        dst: rootIdOf(rootIds, edge.dst),
         kind: edge.kind,
         ...(edge.attrs === undefined ? {} : {
           attrs: {
@@ -677,15 +679,18 @@ export function canonicalGraphSnapshot(
         }),
       })
     }))
-  const tarballs = [...graph.tarballs()].flatMap(([key, payload]) => {
-    const resolution = projectedResolutions?.get(key) ?? payload.resolution
-    const integrity = projectedIntegrities?.has(key)
-      ? projectedIntegrities.get(key)
+}
+
+function snapshotTarballs(graph: Graph, projection: TargetProjection): readonly unknown[] {
+  return [...graph.tarballs()].flatMap(([key, payload]) => {
+    const resolution = projection.resolutions?.get(key) ?? payload.resolution
+    const integrity = projection.integrities?.has(key)
+      ? projection.integrities.get(key)
       : payload.integrity
-    const metadataDrops = projectedMetadataDrops?.get(key)
+    const metadataDrops = projection.metadataDrops?.get(key)
     const projected = {
       ...(integrity === undefined ? {} : { integrity }),
-      ...(payload.berryChecksumCacheKey === undefined || !projectBerryChecksumCacheKey ? {} : {
+      ...(payload.berryChecksumCacheKey === undefined || (projection.berryChecksumCacheKey ?? true) === false ? {} : {
         berryChecksumCacheKey: payload.berryChecksumCacheKey,
       }),
       ...(payload.engines === undefined || metadataDrops?.has('engines') ? {} : { engines: payload.engines }),
@@ -704,7 +709,7 @@ export function canonicalGraphSnapshot(
       }),
       ...(resolution === undefined ? {} : { resolution }),
       ...(payload.peerDependencies === undefined || metadataDrops?.has('peerDependencies') ? {} : {
-        peerDependencies: projectedPeerDependencies?.get(key) ?? payload.peerDependencies,
+        peerDependencies: projection.peerDependencies?.get(key) ?? payload.peerDependencies,
       }),
       ...(payload.peerDependenciesMeta === undefined || metadataDrops?.has('peerDependenciesMeta') ? {} : {
         peerDependenciesMeta: payload.peerDependenciesMeta,
@@ -717,11 +722,25 @@ export function canonicalGraphSnapshot(
     return Object.keys(projected).length === 0 ? [] : [[key, stableValue(projected)] as const]
   })
     .sort(([left], [right]) => left.localeCompare(right))
+}
+
+/**
+ * A canonical snapshot is four independently projected sections over one graph.
+ * The sections were inline and the projection arrived as eleven positional
+ * parameters; both are now named, so a reader can check one section against one
+ * format contract without holding the other three.
+ */
+export function canonicalGraphSnapshot(
+  graph: Graph,
+  contract: ConversionContract,
+  projection: TargetProjection = {},
+): string {
+  const rootIds = berryRootIds(graph, projection.nativeBerryWorkspaceRoot ?? false)
   return JSON.stringify({
-    nodes,
-    edges,
-    roots: [...graph.roots()].map(projectedNodeId).sort(),
-    tarballs,
+    nodes: snapshotNodes(graph, rootIds),
+    edges: snapshotEdges(graph, rootIds, projection, contract),
+    roots: [...graph.roots()].map(id => rootIdOf(rootIds, id)).sort(),
+    tarballs: snapshotTarballs(graph, projection),
   })
 }
 
