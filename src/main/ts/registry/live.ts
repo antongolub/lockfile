@@ -26,9 +26,12 @@ import semver from 'semver'
 import { fetch as nodeFetchNative } from 'node-fetch-native'
 import { parseSri, isEmptyIntegrity, mergeIntegrity, emptyIntegrity } from '../recipe/integrity.ts'
 import {
+  isWithinRegistryRoute,
+  registryRouteFor,
   resolveRegistry,
   DEFAULT_REGISTRY,
   type RegistryConfig,
+  type RegistryRoute,
   type ResolveRegistryOptions,
 } from './config.ts'
 import type {
@@ -151,7 +154,6 @@ export function liveRegistry(
   if ('config' in opts && typeof opts.config === 'object' && opts.config !== null) {
     return liveRegistryFromConfig(opts.config, opts.fetch, opts.limit)
   }
-  const baseUrl  = stripTrailingSlash(opts.url ?? DEFAULT_URL)
   const fetchImpl = opts.fetch ?? (nodeFetchNative as typeof fetch)
   if (typeof fetchImpl !== 'function') {
     throw new Error('liveRegistry: opts.fetch is not a function')
@@ -162,20 +164,30 @@ export function liveRegistry(
 
   const legacyAuth = 'auth' in opts ? opts.auth : undefined
   const authHeader = opts.authHeader ?? (legacyAuth !== undefined ? `Bearer ${legacyAuth}` : undefined)
-  // Never send a credential over a plaintext channel — matches resolveRegistry's
-  // https-only `authHeaderFor`, and defends the raw `liveRegistry({ url, authHeader })`
-  // path too (credential attachment invariant: "https only").
-  const authIsSafe = authHeader !== undefined && baseUrl.startsWith('https:')
-  const authHeaderFor = (url: string): string | undefined =>
-    authIsSafe && isWithinRegistryRoute(url, baseUrl) ? authHeader : undefined
+  return endpointBoundRegistryClient(
+    directRegistryRoute(opts.url ?? DEFAULT_URL, authHeader),
+    fetchImpl,
+    limit,
+  )
+}
+
+// === ENDPOINT-BOUND CLIENT ==================================================
+
+/** Bind one registry route to its transport and scheduling policy. All npm
+ *  protocol operations below share this single credential attachment boundary. */
+function endpointBoundRegistryClient(
+  route: RegistryRoute,
+  fetchImpl: typeof fetch,
+  limit: Limiter,
+): LiveRegistryAdapter {
+  const baseUrl = stripTrailingSlash(route.registryUrl)
 
   // Fetch the FULL single-version manifest (`<registry>/<pkg>/<version>`, ~1-2 KB) —
   // used to backfill fields the abbreviated (corgi) packument omits, notably `libc`.
   // Returns undefined on any failure so the caller falls back to the corgi version.
   const fetchVersionManifest = async (name: string, version: string): Promise<PackumentVersion | undefined> => {
     const url = `${baseUrl}/${encodePackageName(name)}/${version}`
-    const headers: Record<string, string> = { accept: 'application/json' }
-    if (authIsSafe) headers.authorization = authHeader
+    const headers = registryHeaders(route, { accept: 'application/json' })
     try {
       const response = await limit(() => fetchImpl(url, { headers }))
       if (!response.ok) return undefined
@@ -188,10 +200,9 @@ export function liveRegistry(
   return {
     async packument(name) {
       const url = `${baseUrl}/${encodePackageName(name)}`
-      const headers: Record<string, string> = {
+      const headers = registryHeaders(route, {
         accept: INSTALL_ACCEPT,
-      }
-      if (authIsSafe) headers.authorization = authHeader
+      })
 
       const response = await limit(() => fetchImpl(url, { headers }))
       if (response.status === 404) return undefined
@@ -245,8 +256,7 @@ export function liveRegistry(
     async audit(pkgs, opts = {}) {
       const chunkSize = opts.chunkSize ?? 250
       const url = `${baseUrl}/-/npm/v1/security/advisories/bulk`
-      const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' }
-      if (authIsSafe) headers.authorization = authHeader
+      const headers = registryHeaders(route, { 'content-type': 'application/json', accept: 'application/json' })
 
       const names = Object.keys(pkgs)
       const out: Record<string, RawAdvisory[]> = {}
@@ -275,7 +285,7 @@ export function liveRegistry(
       return Object.freeze({
         registryUrl: baseUrl,
         fetch: fetchImpl,
-        authHeaderFor,
+        authHeaderFor: route.authHeaderFor,
         limit,
       })
     },
@@ -284,20 +294,32 @@ export function liveRegistry(
 
 // === INTERNALS ==============================================================
 
-function stripTrailingSlash(url: string): string {
-  return url.endsWith('/') ? url.slice(0, -1) : url
+function directRegistryRoute(registryUrl: string, authHeader: string | undefined): RegistryRoute {
+  const baseUrl = stripTrailingSlash(registryUrl)
+  // Never send a credential over a plaintext channel — matches resolveRegistry's
+  // https-only `authHeaderFor`, and defends the raw direct-constructor path too.
+  const safeAuthHeader = baseUrl.startsWith('https:') ? authHeader : undefined
+  return Object.freeze({
+    registryUrl: baseUrl,
+    authHeader: safeAuthHeader,
+    authHeaderFor(url: string) {
+      return safeAuthHeader !== undefined && isWithinRegistryRoute(url, baseUrl)
+        ? safeAuthHeader
+        : undefined
+    },
+  })
 }
 
-function isWithinRegistryRoute(rawUrl: string, rawRegistryUrl: string): boolean {
-  try {
-    const url = new URL(rawUrl)
-    const registry = new URL(rawRegistryUrl)
-    if (url.protocol !== registry.protocol || url.host !== registry.host) return false
-    const base = registry.pathname.replace(/\/+$/, '')
-    return url.pathname === base || url.pathname.startsWith(`${base}/`)
-  } catch {
-    return false
-  }
+function registryHeaders(
+  route: RegistryRoute,
+  headers: Record<string, string>,
+): Record<string, string> {
+  if (route.authHeader !== undefined) headers.authorization = route.authHeader
+  return headers
+}
+
+function stripTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url
 }
 
 function encodePackageName(name: string): string {
@@ -423,13 +445,7 @@ function liveRegistryFromConfig(
   const fetchImpl = fetchOverride ?? (nodeFetchNative as typeof fetch)
   const limit: Limiter = limitOverride ?? (task => task())
   const adapterFor = (name: string): LiveRegistryAdapter => {
-    const url = config.registryFor(name)
-    return liveRegistry({
-      url,
-      authHeader: config.authHeaderFor(url),
-      fetch: fetchImpl,
-      limit,
-    })
+    return endpointBoundRegistryClient(registryRouteFor(config, name), fetchImpl, limit)
   }
 
   return {
@@ -443,21 +459,16 @@ function liveRegistryFromConfig(
       return adapterFor(name).manifest!(name, version)
     },
     async audit(packages, auditOptions) {
-      const grouped = new Map<string, Record<string, string[]>>()
+      const grouped = new Map<string, { route: RegistryRoute; packages: Record<string, string[]> }>()
       for (const [name, versions] of Object.entries(packages)) {
-        const route = config.registryFor(name)
-        const group = grouped.get(route) ?? {}
-        group[name] = [...versions]
-        grouped.set(route, group)
+        const route = registryRouteFor(config, name)
+        const group = grouped.get(route.registryUrl) ?? { route, packages: {} }
+        group.packages[name] = [...versions]
+        grouped.set(route.registryUrl, group)
       }
       const output: Record<string, RawAdvisory[]> = {}
-      for (const [url, group] of grouped) {
-        const found = await liveRegistry({
-          url,
-          authHeader: config.authHeaderFor(url),
-          fetch: fetchImpl,
-          limit,
-        }).audit(group, auditOptions)
+      for (const { route, packages: group } of grouped.values()) {
+        const found = await endpointBoundRegistryClient(route, fetchImpl, limit).audit(group, auditOptions)
         for (const [name, advisories] of Object.entries(found)) {
           (output[name] ??= []).push(...advisories)
         }
@@ -465,11 +476,11 @@ function liveRegistryFromConfig(
       return output
     },
     artifactRoute(name) {
-      const registryUrl = config.registryFor(name)
+      const route = registryRouteFor(config, name)
       return Object.freeze({
-        registryUrl,
+        registryUrl: route.registryUrl,
         fetch: fetchImpl,
-        authHeaderFor: config.authHeaderFor,
+        authHeaderFor: route.authHeaderFor,
         limit,
       })
     },
@@ -509,15 +520,12 @@ export namespace liveRegistry {
     if (legacyOptions !== undefined) {
       const opts = legacyOptions
       const cfg = resolveRegistry(cwd, opts)
-      const url = cfg.registryFor(
+      const route = registryRouteFor(cfg,
         typeof nameOrOptions === 'string' ? nameOrOptions : '',
       )
-      return liveRegistry({
-        url,
-        authHeader: cfg.authHeaderFor(url),
-        fetch: opts.fetch,
-        limit: opts.limit,
-      })
+      const fetchImpl = opts.fetch ?? (nodeFetchNative as typeof fetch)
+      const limit: Limiter = opts.limit ?? (task => task())
+      return endpointBoundRegistryClient(route, fetchImpl, limit)
     }
 
     if (nameOrOptions === undefined || typeof nameOrOptions === 'string') {

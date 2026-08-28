@@ -55,6 +55,30 @@ export interface RegistryConfig {
   tokenFor(registryUrl: string): string | undefined
 }
 
+/** The package-selected registry endpoint plus the credential decisions bound
+ *  to that endpoint. Metadata uses the credential selected at `registryUrl`;
+ *  artifact redirects may re-evaluate longest-prefix auth, but only while the
+ *  target remains inside this route. */
+export interface RegistryRoute {
+  readonly registryUrl: string
+  readonly authHeader: string | undefined
+  readonly authHeaderFor: (url: string) => string | undefined
+}
+
+/** @internal Bind package routing and credential lookup into one capability. */
+export function registryRouteFor(config: RegistryConfig, pkgName: string): RegistryRoute {
+  const registryUrl = config.registryFor(pkgName)
+  return Object.freeze({
+    registryUrl,
+    authHeader: config.authHeaderFor(registryUrl),
+    authHeaderFor(url: string) {
+      return isWithinRegistryRoute(url, registryUrl)
+        ? config.authHeaderFor(url)
+        : undefined
+    },
+  })
+}
+
 export interface ResolveRegistryOptions {
   /** REQUIRED — the PM config dialect. Fixes which config files + env namespace are
    *  read (and their order); npm and yarn directives never mix. */
@@ -113,6 +137,19 @@ const normalizeRegistry = (url: string): string => {
   const u = attempt(() => new URL(url))
   if (!u || (u.protocol !== 'https:' && u.protocol !== 'http:')) return ''
   return url.replace(/\/+$/, '')
+}
+
+/** @internal Protocol + host + path-prefix membership for a registry route. */
+export function isWithinRegistryRoute(rawUrl: string, rawRegistryUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl)
+    const registry = new URL(rawRegistryUrl)
+    if (url.protocol !== registry.protocol || url.host !== registry.host) return false
+    const base = registry.pathname.replace(/\/+$/, '')
+    return url.pathname === base || url.pathname.startsWith(`${base}/`)
+  } catch {
+    return false
+  }
 }
 
 // ── one `.npmrc` `key=value` (shared by file + `npm_config_*` env) ────────────

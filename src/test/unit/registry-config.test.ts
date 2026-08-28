@@ -7,7 +7,12 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveRegistry, DEFAULT_REGISTRY, type Ecosystem } from '../../main/ts/registry/config.ts'
+import {
+  registryRouteFor,
+  resolveRegistry,
+  DEFAULT_REGISTRY,
+  type Ecosystem,
+} from '../../main/ts/registry/config.ts'
 import { liveRegistry } from '../../main/ts/registry/live.ts'
 
 const mkdir = (files: Record<string, string>): string => {
@@ -114,6 +119,25 @@ describe('registry/config — resolveRegistry', () => {
 })
 
 describe('registry/config — auth taxonomy (§2)', () => {
+  it('binds endpoint auth while keeping artifact auth longest-prefix and route-scoped', () => {
+    const c = resolve({
+      '.npmrc': [
+        'registry=https://host.example.com/team/',
+        '//host.example.com/:_authToken=ROOT',
+        '//host.example.com/team/:_authToken=TEAM',
+        '//host.example.com/team/private/:_authToken=PRIVATE',
+      ].join('\n'),
+    })
+    const route = registryRouteFor(c, 'pkg')
+
+    expect(route.registryUrl).toBe('https://host.example.com/team')
+    expect(route.authHeader).toBe('Bearer TEAM')
+    expect(route.authHeaderFor('https://host.example.com/team/pkg/-/pkg.tgz')).toBe('Bearer TEAM')
+    expect(route.authHeaderFor('https://host.example.com/team/private/pkg.tgz')).toBe('Bearer PRIVATE')
+    expect(route.authHeaderFor('https://host.example.com/sibling/pkg.tgz')).toBeUndefined()
+    expect(route.authHeaderFor('http://host.example.com/team/pkg.tgz')).toBeUndefined()
+  })
+
   it('Bearer `_authToken` → Bearer header + tokenFor', () => {
     const c = resolve({ '.npmrc': '//host.example.com/:_authToken=TOK\n' })
     expect(c.authHeaderFor('https://host.example.com')).toBe('Bearer TOK')
