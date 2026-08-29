@@ -1,3 +1,13 @@
+## [0.6.6](https://github.com/lockgraph/lockgraph/compare/v0.6.5...v0.6.6) (2026-08-29)
+
+### Fixes & improvements
+* refactor(api): a canonical snapshot is four projected sections ([482d4bf](https://github.com/lockgraph/lockgraph/commit/482d4bf4dc4cd68d3a94fbbd176aaf1c7a47a16e))
+* refactor(registry): bind endpoint, credential and transport into one route ([8508d1a](https://github.com/lockgraph/lockgraph/commit/8508d1ab935130a8cb88b053d2711e56758a25fb))
+* refactor: name the concepts behind the worst-measured functions ([85ec4a8](https://github.com/lockgraph/lockgraph/commit/85ec4a8d29795d34624f52ecf05e3e624d0d7517))
+* docs: PM.md imprs ([04037ba](https://github.com/lockgraph/lockgraph/commit/04037ba2ad66b21f94d77b894031f34e55895e12))
+* fix(pnpm): carry requiresBuild and certify installed trees against real installers ([af793c3](https://github.com/lockgraph/lockgraph/commit/af793c3559f688b446f7344503a5b10af0deeba5))
+* fix(npm): replay bare workspace entries through the exact-path carrier ([50022fb](https://github.com/lockgraph/lockgraph/commit/50022fb7fc6f3c55f01b01c8f66f6698ffa5bd8c))
+
 ## [0.6.5](https://github.com/lockgraph/lockgraph/compare/v0.6.4...v0.6.5) (2026-08-07)
 
 ### Fixes & improvements
