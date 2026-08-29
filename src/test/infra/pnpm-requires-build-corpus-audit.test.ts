@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parse, stringify } from '../../main/ts/api/format-api.ts'
+import { corpusBudget } from './_corpus-budget.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const corpusRoot = resolve(here, '../../../tmp/pnpm-corpus/raw')
@@ -67,5 +68,10 @@ suite('pnpm requiresBuild corpus audit', () => {
     expect({ detected: files.length, replayed }).toEqual({ detected: 70, replayed: 70 })
     expect({ sourceCells, survived, added }).toEqual({ sourceCells: 174, survived: 174, added: 0 })
     expect({ v9SourceCells, v9ReplayCells }).toEqual({ v9SourceCells: 0, v9ReplayCells: 0 })
-  })
+    // A corpus walk, so it carries its own budget rather than living under the
+    // tight global default — the config keeps that global tight on purpose so a
+    // hang in a fast case still surfaces. V8 coverage adds ~34% to a walk like
+    // this, which is what pushed it over 30s in the coverage lane while the
+    // plain lane clears it in under ten seconds.
+  }, corpusBudget(30_000))
 })
