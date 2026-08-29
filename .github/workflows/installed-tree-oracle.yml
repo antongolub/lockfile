@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  npm-pnpm-pr-sample:
-    name: npm + pnpm PR sample
+  six-family-pr-sample:
+    name: Six-family PR sample
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -31,6 +31,22 @@ jobs:
           cache: npm
       - name: Retain the Node 22 runtime selector
         run: echo "LOCKGRAPH_NODE22=$(command -v node)" >> "$GITHUB_ENV"
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.2.8
+      - name: Retain the Deno 2.2.8 runtime selector
+        run: |
+          mkdir -p tmp/deno-oracle/2.2.8
+          cp "$(command -v deno)" tmp/deno-oracle/2.2.8/deno
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.4
+      - name: Retain the Deno 2.9.4 runtime selector
+        run: |
+          mkdir -p tmp/deno-oracle/2.9.4
+          cp "$(command -v deno)" tmp/deno-oracle/2.9.4/deno
 
       - run: npm ci
       - run: npm run build:dist

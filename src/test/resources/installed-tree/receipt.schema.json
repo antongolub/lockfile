@@ -26,10 +26,14 @@
     "familySummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["npm", "pnpm"],
+      "required": ["npm", "pnpm", "yarn-classic", "yarn-berry", "bun", "deno"],
       "properties": {
         "npm": { "$ref": "#/$defs/familyCount" },
-        "pnpm": { "$ref": "#/$defs/familyCount" }
+        "pnpm": { "$ref": "#/$defs/familyCount" },
+        "yarn-classic": { "$ref": "#/$defs/familyCount" },
+        "yarn-berry": { "$ref": "#/$defs/familyCount" },
+        "bun": { "$ref": "#/$defs/familyCount" },
+        "deno": { "$ref": "#/$defs/familyCount" }
       }
     },
     "fixtures": {
@@ -65,12 +69,30 @@
     "familyCount": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["requested", "qualified", "executed", "passed"],
+      "required": ["requested", "qualified", "executed", "passed", "breadth"],
       "properties": {
         "requested": { "type": "integer", "minimum": 0 },
         "qualified": { "type": "integer", "minimum": 0 },
         "executed": { "type": "integer", "minimum": 0 },
-        "passed": { "type": "integer", "minimum": 0 }
+        "passed": { "type": "integer", "minimum": 0 },
+        "breadth": { "$ref": "#/$defs/familyBreadth" }
+      }
+    },
+    "familyBreadth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generations", "repositories"],
+      "properties": {
+        "generations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "repositories": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "leg": {
@@ -91,6 +113,10 @@
       "required": [
         "id",
         "family",
+        "format",
+        "provenance",
+        "certifies",
+        "installedTree",
         "qualification",
         "classification",
         "tool",
@@ -100,7 +126,32 @@
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "family": { "enum": ["npm", "pnpm"] },
+        "family": { "enum": ["npm", "pnpm", "yarn-classic", "yarn-berry", "bun", "deno"] },
+        "format": { "type": "string", "minLength": 1 },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "commit", "path"],
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "commit": { "type": "string", "minLength": 1 },
+            "path": { "type": "string", "minLength": 1 }
+          }
+        },
+        "certifies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["acceptance", "cache-closure", "tree-equivalence"] }
+        },
+        "installedTree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reason"],
+          "properties": {
+            "status": { "enum": ["APPLICABLE", "N/A"] },
+            "reason": { "enum": [null, "NO_PROJECT_TREE_SURFACE"] }
+          }
+        },
         "qualification": {
           "type": "object",
           "additionalProperties": false,

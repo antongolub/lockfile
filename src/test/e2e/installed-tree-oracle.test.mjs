@@ -14,10 +14,16 @@ const schema = JSON.parse(readFileSync(fileURLToPath(new URL(
   import.meta.url,
 )), 'utf8'))
 
-const fixture = (id = 'npm-a', family = 'npm') => ({
+const fixture = (id = 'npm-a', family = 'npm', fields = {}) => ({
   id,
   family,
+  format: `${family}-fixture`,
+  repository: `example/${family}`,
+  commit: '0123456789abcdef0123456789abcdef01234567',
+  lockfile: `${family}.lock`,
+  treeSurface: family === 'deno' ? 'none' : 'node_modules',
   tool: { alias: `pm-${family}`, version: '1.0.0', runtime: 'node-test' },
+  ...fields,
 })
 
 function fakeDriver(overrides = {}) {
@@ -122,6 +128,14 @@ async function nominalRun(fixtures = [
   fixture('npm-b', 'npm'),
   fixture('pnpm-a', 'pnpm'),
   fixture('pnpm-b', 'pnpm'),
+  fixture('classic-a', 'yarn-classic'),
+  fixture('classic-b', 'yarn-classic'),
+  fixture('berry-a', 'yarn-berry', { format: 'yarn-berry-v8' }),
+  fixture('berry-b', 'yarn-berry', { format: 'yarn-berry-v8' }),
+  fixture('bun-a', 'bun', { repository: 'oven-sh/bun' }),
+  fixture('bun-b', 'bun', { repository: 'oven-sh/bun' }),
+  fixture('deno-a', 'deno', { format: 'deno-v4' }),
+  fixture('deno-b', 'deno', { format: 'deno-v5' }),
 ]) {
   return runSample({
     fixtures,
@@ -134,6 +148,44 @@ async function nominalRun(fixtures = [
 
 test('the baseline public receipt validates against the checked-in JSON Schema', async () => {
   validate(await nominalRun(), schema)
+})
+
+test('the receipt names certified properties and the actual generation/provenance breadth', async () => {
+  const receipt = await nominalRun()
+
+  assert.deepEqual(receipt.fixtures.find(item => item.id === 'deno-a').certifies, [
+    'acceptance',
+    'cache-closure',
+  ])
+  assert.deepEqual(receipt.fixtures.find(item => item.id === 'deno-a').installedTree, {
+    status: 'N/A',
+    reason: 'NO_PROJECT_TREE_SURFACE',
+  })
+  assert.deepEqual(receipt.fixtures.find(item => item.id === 'npm-a').certifies, [
+    'acceptance',
+    'cache-closure',
+    'tree-equivalence',
+  ])
+  assert.deepEqual(receipt.familySummary['yarn-berry'].breadth, {
+    generations: ['yarn-berry-v8'],
+    repositories: ['example/yarn-berry'],
+  })
+  assert.deepEqual(receipt.familySummary.bun.breadth, {
+    generations: ['bun-fixture'],
+    repositories: ['oven-sh/bun'],
+  })
+})
+
+test('Deno certifies cache closure without manufacturing an empty installed-tree equality', async () => {
+  const receipt = await runFixture(fixture('deno-a', 'deno'), fakeDriver({
+    async sourceOffline() { return { durationMs: 1 } },
+    async replayOffline() { return { durationMs: 1 } },
+  }))
+
+  assert.equal(receipt.classification, 'PASS')
+  assert.deepEqual(receipt.source.treeDigests, [])
+  assert.equal(receipt.replay.treeDigest, null)
+  assert.deepEqual(receipt.evidence.treeDiff, [])
 })
 
 test('the schema names fixture archive unreachability as qualification, not product', () => {
@@ -191,6 +243,15 @@ test('different source-offline inventories refuse a nondeterministic fixture', a
   assert.equal(driver.calls.replay, 0)
 })
 
+test('an applicable source leg without a tree digest fails closed as qualification', async () => {
+  const receipt = await runFixture(fixture(), fakeDriver({
+    async sourceOffline() { return { durationMs: 1 } },
+  }))
+  assert.equal(receipt.classification, 'QUALIFICATION_REGRESSION')
+  assert.equal(receipt.qualification.reason, 'SOURCE_TREE_NONDETERMINISTIC')
+  assert.deepEqual(receipt.certifies, [])
+})
+
 test('a source-offline cache miss is qualification failure, never product', async () => {
   const driver = fakeDriver({
     async sourceOffline() { throw error('cache miss', { code: 'ENOTCACHED' }) },
@@ -207,6 +268,7 @@ test('replay ENOTCACHED after qualified source is deterministic product evidence
   const receipt = await runFixture(fixture(), driver)
   assert.equal(receipt.qualification.status, 'QUALIFIED')
   assert.equal(receipt.classification, 'PRODUCT_DEFECT')
+  assert.deepEqual(receipt.certifies, [])
 })
 
 test('a completed semantic installed-tree delta is deterministic product evidence', async () => {
@@ -218,6 +280,14 @@ test('a completed semantic installed-tree delta is deterministic product evidenc
   assert.notDeepEqual(receipt.evidence.treeDiff, [])
 })
 
+test('an applicable replay leg without a tree digest cannot become a green row', async () => {
+  const receipt = await runFixture(fixture(), fakeDriver({
+    async replayOffline() { return { durationMs: 1 } },
+  }))
+  assert.equal(receipt.classification, 'PRODUCT_DEFECT')
+  assert.deepEqual(receipt.certifies, [])
+})
+
 test('a timeout, null status, or signal is ambiguous and produces no product finding', async () => {
   const driver = fakeDriver({
     async replayOffline() { throw error('killed', { signal: 'SIGKILL', exitCode: null }) },
@@ -226,14 +296,22 @@ test('a timeout, null status, or signal is ambiguous and produces no product fin
   assert.equal(receipt.classification, 'AMBIGUOUS_EXECUTION')
 })
 
-test('fewer than two qualified fixtures in either family is a qualification regression', async () => {
+test('fewer than two qualified fixtures in any declared family is a qualification regression', async () => {
   const receipt = await nominalRun([
     fixture('npm-only', 'npm'),
     fixture('pnpm-only', 'pnpm'),
+    fixture('classic-only', 'yarn-classic'),
+    fixture('berry-only', 'yarn-berry'),
+    fixture('bun-only', 'bun'),
+    fixture('deno-only', 'deno'),
   ])
   assert.equal(receipt.classification, 'QUALIFICATION_REGRESSION')
   assert.equal(receipt.familySummary.npm.requested, 2)
   assert.equal(receipt.familySummary.pnpm.requested, 2)
+  assert.equal(receipt.familySummary['yarn-classic'].requested, 2)
+  assert.equal(receipt.familySummary['yarn-berry'].requested, 2)
+  assert.equal(receipt.familySummary.bun.requested, 2)
+  assert.equal(receipt.familySummary.deno.requested, 2)
 })
 
 test('receipt diagnostics normalize host, cache, and temporary paths', () => {

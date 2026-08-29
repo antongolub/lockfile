@@ -21,13 +21,25 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { fixtures as npmFixtures } from '../resources/installed-tree/npm.mjs'
 import { fixtures as pnpmFixtures } from '../resources/installed-tree/pnpm.mjs'
+import { fixtures as yarnClassicFixtures } from '../resources/installed-tree/yarn-classic.mjs'
+import { fixtures as yarnBerryFixtures } from '../resources/installed-tree/yarn-berry.mjs'
+import { fixtures as bunFixtures } from '../resources/installed-tree/bun.mjs'
+import { fixtures as denoFixtures } from '../resources/installed-tree/deno.mjs'
 
 export const RECEIPT_SCHEMA_VERSION = 1
 export const REQUIRED_PER_FAMILY = 2
 
 const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const RECEIPT_DIR = resolve(ROOT, 'target/installed-tree-oracle')
-const LOCK_NAMES = new Set(['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml'])
+const FAMILIES = ['npm', 'pnpm', 'yarn-classic', 'yarn-berry', 'bun', 'deno']
+const LOCK_NAMES = new Set([
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lock',
+  'deno.lock',
+])
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/gu
 
 const notRunLeg = () => ({
@@ -73,9 +85,20 @@ export function normalizeDiagnostic(value) {
 }
 
 function emptyFixtureReceipt(fixture) {
+  const treeApplicable = fixture.treeSurface !== 'none'
   return {
     id: fixture.id,
     family: fixture.family,
+    format: fixture.format,
+    provenance: {
+      repository: fixture.repository,
+      commit: fixture.commit,
+      path: fixture.repositoryPath ?? fixture.lockfile,
+    },
+    certifies: [],
+    installedTree: treeApplicable
+      ? { status: 'APPLICABLE', reason: null }
+      : { status: 'N/A', reason: 'NO_PROJECT_TREE_SURFACE' },
     qualification: { status: 'REFUSED', reason: null },
     classification: 'AMBIGUOUS_EXECUTION',
     tool: {
@@ -144,6 +167,7 @@ function unexpectedNetworkAttempts(output, fixture) {
 
 export async function runFixture(fixture, driver) {
   const receipt = emptyFixtureReceipt(fixture)
+  const treeApplicable = receipt.installedTree.status === 'APPLICABLE'
 
   try {
     try {
@@ -168,8 +192,15 @@ export async function runFixture(fixture, driver) {
     for (let pass = 0; pass < 2; pass += 1) {
       try {
         const offline = await driver.sourceOffline(fixture, pass)
+        if (treeApplicable) {
+          if (typeof offline.treeDigest !== 'string') {
+            throw makeError('source installed-tree digest is missing', {
+              code: 'SOURCE_TREE_NONDETERMINISTIC',
+            })
+          }
+          receipt.source.treeDigests.push(offline.treeDigest)
+        }
         receipt.source.offline.push(passedLeg(offline))
-        receipt.source.treeDigests.push(offline.treeDigest)
       } catch (error) {
         receipt.source.offline.push(failedLeg(error))
         receipt.qualification.reason = qualificationReason(error, 'SOURCE_OFFLINE_OPEN')
@@ -178,7 +209,7 @@ export async function runFixture(fixture, driver) {
       }
     }
 
-    if (receipt.source.treeDigests[0] !== receipt.source.treeDigests[1]) {
+    if (treeApplicable && receipt.source.treeDigests[0] !== receipt.source.treeDigests[1]) {
       receipt.qualification.reason = 'SOURCE_TREE_NONDETERMINISTIC'
       receipt.evidence.treeDiff = driver.diffSourceTrees
         ? await driver.diffSourceTrees(fixture)
@@ -204,8 +235,11 @@ export async function runFixture(fixture, driver) {
     let productDefect = false
     try {
       const replay = await driver.replayOffline(fixture)
+      if (treeApplicable && typeof replay.treeDigest !== 'string') {
+        throw makeError('replay installed-tree digest is missing', { exitCode: 1 })
+      }
       receipt.replay.offline = passedLeg(replay)
-      receipt.replay.treeDigest = replay.treeDigest
+      if (treeApplicable) receipt.replay.treeDigest = replay.treeDigest
       receipt.evidence.networkAttempts = unexpectedNetworkAttempts(replay.output, fixture)
       if (receipt.evidence.networkAttempts.length > 0) {
         productDefect = true
@@ -218,7 +252,7 @@ export async function runFixture(fixture, driver) {
       return receipt
     }
 
-    if (receipt.replay.treeDigest !== receipt.source.treeDigests[0]) {
+    if (treeApplicable && receipt.replay.treeDigest !== receipt.source.treeDigests[0]) {
       receipt.evidence.treeDiff = driver.diffTrees
         ? await driver.diffTrees(fixture)
         : [
@@ -268,6 +302,11 @@ export async function runFixture(fixture, driver) {
     }
 
     receipt.classification = productDefect ? 'PRODUCT_DEFECT' : 'PASS'
+    if (receipt.classification === 'PASS') {
+      receipt.certifies = treeApplicable
+        ? ['acceptance', 'cache-closure', 'tree-equivalence']
+        : ['acceptance', 'cache-closure']
+    }
     return receipt
   } finally {
     await driver.cleanup?.()
@@ -276,11 +315,16 @@ export async function runFixture(fixture, driver) {
 
 function familyCount(fixtures, family) {
   const selected = fixtures.filter(fixture => fixture.family === family)
+  const qualified = selected.filter(fixture => fixture.qualification.status === 'QUALIFIED')
   return {
     requested: REQUIRED_PER_FAMILY,
-    qualified: selected.filter(fixture => fixture.qualification.status === 'QUALIFIED').length,
+    qualified: qualified.length,
     executed: selected.filter(fixture => fixture.replay.offline.status !== 'NOT_RUN').length,
     passed: selected.filter(fixture => fixture.classification === 'PASS').length,
+    breadth: {
+      generations: [...new Set(qualified.map(fixture => fixture.format))].sort(),
+      repositories: [...new Set(qualified.map(fixture => fixture.provenance.repository))].sort(),
+    },
   }
 }
 
@@ -307,10 +351,9 @@ export async function runSample({
   for (const fixture of fixtures) {
     fixtureReceipts.push(await runFixture(fixture, createDriver(fixture)))
   }
-  const familySummary = {
-    npm: familyCount(fixtureReceipts, 'npm'),
-    pnpm: familyCount(fixtureReceipts, 'pnpm'),
-  }
+  const familySummary = Object.fromEntries(
+    FAMILIES.map(family => [family, familyCount(fixtureReceipts, family)]),
+  )
 
   return {
     schemaVersion: RECEIPT_SCHEMA_VERSION,
@@ -462,22 +505,27 @@ function copyTree(source, target) {
   }
 }
 
-async function download(file, project) {
-  let response
-  try {
-    response = await fetch(file.url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) })
-  } catch (error) {
-    throw makeError(`fixture file unavailable: ${file.path}`, {
-      code: 'FIXTURE_UNREACHABLE',
-      output: error.message,
-    })
+async function materialize(file, project) {
+  let bytes
+  if (typeof file.content === 'string') {
+    bytes = Buffer.from(file.content)
+  } else {
+    let response
+    try {
+      response = await fetch(file.url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) })
+    } catch (error) {
+      throw makeError(`fixture file unavailable: ${file.path}`, {
+        code: 'FIXTURE_UNREACHABLE',
+        output: error.message,
+      })
+    }
+    if (!response.ok) {
+      throw makeError(`fixture file unavailable: ${file.path} (${response.status})`, {
+        code: response.status === 404 ? 'COMPANION_MISSING' : 'FIXTURE_UNREACHABLE',
+      })
+    }
+    bytes = Buffer.from(await response.arrayBuffer())
   }
-  if (!response.ok) {
-    throw makeError(`fixture file unavailable: ${file.path} (${response.status})`, {
-      code: response.status === 404 ? 'COMPANION_MISSING' : 'FIXTURE_UNREACHABLE',
-    })
-  }
-  const bytes = Buffer.from(await response.arrayBuffer())
   if (sha256(bytes) !== file.sha256) {
     throw makeError(`fixture digest mismatch: ${file.path}`, { code: 'FIXTURE_HASH_MISMATCH' })
   }
@@ -504,7 +552,7 @@ class NativeDriver {
   async obtainFixture() {
     mkdirSync(this.source, { recursive: true })
     mkdirSync(this.cache, { recursive: true })
-    for (const file of this.fixture.files) await download(file, this.source)
+    for (const file of this.fixture.files) await materialize(file, this.source)
 
     const lockPath = join(this.source, this.fixture.lockfile)
     if (!LOCK_NAMES.has(basename(lockPath))) {
@@ -512,11 +560,14 @@ class NativeDriver {
     }
     this.sourceLockDigest = sha256(readFileSync(lockPath))
 
-    const version = await runProcess(this.runtime(), [this.toolPath(), '--version'], {
+    const version = await this.runTool(['--version'], {
       cwd: this.source,
       timeoutMs: 30_000,
     })
-    if (version.output.trim() !== this.fixture.tool.version) {
+    const reportedVersion = this.fixture.family === 'deno'
+      ? /^deno\s+(\S+)/u.exec(version.output.trim())?.[1]
+      : version.output.trim()
+    if (reportedVersion !== this.fixture.tool.version) {
       throw makeError(`writer mismatch: expected ${this.fixture.tool.version}`, {
         code: 'WRITER_MISMATCH',
         output: version.output,
@@ -529,7 +580,58 @@ class NativeDriver {
   }
 
   toolPath() {
+    if (this.fixture.tool.path) return resolve(ROOT, this.fixture.tool.path)
     return resolve(ROOT, 'node_modules', this.fixture.tool.alias, this.fixture.tool.bin)
+  }
+
+  runTool(args, options) {
+    return this.fixture.tool.runtime === 'native'
+      ? runProcess(this.toolPath(), args, options)
+      : runProcess(this.runtime(), [this.toolPath(), ...args], options)
+  }
+
+  commandEnvironment(offline) {
+    if (this.fixture.family === 'npm') {
+      return {
+        NPM_CONFIG_CACHE: this.cache,
+        NPM_CONFIG_AUDIT: 'false',
+        NPM_CONFIG_FUND: 'false',
+        NPM_CONFIG_UPDATE_NOTIFIER: 'false',
+      }
+    }
+    if (this.fixture.family === 'pnpm') {
+      return {
+        PNPM_HOME: join(this.root, 'pnpm-home'),
+        PNPM_STORE_DIR: join(this.cache, 'store'),
+        PNPM_CACHE_DIR: join(this.cache, 'metadata'),
+      }
+    }
+    if (this.fixture.family === 'yarn-classic') {
+      return {
+        YARN_CACHE_FOLDER: join(this.cache, 'yarn-classic'),
+        YARN_IGNORE_SCRIPTS: '1',
+      }
+    }
+    if (this.fixture.family === 'yarn-berry') {
+      return {
+        YARN_CACHE_FOLDER: join(this.cache, 'yarn-berry'),
+        YARN_ENABLE_GLOBAL_CACHE: 'false',
+        YARN_ENABLE_NETWORK: offline ? 'false' : 'true',
+        YARN_ENABLE_SCRIPTS: 'false',
+        YARN_NODE_LINKER: 'node-modules',
+      }
+    }
+    if (this.fixture.family === 'bun') {
+      return {
+        BUN_INSTALL_CACHE_DIR: join(this.cache, 'bun'),
+      }
+    }
+    return {
+      DENO_DIR: join(this.cache, 'deno'),
+      DENO_NO_PROMPT: '1',
+      DENO_NO_UPDATE_CHECK: '1',
+      NO_COLOR: '1',
+    }
   }
 
   command(offline) {
@@ -537,21 +639,17 @@ class NativeDriver {
     if (this.fixture.family === 'pnpm') {
       args.push('--store-dir', join(this.cache, 'store'), '--cache-dir', join(this.cache, 'metadata'))
     }
-    return runProcess(this.runtime(), [this.toolPath(), ...args], {
+    if (this.fixture.family === 'yarn-classic') {
+      args.push('--cache-folder', join(this.cache, 'yarn-classic'))
+    }
+    return this.runTool(args, {
       cwd: offline === 'replay' ? this.replayProject : this.source,
-      env: this.fixture.family === 'npm'
-        ? {
-            NPM_CONFIG_CACHE: this.cache,
-            NPM_CONFIG_AUDIT: 'false',
-            NPM_CONFIG_FUND: 'false',
-            NPM_CONFIG_UPDATE_NOTIFIER: 'false',
-          }
-        : {
-            PNPM_HOME: join(this.root, 'pnpm-home'),
-            PNPM_STORE_DIR: join(this.cache, 'store'),
-            PNPM_CACHE_DIR: join(this.cache, 'metadata'),
-          },
+      env: this.commandEnvironment(Boolean(offline)),
     })
+  }
+
+  treeRoot(project) {
+    return join(project, this.fixture.treeSurface ?? 'node_modules')
   }
 
   assertSourceLockUnchanged() {
@@ -564,15 +662,20 @@ class NativeDriver {
   async sourceOnline() {
     const result = await this.command(false)
     this.assertSourceLockUnchanged()
-    rmSync(join(this.source, 'node_modules'), { recursive: true, force: true })
+    if (this.fixture.treeSurface !== 'none') {
+      rmSync(this.treeRoot(this.source), { recursive: true, force: true })
+    }
     return result
   }
 
   async sourceOffline() {
-    rmSync(join(this.source, 'node_modules'), { recursive: true, force: true })
+    if (this.fixture.treeSurface !== 'none') {
+      rmSync(this.treeRoot(this.source), { recursive: true, force: true })
+    }
     const result = await this.command(true)
     this.assertSourceLockUnchanged()
-    this.sourceInventory = inventory(join(this.source, 'node_modules'), [
+    if (this.fixture.treeSurface === 'none') return result
+    this.sourceInventory = inventory(this.treeRoot(this.source), [
       [this.source.replaceAll('\\', '/'), '<PROJECT>'],
       [this.cache.replaceAll('\\', '/'), '<CACHE>'],
       [this.root.replaceAll('\\', '/'), '<WORK>'],
@@ -594,9 +697,12 @@ class NativeDriver {
   }
 
   async replayOffline() {
-    rmSync(join(this.replayProject, 'node_modules'), { recursive: true, force: true })
+    if (this.fixture.treeSurface !== 'none') {
+      rmSync(this.treeRoot(this.replayProject), { recursive: true, force: true })
+    }
     const result = await this.command('replay')
-    this.replayInventory = inventory(join(this.replayProject, 'node_modules'), [
+    if (this.fixture.treeSurface === 'none') return result
+    this.replayInventory = inventory(this.treeRoot(this.replayProject), [
       [this.replayProject.replaceAll('\\', '/'), '<PROJECT>'],
       [this.cache.replaceAll('\\', '/'), '<CACHE>'],
       [this.root.replaceAll('\\', '/'), '<WORK>'],
@@ -682,7 +788,14 @@ export async function main() {
   }
 
   const receipt = await runSample({
-    fixtures: [...npmFixtures, ...pnpmFixtures],
+    fixtures: [
+      ...npmFixtures,
+      ...pnpmFixtures,
+      ...yarnClassicFixtures,
+      ...yarnBerryFixtures,
+      ...bunFixtures,
+      ...denoFixtures,
+    ],
     createDriver: createNativeDriver,
   })
   mkdirSync(RECEIPT_DIR, { recursive: true })
