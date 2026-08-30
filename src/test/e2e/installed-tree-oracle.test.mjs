@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import {
+  createNativeDriver,
   normalizeDiagnostic,
   runFixture,
   runSample,
@@ -333,4 +334,20 @@ test('an unreachable fixture archive is typed qualification evidence, never prod
   const receipt = await runFixture(fixture(), driver)
   assert.equal(receipt.classification, 'QUALIFICATION_REGRESSION')
   assert.deepEqual(receipt.qualification, { status: 'REFUSED', reason: 'FIXTURE_UNREACHABLE' })
+})
+
+test('yarn-berry pins hardened mode on both legs so a public PR cannot re-resolve them', () => {
+  const driver = createNativeDriver({ family: 'yarn-berry' })
+
+  // Berry defaults `enableHardenedMode` to `isPR && <public GitHub repo>` and
+  // skips that default only when the setting carries an explicit source. Left
+  // unset, a public pull request silently adds `--check-resolutions
+  // --refresh-lockfile`, the offline leg is refused by our own
+  // `enableNetwork: false`, and the row dies as SOURCE_OFFLINE_OPEN. Neither a
+  // developer machine nor a push build reproduces it, so this assertion is the
+  // only place the pin is visible outside a public PR.
+  for (const offline of [true, false]) {
+    const env = driver.commandEnvironment(offline)
+    assert.equal(env.YARN_ENABLE_HARDENED_MODE, 'false')
+  }
 })

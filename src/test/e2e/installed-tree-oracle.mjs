@@ -616,6 +616,25 @@ class NativeDriver {
       return {
         YARN_CACHE_FOLDER: join(this.cache, 'yarn-berry'),
         YARN_ENABLE_GLOBAL_CACHE: 'false',
+        // Berry defaults `enableHardenedMode` to `isPR && <public GitHub repo>`,
+        // which adds `--check-resolutions --refresh-lockfile` to the install. That
+        // is a RESOLUTION pass against the registry, so it cannot coexist with the
+        // offline leg: the request is refused by our own `enableNetwork: false` and
+        // the leg dies as SOURCE_OFFLINE_OPEN before a tree is ever built. It fires
+        // only when GITHUB_ACTIONS is set, GITHUB_EVENT_NAME is `pull_request`, and
+        // GITHUB_EVENT_PATH names a payload whose `repository.private` is false —
+        // so it is invisible on a developer machine and on this repo's own pushes,
+        // and appears only on a public pull request. Setting the key at all (either
+        // value) suppresses the default, because Berry applies the heuristic only
+        // when the setting has no explicit source.
+        //
+        // Disabling it costs nothing here: hardened mode re-resolves ranges to
+        // defend a CI job against an untrusted lockfile, whereas this oracle
+        // installs untrusted fixture lockfiles on purpose, offline, with scripts
+        // off and no credentials — and measures what the lockfile says rather than
+        // trusting it. `--immutable` plus `enableNetwork: false` is the stronger
+        // guarantee of the two.
+        YARN_ENABLE_HARDENED_MODE: 'false',
         YARN_ENABLE_NETWORK: offline ? 'false' : 'true',
         YARN_ENABLE_SCRIPTS: 'false',
         YARN_NODE_LINKER: 'node-modules',
