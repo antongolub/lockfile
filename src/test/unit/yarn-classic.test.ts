@@ -386,11 +386,39 @@ describe('yarn-classic — entry key keeps the declared descriptor across a vers
     )
   })
 
-  it('strict output rejects a url-fragment checksum with no resolution carrier', async () => {
+  // This refusal used to be asserted on the yarn-classic strict EMIT, which threw
+  // `completeness-output-graph-mismatch`. It now fires at registry ingestion instead,
+  // because the emit-side rejection only ever fail-closed for THIS family: measured on
+  // the same graph, `npm-3` emitted a lock with the sha1 silently absent and strict
+  // passed — a dropped checksum through every gate. The member is invalid at the
+  // boundary (_common.md §3.2), so it is refused there, by name, for every target.
+  it('a registry payload carrying a slot-tagged sha1 is refused at ingestion', async () => {
     const integrity = {
       hashes: [
         { algorithm: 'sha512', digest: 'f'.repeat(128), origin: 'registry' as const },
         { algorithm: 'sha1', digest: 'a'.repeat(40), origin: 'url-fragment' as const },
+      ],
+    }
+    const graph = parse(lockWith('lodash@^4.17.0'))
+
+    await expect(replaceVersion(
+      graph,
+      { name: 'lodash', fromRange: '^4.17.0' },
+      '4.18.0',
+      {
+        registry: {
+          async packument() { return undefined },
+          async resolve(name: string) { return { name, version: '4.18.0', integrity } },
+        },
+      },
+    )).rejects.toThrowError(/url-fragment-origin hash/)
+  })
+
+  it('the same sha1 tagged `registry` rides the resolved#<sha1> fragment and passes strict', async () => {
+    const integrity = {
+      hashes: [
+        { algorithm: 'sha512', digest: 'f'.repeat(128), origin: 'registry' as const },
+        { algorithm: 'sha1', digest: 'a'.repeat(40), origin: 'registry' as const },
       ],
     }
     const graph = parse(lockWith('lodash@^4.17.0'))
@@ -401,13 +429,23 @@ describe('yarn-classic — entry key keeps the declared descriptor across a vers
       {
         registry: {
           async packument() { return undefined },
-          async resolve(name: string) { return { name, version: '4.18.0', integrity } },
+          async resolve(name: string) {
+            // The fragment needs a `resolved` line to ride on — the refusal case above
+            // deliberately has NO resolution carrier, which is why it can only be caught
+            // at ingestion.
+            return {
+              name,
+              version: '4.18.0',
+              integrity,
+              tarball: 'https://registry.npmjs.org/lodash/-/lodash-4.18.0.tgz',
+            }
+          },
         },
       },
     )
 
-    expect(() => stringifyApi('yarn-classic', bumped.graph, { strict: true }))
-      .toThrowError(/completeness-output-graph-mismatch/)
+    const out = stringifyApi('yarn-classic', bumped.graph, { strict: true })
+    expect(out).toContain(`lodash-4.18.0.tgz#${'a'.repeat(40)}`)
   })
 })
 

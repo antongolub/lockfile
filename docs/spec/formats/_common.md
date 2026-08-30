@@ -881,6 +881,20 @@ and how to verify it**:
 > provenance, and **each emitter decides where that digest belongs in its own
 > file**. yarn-classic's decision is stated in
 > [`yarn-classic.md`](./yarn-classic.md#integrity).
+>
+> **Where the rule is enforced.** A `url-fragment` member is refused at the
+> registry-adapter boundary, naming the package and this rule, because that is
+> the only place an external caller can introduce one. Catching it later is not
+> equivalent: a slot-tagged sha1 is invisible to `emitSri`, so an npm-family
+> emit simply omits it and every downstream gate passes — a silently dropped
+> checksum. Only yarn-classic notices, because its `resolved#<sha1>` fragment
+> makes the absence visible on reparse. The lockgraph emitter's own
+> `INVARIANT_VIOLATION` on the same member remains as the second line of
+> defence for graphs assembled by other means.
+>
+> A **recorded** registry response is the realistic source of a stale tag: a
+> fixture captured before this rule was enforced replays the old spelling
+> forever. Re-record it rather than widening the tag.
 
 ### 3.3 The berry-zip ≠ tarball-SRI boundary
 

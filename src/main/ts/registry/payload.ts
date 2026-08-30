@@ -5,6 +5,7 @@ import type {
   TarballPayload,
 } from '../graph.ts'
 import { parseSri, type Integrity } from '../recipe/integrity.ts'
+import { LockfileError } from '../api/errors.ts'
 import type { PackumentVersion } from './types.ts'
 
 export const PACKAGE_METADATA_FIELDS = Object.freeze([
@@ -32,6 +33,34 @@ function isRuntimeHash(value: unknown): boolean {
     readonly origin?: unknown
   }
   return [hash.algorithm, hash.digest, hash.origin].every(field => typeof field === 'string')
+}
+
+/**
+ * Reject a `url-fragment`-origin member arriving from a registry adapter.
+ *
+ * `_common.md` §3.2 calls this "the one rule in §3.2 that has been got wrong in
+ * production code": `url-fragment` names the yarn 1.0-1.5 `resolved#<sha1>` SLOT,
+ * never a provenance. A registry's `dist.shasum` is registry metadata and its origin
+ * is `registry` (`registry/live.ts` stamps exactly that) — yarn 1 merely happens to
+ * render it into a URL. Tagged as the slot instead, the digest falls outside
+ * `isTarballOrigin`, so `emitSri` skips it AND `tarballSha1ForUrlFragment` refuses to
+ * render the fragment: a checksum in hand that no format can write, which is a bug and
+ * never an acceptable loss.
+ *
+ * The adapter surface is the boundary where such a member can enter a Graph, so it is
+ * refused HERE, by name. Left to travel, it surfaces far downstream as an unattributed
+ * `COMPLETENESS_OUTPUT_GRAPH_MISMATCH` on a strict emit — the same invalid input the
+ * lockgraph emitter already rejects outright with `INVARIANT_VIOLATION`, but with no
+ * subject and no rule to look up. A stale recorded fixture is the realistic source.
+ */
+function assertNoSlotTaggedHash(integrity: Integrity, pv: PackumentVersion): void {
+  if (!integrity.hashes.some(hash => hash.origin === 'url-fragment')) return
+  throw new LockfileError({
+    code:    'INVARIANT_VIOLATION',
+    message: `registry payload for ${pv.name}@${pv.version} carries a url-fragment-origin hash; `
+      + 'that origin names the yarn-classic resolved#<sha1> slot, not a provenance — a '
+      + 'registry shasum is origin `registry` (_common.md §3.2). Re-record the response.',
+  })
 }
 
 function integrityOfPackumentVersion(value: unknown): Integrity | undefined {
@@ -89,8 +118,10 @@ function canonicalMetadataValue(
  * been fixed. Add the field ONCE, here.
  */
 export function payloadOfPackumentVersion(pv: PackumentVersion): TarballPayload {
+  const integrity = integrityOfPackumentVersion(pv.integrity)
+  if (integrity !== undefined) assertNoSlotTaggedHash(integrity, pv)
   const projected: TarballPayload = {
-    integrity:            integrityOfPackumentVersion(pv.integrity),
+    integrity,
     engines:              pv.engines,
     funding:              pv.funding,
     license:              pv.license,
