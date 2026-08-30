@@ -9,6 +9,42 @@ updates:
     exclude-paths:
       - "src/test/resources/fixtures/**"
     groups:
+      # LOCKSTEP FAMILIES. These publish a core and its plugins together and pin
+      # the peer to an EXACT version — `@size-limit/file@13.0.3` requires
+      # `size-limit@13.0.3`, and vitest pins `@vitest/coverage-v8` both ways. A
+      # PR that moves one without the other can therefore never go green.
+      #
+      # Minor/patch bumps already travel together inside development-dependencies
+      # below, so these groups only need to catch MAJORS — which fall outside
+      # that group's update-types and would otherwise arrive as one doomed PR per
+      # package. That is exactly what happened to size-limit 12.1.0 -> 13 (#22,
+      # #23). Security updates are never grouped by default and hit the same peer
+      # constraint, so each family repeats itself with applies-to: security-updates
+      # (update-types is a version-update option and is deliberately absent there).
+      size-limit:
+        applies-to: "version-updates"
+        patterns:
+          - "size-limit"
+          - "@size-limit/*"
+        update-types:
+          - "major"
+      vitest:
+        applies-to: "version-updates"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+        update-types:
+          - "major"
+      size-limit-security:
+        applies-to: "security-updates"
+        patterns:
+          - "size-limit"
+          - "@size-limit/*"
+      vitest-security:
+        applies-to: "security-updates"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       development-dependencies:
         applies-to: "version-updates"
         dependency-type: "development"
@@ -59,10 +95,17 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 2
     groups:
+      # Majors are grouped rather than excluded. Filtered out, each one needed
+      # its own PR and competed for open-pull-requests-limit, so they simply
+      # never arrived: installed-tree-oracle.yml sat on checkout/setup-node/
+      # upload-artifact v4 while every other workflow ran v7/v8, and no PR ever
+      # proposed the gap. Actions are independent of one another, so one grouped
+      # PR is reviewable — and CI gates it either way.
       github-actions:
         applies-to: "version-updates"
         patterns:
           - "*"
         update-types:
+          - "major"
           - "minor"
           - "patch"
