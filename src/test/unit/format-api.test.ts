@@ -4,6 +4,7 @@ import type { Graph } from '../../main/ts/graph.ts'
 import { LockfileError } from '../../main/ts/api/errors.ts'
 import {
   check,
+  debugSnapshotDelta,
   detect,
   isFormatId,
   parse,
@@ -202,5 +203,55 @@ describe('round trip', () => {
     const out = stringify(parse(pnpmLock), 'npm-3')
     expect(detect(out)).toBe('npm-3')
     expect(ids(parse(out))).toEqual(ids(parse(out, 'npm-3')))
+  })
+})
+
+describe('debugSnapshotDelta', () => {
+  const left = JSON.stringify({ nodes: [], edges: [], roots: [], tarballs: [['a@1', { keep: 1 }]] })
+  const right = JSON.stringify({ nodes: [], edges: [], roots: [], tarballs: [['a@1', {}]] })
+
+  const capture = (fn: () => void): string => {
+    const write = process.stderr.write.bind(process.stderr)
+    let out = ''
+    process.stderr.write = ((chunk: string) => { out += chunk; return true }) as typeof write
+    try { fn() } finally { process.stderr.write = write }
+    return out
+  }
+
+  it('prints nothing unless LOCKGRAPH_DEBUG_SNAPSHOT is set', () => {
+    const before = process.env.LOCKGRAPH_DEBUG_SNAPSHOT
+    delete process.env.LOCKGRAPH_DEBUG_SNAPSHOT
+    try {
+      expect(capture(() => { debugSnapshotDelta(left, right) })).toBe('')
+    } finally {
+      if (before !== undefined) process.env.LOCKGRAPH_DEBUG_SNAPSHOT = before
+    }
+  })
+
+  it('names the differing section and both sides when it is set', () => {
+    const before = process.env.LOCKGRAPH_DEBUG_SNAPSHOT
+    process.env.LOCKGRAPH_DEBUG_SNAPSHOT = '1'
+    try {
+      const out = capture(() => { debugSnapshotDelta(left, right) })
+      expect(out).toContain('tarballs differ')
+      expect(out).toContain('canonical ["a@1",{"keep":1}]')
+      expect(out).toContain('reparsed  ["a@1",{}]')
+      // Sections that agree stay quiet — the point is to name the one that moved.
+      expect(out).not.toContain('nodes differ')
+    } finally {
+      if (before === undefined) delete process.env.LOCKGRAPH_DEBUG_SNAPSHOT
+      else process.env.LOCKGRAPH_DEBUG_SNAPSHOT = before
+    }
+  })
+
+  it('stays silent on unparseable input rather than throwing inside a diagnostic', () => {
+    const before = process.env.LOCKGRAPH_DEBUG_SNAPSHOT
+    process.env.LOCKGRAPH_DEBUG_SNAPSHOT = '1'
+    try {
+      expect(capture(() => { debugSnapshotDelta('not json', right) })).toBe('')
+    } finally {
+      if (before === undefined) delete process.env.LOCKGRAPH_DEBUG_SNAPSHOT
+      else process.env.LOCKGRAPH_DEBUG_SNAPSHOT = before
+    }
   })
 })

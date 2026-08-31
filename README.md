@@ -499,6 +499,24 @@ The full catalogue — codes, causes, remedies — is
 [ERRORS.md](./docs/arch/ERRORS.md). The full public contract is
 [API.md](./docs/arch/API.md).
 
+One code cannot name its own subject: `COMPLETENESS_OUTPUT_GRAPH_MISMATCH` reports
+that a strict emit did not preserve the canonical graph, without saying which fact
+moved. Set `LOCKGRAPH_DEBUG_SNAPSHOT=1` to have the differing section and both sides
+printed to stderr when that comparison fails:
+
+```
+LOCKGRAPH_DEBUG_SNAPSHOT=1 node ./your-conversion.mjs
+
+lockgraph: tarballs differ — 1 only in the canonical graph, 1 only in the reparsed output
+  canonical ["json-schema@0.4.0",{"integrity":{"hashes":[…,{"algorithm":"sha1",…}]},…}]
+  reparsed  ["json-schema@0.4.0",{"integrity":{"hashes":[…]},…}]
+```
+
+Read the delta from there, not from `graph.tarballs()`: the comparison projects both
+sides first (registry rehosting, integrity slotting, workspace-root renaming), so raw
+payloads show differences it never sees and hide the one it does. The variable is
+diagnostic only — it changes nothing about what is emitted or diagnosed.
+
 ## Specifications
 
 The implementation is built from these documents. Each aggregates the official

@@ -801,6 +801,46 @@ function projectedTargetResolutions(
   return projected.size === 0 ? undefined : projected
 }
 
+
+/**
+ * Print WHICH graph facts a strict emit failed to preserve, to stderr, when
+ * `LOCKGRAPH_DEBUG_SNAPSHOT=1` is set.
+ *
+ * `COMPLETENESS_OUTPUT_GRAPH_MISMATCH` says only "target output does not preserve the
+ * canonical graph" — no node, no field, no side. It is the one diagnostic in this library
+ * a consumer cannot act on, and the cost is measurable: a downstream project spent a day
+ * mis-attributing a stale registry fixture to a converter bug, because the only way to see
+ * the delta was to patch a debug build. Reading a raw payload off `graph.tarballs()` is
+ * NOT a substitute — the comparator projects both sides first (registry rehosting, integrity
+ * slotting, workspace-root renaming), so raw payloads show differences the check never sees
+ * and hide the one it does.
+ *
+ * Off by default and free when off: nothing is parsed unless the snapshots already differ
+ * AND the flag is set. Diagnostic only — it never changes what is emitted or diagnosed.
+ */
+export function debugSnapshotDelta(source: string, target: string): void {
+  if (process.env.LOCKGRAPH_DEBUG_SNAPSHOT !== '1') return
+  let left: Record<string, unknown[]>
+  let right: Record<string, unknown[]>
+  try {
+    left = JSON.parse(source) as Record<string, unknown[]>
+    right = JSON.parse(target) as Record<string, unknown[]>
+  } catch { return }
+  for (const section of ['nodes', 'edges', 'roots', 'tarballs']) {
+    const canon = (left[section] ?? []).map(value => JSON.stringify(value))
+    const round = (right[section] ?? []).map(value => JSON.stringify(value))
+    const canonOnly = canon.filter(value => !round.includes(value))
+    const roundOnly = round.filter(value => !canon.includes(value))
+    if (canonOnly.length === 0 && roundOnly.length === 0) continue
+    process.stderr.write(
+      `lockgraph: ${section} differ — ${canonOnly.length} only in the canonical graph, `
+      + `${roundOnly.length} only in the reparsed output\n`,
+    )
+    for (const value of canonOnly.slice(0, 5)) process.stderr.write(`  canonical ${value}\n`)
+    for (const value of roundOnly.slice(0, 5)) process.stderr.write(`  reparsed  ${value}\n`)
+  }
+}
+
 /** Snapshot the graph as the target adapter will project it. Target-neutral
  * authorities stay on Graph while the comparator sees only representable
  * resolution, integrity, metadata, and workspace-root spellings. */
@@ -951,8 +991,12 @@ function projectionOutputDiagnostics(
     ...(targetVersion === undefined ? {} : { managerVersion: targetVersion }),
   })
   diagnostics.push(...overlayGaps)
-  if (canonicalProjectionGraphSnapshot(graph, target, 'project', comparisonOverrides, workspaceNames)
-    !== canonicalProjectionGraphSnapshot(reparsed, target, 'project', comparisonOverrides, workspaceNames)) {
+  const sourceSnapshot = canonicalProjectionGraphSnapshot(
+    graph, target, 'project', comparisonOverrides, workspaceNames)
+  const targetSnapshot = canonicalProjectionGraphSnapshot(
+    reparsed, target, 'project', comparisonOverrides, workspaceNames)
+  if (sourceSnapshot !== targetSnapshot) {
+    debugSnapshotDelta(sourceSnapshot, targetSnapshot)
     if (overlayGaps.length === 0) diagnostics.push(assessedDiagnostic(
       'COMPLETENESS_OUTPUT_GRAPH_MISMATCH',
       'target output does not preserve the canonical graph',

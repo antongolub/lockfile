@@ -11,6 +11,7 @@ import type { FileSource } from '../api/operation.ts'
 import {
   assessedDiagnostic,
   canonicalProjectionGraphSnapshot,
+  debugSnapshotDelta,
   check,
   detect,
   diagnosticKey,
@@ -699,6 +700,7 @@ function outputProbe(
   })
   diagnostics.push(...overlayGaps)
   if (sourceSnapshot !== targetSnapshot) {
+    debugSnapshotDelta(sourceSnapshot, targetSnapshot)
     if (overlayGaps.length === 0) diagnostics.push(assessedDiagnostic(
       'COMPLETENESS_OUTPUT_GRAPH_MISMATCH',
       'target output does not preserve the canonical graph',

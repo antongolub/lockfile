@@ -47,18 +47,21 @@ function isRuntimeHash(value: unknown): boolean {
  * render the fragment: a checksum in hand that no format can write, which is a bug and
  * never an acceptable loss.
  *
- * The adapter surface is the boundary where such a member can enter a Graph, so it is
- * refused HERE, by name. Left to travel, it surfaces far downstream as an unattributed
+ * Checked where a minted payload ENTERS THE GRAPH rather than in
+ * `payloadOfPackumentVersion`: three callers (`completeness/profile.ts`,
+ * `enrich/hydrate-metadata.ts`, `enrich/facade.ts`) run that projection purely to compare
+ * METADATA and discard the integrity, so refusing there would fail a manifest comparison
+ * over a field it never reads. Left to travel, it surfaces far downstream as an unattributed
  * `COMPLETENESS_OUTPUT_GRAPH_MISMATCH` on a strict emit — the same invalid input the
  * lockgraph emitter already rejects outright with `INVARIANT_VIOLATION`, but with no
  * subject and no rule to look up. A stale recorded fixture is the realistic source.
  */
-function assertNoSlotTaggedHash(integrity: Integrity, pv: PackumentVersion): void {
-  if (!integrity.hashes.some(hash => hash.origin === 'url-fragment')) return
+function assertNoSlotTaggedHash(payload: TarballPayload, inputs: TarballKeyInputs): void {
+  if (payload.integrity?.hashes.some(hash => hash.origin === 'url-fragment') !== true) return
   throw new LockfileError({
     code:    'INVARIANT_VIOLATION',
-    message: `registry payload for ${pv.name}@${pv.version} carries a url-fragment-origin hash; `
-      + 'that origin names the yarn-classic resolved#<sha1> slot, not a provenance — a '
+    message: `registry payload for ${inputs.name}@${inputs.version} carries a url-fragment-origin `
+      + 'hash; that origin names the yarn-classic resolved#<sha1> slot, not a provenance — a '
       + 'registry shasum is origin `registry` (_common.md §3.2). Re-record the response.',
   })
 }
@@ -84,6 +87,7 @@ export function setMintedTarball(
   payload: TarballPayload,
 ): void {
   if (Object.values(payload).every(value => value === undefined)) return
+  assertNoSlotTaggedHash(payload, inputs)
   mutator.setTarball(inputs, payload)
 }
 
@@ -118,10 +122,8 @@ function canonicalMetadataValue(
  * been fixed. Add the field ONCE, here.
  */
 export function payloadOfPackumentVersion(pv: PackumentVersion): TarballPayload {
-  const integrity = integrityOfPackumentVersion(pv.integrity)
-  if (integrity !== undefined) assertNoSlotTaggedHash(integrity, pv)
   const projected: TarballPayload = {
-    integrity,
+    integrity:            integrityOfPackumentVersion(pv.integrity),
     engines:              pv.engines,
     funding:              pv.funding,
     license:              pv.license,
