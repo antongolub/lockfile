@@ -1,3 +1,9 @@
+## [0.6.7](https://github.com/lockgraph/lockgraph/compare/v0.6.6...v0.6.7) (2026-08-31)
+
+### Fixes & improvements
+* fix(registry): narrow the mint guard and name what a strict emit lost ([907b033](https://github.com/lockgraph/lockgraph/commit/907b033fbe3dbf8be7e8479ff010156b9a16fab1))
+* fix(registry): refuse a slot-tagged sha1 at the adapter boundary ([3376e89](https://github.com/lockgraph/lockgraph/commit/3376e89daf7c86e54801994954365a3b2fb50cc1))
+
 ## [0.6.6](https://github.com/lockgraph/lockgraph/compare/v0.6.5...v0.6.6) (2026-08-29)
 
 ### Fixes & improvements
