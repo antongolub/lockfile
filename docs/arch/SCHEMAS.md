@@ -21,6 +21,31 @@ the supported range. npm 12 still writes v3 for an ordinary project; native
 npm 11 can accept a v4-shaped file without a syntax error but does not apply
 its patch semantics, so it is not a compatible v4 reader.
 
+
+### The `node_modules/.lockfile-…` placeholder key
+
+An npm lock addresses every package by its **install path**, so a package needs a place
+in the tree to exist at all. A node with no consumer to nest under and whose hoisted slot
+`node_modules/<name>` is already taken by a different node has no such place: npm's format
+simply cannot express it. Rather than drop it — a dropped entry takes its checksum with
+it, which is a bug and never an acceptable simplification — the emit parks it at
+
+```
+node_modules/.lockfile-<name>-<version>-<n>/node_modules/<name>
+```
+
+**This is a placeholder, not an install path. npm has no such store, and a lock carrying
+one is not installable as-is.** It is emitted only under `strict: false`, and never
+silently: the same call raises `LAYOUT_PLACEMENT_RESYNTHESISED`, a
+`COMPLETENESS_OUTPUT_GRAPH_MISMATCH`, and an accepted `PROJECTION_LOSS`. Under `strict`
+(the default) the conversion is refused instead.
+
+The usual way to reach it is converting a lock whose entries are unreachable — a
+yarn-classic v1 lock read WITHOUT its manifest is the common case, because a v1 lock
+carries no root→direct edges, so every entry is an orphan until a manifest binds them.
+Supplying the root manifest through the enrich/project path, not through
+`ParseOptions.manifests` (which captures overrides, not edges), is what makes those nodes
+reachable and gives them real paths.
 ## yarn
 
 `yarn-classic` and `yarn-berry-*` use different lockfile schemas. The
