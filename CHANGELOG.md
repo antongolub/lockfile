@@ -1,3 +1,8 @@
+## [0.7.0](https://github.com/lockgraph/lockgraph/compare/v0.6.7...v0.7.0) (2026-09-03)
+
+### Features
+* feat: provide support for bun lockfile v2 (#28) ([34e3250](https://github.com/lockgraph/lockgraph/commit/34e3250f9cfa540a4a493ae713fa5f374802f08d))
+
 ## [0.6.7](https://github.com/lockgraph/lockgraph/compare/v0.6.6...v0.6.7) (2026-08-31)
 
 ### Fixes & improvements
