@@ -1,3 +1,8 @@
+## [0.7.1](https://github.com/lockgraph/lockgraph/compare/v0.7.0...v0.7.1) (2026-09-03)
+
+### Fixes & improvements
+* fix: fix yarn berry peers payload capture (#29) ([9effb17](https://github.com/lockgraph/lockgraph/commit/9effb172cf12472d647bbaa5f1b2c5f01891c35e))
+
 ## [0.7.0](https://github.com/lockgraph/lockgraph/compare/v0.6.7...v0.7.0) (2026-09-03)
 
 ### Features
