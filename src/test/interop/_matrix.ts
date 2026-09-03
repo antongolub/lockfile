@@ -3622,7 +3622,79 @@ const withNativeBerryWorkspaceBoundary = (
 const isBerryFormat = (f: FormatId): boolean => f.startsWith('yarn-berry')
 const crossesOriginClass = (a: FormatId, b: FormatId): boolean => isBerryFormat(a) !== isBerryFormat(b)
 
-export const CONTRACTS: ConversionContract[] = RAW_CONTRACTS
+// === bun generation axis ====================================================
+//
+// `bun-text-v2` is `bun-text`'s schema with a different `lockfileVersion` integer.
+// Measured on bun 1.3.14 vs 1.4.0 over a project exercising workspaces, an alias,
+// `overrides`, optional and peer dependencies with `peerDependenciesMeta`,
+// `trustedDependencies` and the `workspace:` protocol, and again over all seven
+// scenario fixtures: the locks are byte-identical apart from that integer (plus the
+// `configVersion` line older bun did not write).
+//
+// So its loss profile against every other format IS bun-text's. These rows are
+// MIRRORED rather than restated, because two hand-copied sets of nineteen contracts
+// would drift the first time a bun boundary is corrected on one of them.
+const BUN_TEXT_FIXTURES_ALL = [
+  'simple',
+  'deps-with-scopes',
+  'peers-basic',
+  'peers-multi',
+  'workspace-cross-refs',
+  'workspaces-basic',
+  'yarn-crlf',
+] as const
+
+function renameBunDiagnostics(contract: ConversionContract, side: 'from' | 'to'): ConversionContract {
+  const marker = side === 'from' ? 'INTEROP_BUN_TEXT_TO_' : '_TO_BUN_TEXT_'
+  const replacement = side === 'from' ? 'INTEROP_BUN_TEXT_V2_TO_' : '_TO_BUN_TEXT_V2_'
+  const rename = <T extends { diagnostic?: string }>(entry: T): T =>
+    (entry.diagnostic === undefined
+      ? entry
+      : { ...entry, diagnostic: entry.diagnostic.replace(marker, replacement) })
+  return {
+    ...contract,
+    lost:        contract.lost.map(rename),
+    added:       contract.added.map(rename),
+    passthrough: contract.passthrough.map(rename),
+  }
+}
+
+function bunGenerationMirror(contracts: ConversionContract[]): ConversionContract[] {
+  const mirrored: ConversionContract[] = []
+  for (const contract of contracts) {
+    if (contract.from === 'bun-text') {
+      mirrored.push(renameBunDiagnostics({ ...contract, from: 'bun-text-v2' }, 'from'))
+    }
+    if (contract.to === 'bun-text') {
+      mirrored.push(renameBunDiagnostics({ ...contract, to: 'bun-text-v2' }, 'to'))
+    }
+  }
+  return mirrored
+}
+
+// The one genuinely new cell pair: same family, different generation. Nothing is lost
+// in either direction — the target id chooses the integer and the rest of the document
+// is the same grammar, which is why both directions are lossless-reentrant rather than
+// asymmetric the way a real generation jump (npm-1 -> npm-3, pnpm-v5 -> pnpm-v9) is.
+const BUN_GENERATION_PAIRS: ConversionContract[] = ([
+  { from: 'bun-text', to: 'bun-text-v2' },
+  { from: 'bun-text-v2', to: 'bun-text' },
+] as const).map(({ from, to }): ConversionContract => ({
+  from,
+  to,
+  preserved: ALL_FEATURES,
+  lost: [],
+  added: [],
+  passthrough: [],
+  reentrancy: 'lossless-reentrant',
+  fixtureSubset: [...BUN_TEXT_FIXTURES_ALL],
+}))
+
+export const CONTRACTS: ConversionContract[] = [
+  ...RAW_CONTRACTS,
+  ...bunGenerationMirror(RAW_CONTRACTS),
+  ...BUN_GENERATION_PAIRS,
+]
   .map(withNativeBerryWorkspaceBoundary)
   .map(contract =>
     crossesOriginClass(contract.from, contract.to)

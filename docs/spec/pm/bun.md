@@ -446,9 +446,9 @@ on-disk encoding lives in those format specs.
   text emits, `1` from 1.2, `2` from 1.4) are specified in
   [`bun-text.md`](../formats/bun-text.md) — **not duplicated here**.
   [bun.com/docs/pm/lockfile, bun.com/blog/bun-lock-text-lockfile]
-  This project accepts v1 and v2 and re-emits the generation it read; both are
-  pinned in the frozen oracle (`bun` 1.3.14, `pm-bun-v2` 1.4.0). Released early
-  v0 text locks fail closed.
+  This project models each generation as its own format id — `bun-text` for `1`,
+  `bun-text-v2` for `2` — so a caller can ASK for one; both are pinned in the frozen
+  oracle (`bun` 1.3.14, `pm-bun-v2` 1.4.0). Released early v0 text locks fail closed.
 - **`bun.lockb`** (binary, original; default **<1.2**) is a **detect-and-reject**
   input for this project — never parsed. Migrate with
   `bun install --save-text-lockfile --frozen-lockfile --lockfile-only` then

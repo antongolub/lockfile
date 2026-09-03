@@ -14,7 +14,7 @@ Every ordered pair is defined. Find your row (source) and column (target).
 | **yarn-classic** | needs manifests | — | needs manifests | needs manifests | needs manifests | not supported |
 | **yarn-berry** | just works | needs manifests | **by version** | just works | just works | not supported |
 | **pnpm** | just works | needs manifests | just works | **by version** | just works | not supported |
-| **bun** | just works | needs manifests | just works | just works | — | not supported |
+| **bun** | just works | needs manifests | just works | just works | **by generation** | not supported |
 | **deno** | npm subgraph only | npm subgraph only | npm subgraph only | npm subgraph only | npm subgraph only | **by version** |
 
 - **just works** — the lock alone is enough. You may still lose a feature the target
@@ -76,13 +76,14 @@ a mutable install.
 per-entry fields that have no target representation; targeting v2 or v3 additionally
 drops any non-empty JSR, workspace or redirect carrier.
 
-**bun** — `bun-text` carries two lockfile generations under ONE format id, because the
-schema is the same: bun 1.4 writes `lockfileVersion: 2` where 1.3 wrote `1`, and a
-feature-rich project emits byte-identical locks under both apart from that integer.
-There is therefore no bun → bun conversion axis and no extra pair; the adapter reads
-either and re-emits the generation it read. Converting INTO `bun-text` from another
-family yields a `1`, since a graph with no bun provenance has no generation to preserve
-— which every bun release still accepts.
+**bun** — two generations, two format ids: `bun-text` is `lockfileVersion: 1` and
+`bun-text-v2` is `2` (bun 1.4+). The schema is the same — a feature-rich project emits
+byte-identical locks under 1.3.14 and 1.4.0 apart from that integer, and all seven
+scenario fixtures reproduce that exactly — so bun → bun is lossless in both directions.
+They are separate ids because the generation has to be REQUESTABLE: converting into bun
+from another family has no bun source to inherit one from, and with a single id every
+cross-family conversion would yield a `1` forever, leaving a bun-1.4 user unable to ask
+for the lock their own bun writes.
 
 Yarn Classic has one generation, so it has no intra-family axis.
 

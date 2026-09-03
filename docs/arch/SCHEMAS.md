@@ -72,7 +72,8 @@ the resulting `bun.lock` via the `bun-text` adapter. bun's own
 binary reader stays in bun for back-compat — that is bun's
 responsibility, not ours.
 
-`bun-text` accepts `lockfileVersion` **1 and 2** and re-emits the one it read.
+`bun-text` is generation **1**; generation **2** is the separate `bun-text-v2` id, so
+the format id selects the integer rather than the source remembering it.
 Released early v0 text locks fail closed. Version 2 shipped in bun 1.4.0 and is
 the same schema — measured on a project exercising workspaces, an alias,
 `overrides`, optional/peer deps and `trustedDependencies`, the two generations

@@ -25,6 +25,30 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 export const PAIRS_PATH = join(root, 'docs/arch/PAIRS.md')
 
 // --- load the declared contracts through esbuild (the matrix is TypeScript) ---
+/**
+ * Every format a lock can be converted between — the registry's own keys, minus
+ * `lockgraph` (the canonical interchange format, not a conversion endpoint).
+ *
+ * Read at runtime rather than listed here so that ADDING A FormatId cannot leave the
+ * pair matrix silently uncovered: `bun-text-v2` was registered, detected, parsed and
+ * emitted while `PAIRS.md` still said 380 pairs across 20 formats and this gate passed,
+ * because a format with no rows renders nothing and nothing missed it.
+ */
+export async function loadConvertibleFormats() {
+  const tmp = mkdtempSync(join(tmpdir(), 'lockgraph-formats-'))
+  try {
+    const entry = join(tmp, 'entry.mjs')
+    writeFileSync(entry, `export { FORMAT_REGISTRY } from ${JSON.stringify(join(root, 'src/main/ts/api/format-registry.ts'))}\n`)
+    const bundle = join(tmp, 'bundle.mjs')
+    execFileSync(join(root, 'node_modules/.bin/esbuild'),
+      [entry, '--bundle', '--platform=node', '--format=esm', `--outfile=${bundle}`, '--log-level=error'])
+    const { FORMAT_REGISTRY } = await import(`file://${bundle}`)
+    return Object.keys(FORMAT_REGISTRY).filter(id => id !== 'lockgraph').sort()
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
 export async function loadContracts() {
   const tmp = mkdtempSync(join(tmpdir(), 'lockgraph-pairs-'))
   try {

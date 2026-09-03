@@ -13,16 +13,15 @@ work in v1 starts and stays here.
 
 | PM | semver range | Default? | How to opt in |
 |----|--------------|:--------:|---------------|
-| bun | `>=1.4`     | ✓ | writes `lockfileVersion: 2` for a NEW lock; keeps an existing `1` at `1` |
-| bun | `>=1.2 <1.4` | ✓ | text default since 1.2; writes `lockfileVersion: 1` |
+| bun | `>=1.2 <1.4` | ✓ | text default since 1.2 |
+| bun | `>=1.4` | – | only onto an EXISTING v1 lock, which it leaves at `1`; a NEW lock is [`bun-text-v2`](./bun-text-v2.md) |
 | bun | `>=1.1 <1.2` | – | `bun install --save-text-lockfile` (verify exact minor of intro) |
 
 ### Readers — PM semvers that *install* from this format
 
 | PM | semver range | Notes |
 |----|--------------|-------|
-| bun | `>=1.4`     | reads `lockfileVersion` 1 and 2 |
-| bun | `>=1.1 <1.4` | text reader landed alongside the writer flag; **refuses** `lockfileVersion: 2` |
+| bun | `>=1.1` | every released text reader accepts generation 1, 1.4 included |
 
 ## File
 
@@ -216,9 +215,11 @@ this is only how bun-text *carries* it.
   unrelated to the npm integer of the same name — which is why bun's `2` and
   npm-2's `2` collide on detection (see below). Real-world `bun.lock` files also
   carry a sibling `configVersion` integer the adapter preserves but does not read.
-- The adapter accepts `lockfileVersion` **1 and 2** and re-emits the one it read.
-  Early text locks with `lockfileVersion: 0` exist in released Bun builds but are
-  not supported and fail closed.
+- **This id is generation 1 only.** Generation 2 is its own format,
+  [`bun-text-v2`](./bun-text-v2.md) — the id is what selects the integer, so each
+  parses only its own and emits only its own, and a graph moves between them by naming
+  the target. Early text locks with `lockfileVersion: 0` exist in released Bun builds
+  but are not supported and fail closed.
 - `lockfileVersion: 2` shipped in **bun 1.4.0**. Measured against 1.3.14 and 1.4.0
   on a project exercising workspaces, an alias, `overrides`, optional and peer
   dependencies with `peerDependenciesMeta`, `trustedDependencies` and the
