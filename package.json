@@ -24,6 +24,7 @@
     "build:dist": "node scripts/clean.mjs && rollup -c && tsc -p tsconfig.dts.json && node scripts/fix-dts.mjs && tsc -p tsconfig.dist.json",
     "build:fixtures": "node src/test/resources/fixtures/_gen.mjs",
     "test:types": "tsc --noEmit",
+    "test:source-bytes": "node scripts/check-source-bytes.mjs",
     "test:unit": "vitest run src/test/unit",
     "test:integration": "vitest run src/test/interop src/test/infra",
     "test:readme": "node src/test/e2e/readme.mjs",

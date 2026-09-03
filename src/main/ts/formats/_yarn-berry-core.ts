@@ -361,7 +361,7 @@ interface PeerMetaContext {
   // noise for every genuinely-required peer). RECIPE_PEER_META_INCOMPLETE
   // fires only when an external lookup was requested yet could not answer.
   hasExternalRung: boolean
-  // Memoise installed-manifest reads per parent `name version` so a
+  // Memoise installed-manifest reads per parent `name\0version` so a
   // package referenced by many consumers triggers one fs read; `null` =
   // looked up, not on disk (distinct from "not yet looked up").
   manifestCache: Map<string, InstalledManifestMeta | null>
@@ -1175,6 +1175,23 @@ function captureYarnBerryBin(value: SymlMap, payload: TarballPayload): void {
   if (Object.keys(bin).length > 0) payload.bin = bin
 }
 
+/** Copy canonical peer declaration facts while the sidecar keeps verbatim replay data. */
+function captureYarnBerryPeerMetadata(value: SymlMap, payload: TarballPayload): void {
+  const peerDependencies = stringRecordOfBlock(asMap(value['peerDependencies']))
+  if (peerDependencies !== undefined) payload.peerDependencies = peerDependencies
+
+  const block = asMap(value['peerDependenciesMeta'])
+  if (block === undefined) return
+  const peerDependenciesMeta: NonNullable<TarballPayload['peerDependenciesMeta']> = {}
+  for (const [peerName, raw] of Object.entries(block)) {
+    const optional = asString(asMap(raw)?.['optional'])
+    if (optional === 'true' || optional === 'false') {
+      peerDependenciesMeta[peerName] = { optional: optional === 'true' }
+    }
+  }
+  if (Object.keys(peerDependenciesMeta).length > 0) payload.peerDependenciesMeta = peerDependenciesMeta
+}
+
 /** Materialise canonical artefact facts plus any non-derivable native locator. */
 function addYarnBerryTarball(
   context: YarnBerryParseContext,
@@ -1184,6 +1201,7 @@ function addYarnBerryTarball(
   const payload: TarballPayload = {}
   captureYarnBerryChecksum(context, entry.value, identity.id, payload)
   captureYarnBerryBin(entry.value, payload)
+  captureYarnBerryPeerMetadata(entry.value, payload)
   if (identity.canonicalResolution !== undefined) payload.resolution = identity.canonicalResolution
   if (
     identity.resolution !== undefined
@@ -3404,7 +3422,7 @@ function ambiguousPeerMessage(peerName: string, candidates: readonly string[]): 
 // === Peer optionality =======================================================
 
 function peerEdgeKey(src: string, dst: string): string {
-  return `${src} ${dst}`
+  return `${src}\0${dst}`
 }
 
 // Rung 0 reads `peerName` from the verbatim `peerDependenciesMeta` sidecar.
@@ -3487,7 +3505,7 @@ function resolvePeerOptional(
 }
 
 function readParentManifest(ctx: PeerMetaContext, parent: Node): InstalledManifestMeta | null {
-  const key = `${parent.name} ${parent.version}`
+  const key = `${parent.name}\0${parent.version}`
   const cached = ctx.manifestCache.get(key)
   if (cached !== undefined) return cached
   const manifest = ctx.workspaceRoot === undefined
