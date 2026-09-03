@@ -1,6 +1,6 @@
 # Format specifications
 
-> Updated: 2026-07-28.
+> Updated: 2026-09-03.
 
 Per-adapter specs. Each document follows [`_template.md`](./_template.md) and
 captures: compatibility, filename/encoding, sources, schema sketch, capability
@@ -103,7 +103,8 @@ fidelity fix from turning into an "always add `npm:`" conversion rule.
 | `pnpm-v5`          | `lockfileVersion: 5.x`      | Source-only         | [pnpm-v5.md](./pnpm-v5.md) |
 | `pnpm-v6`          | `lockfileVersion: 6.x`      | Source-only         | [pnpm-v6.md](./pnpm-v6.md) |
 | `pnpm-v9`          | `lockfileVersion: '9.0'`    | Source-only         | [pnpm-v9.md](./pnpm-v9.md) |
-| `bun-text`         | `bun.lock` filename + JSONC | Official            | [bun-text.md](./bun-text.md) |
+| `bun-text`         | `bun.lock` + `lockfileVersion: 1` | Official      | [bun-text.md](./bun-text.md) |
+| `bun-text-v2`      | `bun.lock` + `lockfileVersion: 2` | Official      | [bun-text-v2.md](./bun-text-v2.md) |
 | `bun-binary`       | `bun.lockb` filename + magic | Reverse-engineered | [bun-binary.md](./bun-binary.md) |
 | `deno-v2`          | top-level `version: "2"` | Measured corpus; parse/emit proof | [deno-v2.md](./deno-v2.md) |
 | `deno-v3`          | top-level `version: "3"` | Deno 1.44.4 + measured oracle | [deno-v3.md](./deno-v3.md) |
@@ -161,7 +162,8 @@ treat as design intent until validated by the [test bench](../08-test-bench.md).
 |------------|-----------|--------------|-------|
 | `<1.1`     | – | – (detect-only) | bun emits binary only; library detects + rejects |
 | `>=1.1 <1.2` | RW (opt-in) | – (detect-only) | text via `--save-text-lockfile` |
-| `>=1.2`    | RW (default) | – (detect-only) | text default; legacy binary in repos still detected |
+| `>=1.2 <1.4` | RW (default) | – (detect-only) | text default; writes `lockfileVersion: 1`; legacy binary in repos still detected |
+| `>=1.4`    | RW (default) | – (detect-only) | writes `lockfileVersion: 2` for a NEW lock, keeps an existing `1` at `1` |
 
 `bun-binary` is a **permanent non-goal** — see
 [`bun-binary.md`](./bun-binary.md). Users with `bun.lockb` files must

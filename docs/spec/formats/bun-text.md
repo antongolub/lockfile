@@ -1,7 +1,7 @@
 # `bun-text` — bun `bun.lock`
 
-> Status: stable (adapter + round-trip tested; bun audit-fix native remediation still absent upstream).
-> Updated: 2026-07-29
+> Status: stable (adapter + round-trip tested; two lockfile generations, both pinned).
+> Updated: 2026-09-03
 > Provenance: Official (since Bun 1.2).
 
 **Primary bun target** — audit-friendly, human-readable; all bun-related
@@ -13,14 +13,16 @@ work in v1 starts and stays here.
 
 | PM | semver range | Default? | How to opt in |
 |----|--------------|:--------:|---------------|
-| bun | `>=1.2`     | ✓ | text default since 1.2 |
+| bun | `>=1.4`     | ✓ | writes `lockfileVersion: 2` for a NEW lock; keeps an existing `1` at `1` |
+| bun | `>=1.2 <1.4` | ✓ | text default since 1.2; writes `lockfileVersion: 1` |
 | bun | `>=1.1 <1.2` | – | `bun install --save-text-lockfile` (verify exact minor of intro) |
 
 ### Readers — PM semvers that *install* from this format
 
 | PM | semver range | Notes |
 |----|--------------|-------|
-| bun | `>=1.1`     | text reader landed alongside the writer flag |
+| bun | `>=1.4`     | reads `lockfileVersion` 1 and 2 |
+| bun | `>=1.1 <1.4` | text reader landed alongside the writer flag; **refuses** `lockfileVersion: 2` |
 
 ## File
 
@@ -210,14 +212,37 @@ this is only how bun-text *carries* it.
   is a hand-authored turborepo integration fixture, not producer output —
   identifiable by its 3-slot multi-line `packages` tuples and its complete
   absence of trailing commas, neither of which bun emits.
-- `lockfileVersion: 1` for bun-text refers to bun's own text-format version,
-  unrelated to npm's `lockfileVersion: 1`. Real-world `bun.lock` files also
-  carry a sibling `configVersion` integer the adapter currently ignores.
-- The adapter intentionally accepts only current `lockfileVersion: 1`. Early
-  text locks with `lockfileVersion: 0` exist in released Bun builds but are not
-  yet supported and fail closed. An unreleased Rust-rewrite branch also emits
-  `lockfileVersion: 2`; that schema is queued separately and is not accepted as
-  current Bun behavior until it ships.
+- `lockfileVersion` for bun-text refers to bun's own text-format generation,
+  unrelated to the npm integer of the same name — which is why bun's `2` and
+  npm-2's `2` collide on detection (see below). Real-world `bun.lock` files also
+  carry a sibling `configVersion` integer the adapter preserves but does not read.
+- The adapter accepts `lockfileVersion` **1 and 2** and re-emits the one it read.
+  Early text locks with `lockfileVersion: 0` exist in released Bun builds but are
+  not supported and fail closed.
+- `lockfileVersion: 2` shipped in **bun 1.4.0**. Measured against 1.3.14 and 1.4.0
+  on a project exercising workspaces, an alias, `overrides`, optional and peer
+  dependencies with `peerDependenciesMeta`, `trustedDependencies` and the
+  `workspace:` protocol, **the two generations are byte-identical apart from that
+  integer** — the schema did not change. The generations coexist rather than
+  supersede:
+
+  | | `--frozen-lockfile` | write-enabled |
+  |---|---|---|
+  | bun 1.3.14 reading a v2 lock | **refused** | rewrites it down to `1` |
+  | bun 1.4.0 reading a v1 lock | accepted | leaves it at `1` |
+
+  So a v1 lock stays v1 under bun 1.4 and only a newly created lock is a 2.
+  Emitting `1` for a v2 source would be a rewrite the producer never performs,
+  which is why the version rides the sidecar. A graph with no bun provenance
+  still defaults to `1`.
+- **Detection collides with npm-2 from bun 1.4 on**, because npm has used the
+  integer 2 since npm 7. The `workspaces` key does not separate them by text
+  either: npm carries the same key NESTED inside `packages[""]` in its object
+  form (`{"packages": ["apps/*"]}`), which six real npm locks in the scraped
+  corpus do. Only the TOP-LEVEL position distinguishes the families, so `check`
+  parses and looks there. A document that carries all three bun markers but does
+  not parse keeps the claim, so a malformed bun lock still reaches bun's own
+  error rather than going undetected.
 - JSONC parser must tolerate trailing commas and line comments.
 - The empty-string workspace key (`""`) is the root project.
 - Project-root authority comes only from a parse-captured native root or an

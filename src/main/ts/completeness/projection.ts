@@ -1,4 +1,5 @@
 import type { Diagnostic, EdgeKind, Graph, PackageMetadataField } from '../graph.ts'
+import { isBunTextFormat } from '../api/format-contract.ts'
 import type {
   ProjectionLoss,
   ProjectionLossClass,
@@ -444,7 +445,7 @@ function npm4BunGraphShapePreflight(
   target: ReturnType<typeof targetProfileOf>,
 ): ProjectionLoss[] {
   const state = internalEvidenceOf(evidenceOf(graph))
-  if (state.source?.format !== 'npm-4' || target.format !== 'bun-text') return []
+  if (state.source?.format !== 'npm-4' || !isBunTextFormat(target.format)) return []
 
   const losses: ProjectionLoss[] = []
   const nodes = [...graph.nodes()]
@@ -530,7 +531,7 @@ export function projectionPreflightLosses(
     && !target.capabilities.catalogs) {
     losses.push(inherentFeature('catalog', target.format))
   }
-  if (target.format === 'bun-text') {
+  if (isBunTextFormat(target.format)) {
     for (const feature of ['resolution:git', 'resolution:directory'] as const) {
       if (features.has(feature)) losses.push(inherentFeature(feature, target.format))
     }

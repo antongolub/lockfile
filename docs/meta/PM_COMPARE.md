@@ -17,7 +17,7 @@ Read 2026-08-15 from the npm registry; Deno from its GitHub releases.
 | npm | 8 | 8.19.4 | 2023-02-14 | `^12.13.0 \|\| ^14.15.0 \|\| >=16.0.0` |
 | npm | 9 | 9.9.4 | 2024-12-09 | `^14.17.0 \|\| ^16.13.0 \|\| >=18.0.0` |
 | npm | 10 | 10.9.9 | 2026-07-29 | `^18.17.0 \|\| >=20.5.0` |
-| npm | 11 | 11.19.0 | 2026-07-29 | `^20.17.0 \|\| >=22.9.0` |
+| npm | 11 | 11.19.1 | 2026-07-29 | `^20.17.0 \|\| >=22.9.0` |
 | npm | 12 | 12.0.2 | 2026-07-29 | `^22.22.2 \|\| ^24.15.0 \|\| >=26.0.0` |
 | Yarn Classic | 1 | 1.22.22 | 2024-03-09 | `>=4.0.0` |
 | Yarn Berry | 2 | 2.4.3 | 2021-09-06 | `>=10.19.0` |
@@ -28,8 +28,8 @@ Read 2026-08-15 from the npm registry; Deno from its GitHub releases.
 | pnpm | 8 | 8.15.9 | 2024-07-17 | `>=16.14` |
 | pnpm | 9 | 9.15.9 | 2025-03-10 | `>=18.12` |
 | pnpm | 10 | 10.34.5 | 2026-07-10 | `>=18.12` |
-| pnpm | 11 | 11.21.0 | 2026-08-09 | `>=22.13` |
-| Bun | 1 | 1.3.14 | 2026-05-13 | — |
+| pnpm | 11 | 11.25.0 | 2026-08-09 | `>=22.13` |
+| Bun | 1 | 1.4.0 | 2026-09-01 | — |
 | Deno | 2 | 2.9.5 | 2026-08-06 | — |
 
 Every Node-hosted manager tightens its range with each major: npm 12 will not start
@@ -191,31 +191,41 @@ a `deno.lock` can hold packages no Node-family lock has anywhere to put.
   `^version` — is the same rule seen from the other side: an exact pin makes the
   allowed set a single version, leaving nothing to re-resolve.
 
-  No released binary implements it, and the reason is dated: the implementation
-  merged into Bun's `main` on **2026-08-14** (PR #38333, adding
-  `src/install/audit_fix.rs`), while the newest release is **`bun-v1.3.14`,
-  2026-05-13** — 1759 commits behind that merge. Bun cut no release for three
-  months because it is mid-rewrite in Rust, and bun.com's documentation is built
-  from `main` rather than from the release tag. At the `bun-v1.3.14` tag the same
-  documentation file contains no occurrence of `fix` at all, and the audit command
-  there points at `bun update` instead. So the published page is describing
-  unreleased work, not misdescribing shipped work.
+  **Shipped in bun 1.4.0.** The implementation merged into `main` on 2026-08-14
+  (PR #38333, `src/install/audit_fix.rs`) and reached a release with 1.4.0; the
+  row below that predicted it is kept because the prediction was the reason to
+  re-measure. Up to and including `bun-v1.3.14` (2026-05-13) no released binary
+  implemented it, bun.com's docs were built from `main` rather than the release
+  tag, and the published page therefore described unreleased work.
 
   `bun audit` itself shipped in **1.2.15** (2025-05-28); the `fix` subcommand did
   not accompany it, and an earlier attempt at one (PR #20301) was closed unmerged
   in June 2026.
 
-  **Do not detect this by exit code.** The released binary discards `fix` and still
-  exits 1 because vulnerabilities remain — indistinguishable from a real run that
-  found nothing to fix. A CI step calling `bun audit fix` therefore fails in a way
-  that reads as "vulnerable" rather than "command absent". Gate on the version, or
-  look for a `fix` entry in `bun audit --help`. And treat this row as dated: the
-  merge is in `main`, so it will likely appear in the next release.
+  **On a pre-1.4 binary, do not detect this by exit code.** Those releases discard
+  `fix` and still exit 1 because vulnerabilities remain — indistinguishable from a
+  real run that found nothing to fix. Gate on the version, or look for a `fix`
+  entry in `bun audit --help`.
 
   > **Measured** · `bun 1.3.14` · `bun audit fix` on a project pinning
   > `minimist@1.2.0` · prints the same report as `bun audit`, leaves `package.json`
   > and `bun.lock` unchanged with `minimist` still at `1.2.0`, and exits 0.
   > `bun audit <any-word>` produces identical output.
+
+  > **Measured** · `bun 1.4.0` · same project, plus `lodash@4.17.4` · `bun audit fix`
+  > reports `Fixed 12 vulnerabilities in 2 packages`, moves the lock to
+  > `minimist@1.2.6` / `lodash@4.18.0` and rewrites BOTH entries in `package.json`.
+  > `bun audit --help` lists the subcommand and `-L, --latest` ("Also apply fixes
+  > your declared ranges exclude, rewriting package.json").
+
+  **bun rewrites an exact pin without being asked**, which is where it parts from
+  npm. Measured on `bun 1.4.0`: a declared exact `"1.2.0"` becomes a declared exact
+  `"1.2.6"` under PLAIN `bun audit fix` — no `--latest`, and the result is another
+  exact pin rather than npm's widened `^`. With the declaration already a range
+  (`^1.2.0`, `~1.2.0`) that admits a safe version, install resolves there anyway
+  and the manifest is untouched. The `--latest` boundary is quoted from its own
+  help text and is NOT separately measured here — the exact-pin case reaches the
+  same version with or without it.
 
   What works today is `bun update`, which is driven by staleness rather than by
   advisories and so cannot target the vulnerable subset — it moves every dependency

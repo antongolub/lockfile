@@ -196,6 +196,7 @@ export function sourceCapabilitiesOf(
     case 'pnpm-v9':
       return { floor: pnpmV9, ambiguousDimensions: noAmbiguity() }
     case 'bun-text':
+    case 'bun-text-v2':
       return { floor: bunText, ambiguousDimensions: noAmbiguity() }
     case 'deno-v2':
     case 'deno-v3':

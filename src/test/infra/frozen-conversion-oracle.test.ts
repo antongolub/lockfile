@@ -172,6 +172,7 @@ const DENO_FORWARD_ORACLE_ALIASES = Object.freeze([
   'pm-pnpm-8',
   'pm-pnpm-10',
   'bun',
+  'pm-bun-v2',
 ] as const)
 
 function denoForwardCandidate(

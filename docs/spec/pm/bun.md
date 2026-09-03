@@ -2,7 +2,7 @@
 
 > Status: **preview** (docs+source-grounded) — bun.com/docs + oven-sh/bun source
 > & blog; selected behaviours version-pinned below.
-> Updated: 2026-06-17.
+> Updated: 2026-09-03.
 > Provenance: **Official** (bun.com/docs + oven-sh/bun source & blog).
 > Substrate: **Node.js** — see [`_common.md`](./_common.md). This doc records only
 > bun's **extension** of (and divergence from) that substrate.
@@ -149,8 +149,9 @@ How a monorepo install scopes, and the `node_modules` it leaves behind.
   `package.json` for forcing a transitive dependency's version.
   [bun.com/docs/cli/install] This is the channel an **audit-fix** uses to pin a
   vulnerable transitive onto a safe version — an **override-pin** done by hand,
-  since bun ships `bun audit` (scan) but **no `bun audit fix`**. Cross-PM
-  remediation models (and where bun sits): [`audit-fix.md §4.5`](./audit-fix.md#45-bun--scan-only).
+  and it stays the manual channel now that bun ships `bun audit fix` (1.4.0+;
+  absent up to 1.3.14). Cross-PM remediation models (and where bun sits):
+  [`audit-fix.md §4.5`](./audit-fix.md#45-bun--range-bump-shipped-in-140).
 - In `bun.lock` the forced versions surface as a top-level **`overrides`** block
   (npm-shaped) regardless of which input field declared them — see
   [`bun-text.md`](../formats/bun-text.md) for the on-disk encoding and the
@@ -442,12 +443,12 @@ on-disk encoding lives in those format specs.
   `lockfileVersion` + `workspaces` + `packages` (+ optional `overrides`,
   `patchedDependencies`, `trustedDependencies`). The full positional encoding,
   the `configVersion` sibling, and the `lockfileVersion` value (`0` in early
-  text emits, `1` in current) are specified in
+  text emits, `1` from 1.2, `2` from 1.4) are specified in
   [`bun-text.md`](../formats/bun-text.md) — **not duplicated here**.
   [bun.com/docs/pm/lockfile, bun.com/blog/bun-lock-text-lockfile]
-  This project currently accepts only v1: released early v0 text locks fail
-  closed, while an unreleased Rust-rewrite v2 remains queued until a released
-  producer and frozen oracle exist.
+  This project accepts v1 and v2 and re-emits the generation it read; both are
+  pinned in the frozen oracle (`bun` 1.3.14, `pm-bun-v2` 1.4.0). Released early
+  v0 text locks fail closed.
 - **`bun.lockb`** (binary, original; default **<1.2**) is a **detect-and-reject**
   input for this project — never parsed. Migrate with
   `bun install --save-text-lockfile --frozen-lockfile --lockfile-only` then
@@ -573,6 +574,21 @@ All bun-text ordered pairs are now contract-backed. The final sparse bun cell,
 bun-text ↔ yarn-berry-v7, pins the same workspace-rekey, canonical-resolution,
 tarball-payload, preamble, and integrity-origin boundary documented in both
 format specs and [`docs/arch/CONVERT.md`](../../arch/CONVERT.md).
+
+## Producer behaviour measured against bun 1.4.0
+
+- **`lockfileVersion` moved to 2**, and the generations coexist. 1.4.0 writes a `2`
+  for a NEW lock, accepts a `1` under `--frozen-lockfile`, and a write-enabled
+  install leaves that `1` alone. 1.3.14 refuses a `2` outright — `error: Error
+  loading lockfile: UnknownLockfileVersion` — and a write-enabled install rewrites
+  it down to `1`. The schema itself did not change: a project exercising
+  workspaces, an alias, `overrides`, optional and peer dependencies with
+  `peerDependenciesMeta`, `trustedDependencies` and the `workspace:` protocol emits
+  byte-identical locks under 1.3.14 and 1.4.0 apart from that integer — which also
+  confirms the blank-line and key-schedule rules below still hold on 1.4.
+- **`bun audit fix` ships.** See [`audit-fix.md §4.5`](./audit-fix.md#45-bun--range-bump-shipped-in-140)
+  for the measured semantics, including that it rewrites an exact pin without
+  `--latest`.
 
 ## Producer behaviour measured against bun 1.3.14
 

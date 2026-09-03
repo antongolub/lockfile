@@ -76,7 +76,15 @@ a mutable install.
 per-entry fields that have no target representation; targeting v2 or v3 additionally
 drops any non-empty JSR, workspace or redirect carrier.
 
-Yarn Classic and bun-text have one generation each, so they have no intra-family axis.
+**bun** — `bun-text` carries two lockfile generations under ONE format id, because the
+schema is the same: bun 1.4 writes `lockfileVersion: 2` where 1.3 wrote `1`, and a
+feature-rich project emits byte-identical locks under both apart from that integer.
+There is therefore no bun → bun conversion axis and no extra pair; the adapter reads
+either and re-emits the generation it read. Converting INTO `bun-text` from another
+family yields a `1`, since a graph with no bun provenance has no generation to preserve
+— which every bun release still accepts.
+
+Yarn Classic has one generation, so it has no intra-family axis.
 
 ## Show me
 
@@ -246,9 +254,11 @@ exact candidate and rejects stale or cross-project reuse, but it cannot prove an
 untrusted producer really ran the manager. Lockgraph's own CI claims are earned by
 executing the pinned binaries.
 
-The calibrated CI matrix covers npm 6–12, Yarn 1.22.22 and 2.4.3, and pnpm 6–10,
-each within its Node runtime range. Bun and later Berry generations have no bundled
-runner yet.
+The calibrated CI matrix covers npm 6–12, Yarn Classic 1.22.22, Yarn Berry 2.4.3
+through 4.17.1 (seven pinned generations), pnpm 6–10, and bun 1.3.14 + 1.4.0 — each
+within its Node runtime range where one applies. The two bun pins are deliberate: one
+writes `lockfileVersion: 1` and the other `2`, and only 1.3.14 exercises the refusal of
+a `2`.
 
 Some output is byte-identical to the manager's own, not merely acceptable to it: npm
 locks survive even a mutable `npm install`, and Berry locks re-emit the canonical

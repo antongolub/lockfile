@@ -1,5 +1,7 @@
 import type { EdgeKind, PackageMetadataField } from '../graph.ts'
-import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
+import { isDenoFormat, type FormatId,
+  isBunTextFormat,
+} from '../api/format-contract.ts'
 import {
   PACKAGE_METADATA_FIELDS,
 } from '../registry/payload.ts'
@@ -60,7 +62,7 @@ function targetManagerOf(format: FormatId): TargetManager {
   if (format.startsWith('npm-')) return 'npm'
   if (format.startsWith('yarn-')) return 'yarn'
   if (format.startsWith('pnpm-')) return 'pnpm'
-  if (format === 'bun-text') return 'bun'
+  if (isBunTextFormat(format)) return 'bun'
   if (isDenoFormat(format)) return 'deno'
   return 'lockgraph'
 }
@@ -285,6 +287,8 @@ const FORMAT_WRITERS: Partial<Record<FormatId, (v: ManagerVersion) => boolean>> 
   'pnpm-v6': v => v.major === 8,
   'pnpm-v9': v => v.major >= 9,
   'bun-text': v => v.major > 1 || (v.major === 1 && (v.minor ?? -1) >= 2),
+  // bun writes generation 2 from 1.4; below that it writes 1 and REFUSES a 2.
+  'bun-text-v2': v => v.major > 1 || (v.major === 1 && (v.minor ?? -1) >= 4),
   'yarn-berry-v4': v => v.major >= 2,
   'yarn-berry-v5': v => v.major > 3 || (v.major === 3 && (v.minor ?? -1) >= 1),
   'yarn-berry-v6': v => v.major > 3 || (v.major === 3 && (v.minor ?? -1) >= 2),
@@ -393,7 +397,8 @@ function resolvedCapabilities(
     case 'pnpm-v5': return pnpmV5(version)
     case 'pnpm-v6': return { capabilities: pnpmV6, ambiguous: [] }
     case 'pnpm-v9': return pnpmV9(version)
-    case 'bun-text': return { capabilities: bunText, ambiguous: [] }
+    case 'bun-text':
+    case 'bun-text-v2': return { capabilities: bunText, ambiguous: [] }
     case 'deno-v2':
     case 'deno-v3':
     case 'deno-v4':

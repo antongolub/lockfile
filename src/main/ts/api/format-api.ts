@@ -8,6 +8,7 @@ import type {
   TarballPayload,
 } from '../graph.ts'
 import { toTarballKey } from '../graph.ts'
+import { isBunTextFormat } from './format-contract.ts'
 import { LockfileError } from './errors.ts'
 import type {
   FormatId,
@@ -98,10 +99,10 @@ function observedPolicyCarrier(
     ? pnpmV5.getPnpmV5OverridesCanonical(graph)
     : format === 'pnpm-v6' || format === 'pnpm-v9'
       ? getPnpmOverridesCanonical(graph)
-      : format === 'bun-text'
+      : isBunTextFormat(format)
         ? bunText.getBunOverridesCanonical(graph)
         : undefined
-  return format.startsWith('pnpm-') || format === 'bun-text'
+  return format.startsWith('pnpm-') || isBunTextFormat(format)
     ? carrier ?? null
     : undefined
 }

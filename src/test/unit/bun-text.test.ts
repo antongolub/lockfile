@@ -18,6 +18,12 @@ import {
   type Graph,
 } from '../../main/ts/graph.ts'
 import { LockfileError } from '../../main/ts/api/errors.ts'
+import { detect } from '../../main/ts/api/format-api.ts'
+import {
+  check as checkV2,
+  parse as parseV2,
+  stringify as stringifyV2,
+} from '../../main/ts/formats/bun-text-v2.ts'
 
 const sriOf = (s: string): string => 'sha512-' + createHash('sha512').update(s).digest('base64')
 const MODIFIED_SRI = sriOf('modified-ms-integrity')
@@ -1697,5 +1703,64 @@ describe('buildInnerBlock', () => {
     // The bundled edge produced no inner block entry.
     expect(inner.optionalDependencies).toBeUndefined()
     expect(JSON.stringify(inner)).not.toContain('bundledep')
+  })
+})
+
+describe('bun-text-v2 — the second bun generation as its own format id', () => {
+  // bun 1.4.0 writes `lockfileVersion: 2` where 1.3 wrote `1`, and the schema is
+  // otherwise identical — measured on a project exercising workspaces, an alias,
+  // `overrides`, optional and peer deps and `trustedDependencies`. It is a separate
+  // format id anyway so a caller can ASK for a generation: converting into bun from
+  // another family has no bun source to inherit one from.
+  const v1 = fixture('simple/bun-text.lock')
+  const v2 = fixture('simple/bun-text-v2.lock')
+
+  it('each generation claims only its own integer', () => {
+    expect(check(v1)).toBe(true)
+    expect(check(v2)).toBe(false)
+    expect(checkV2(v2)).toBe(true)
+    expect(checkV2(v1)).toBe(false)
+  })
+
+  it('detects a v2 lock as bun-text-v2, ahead of npm-2 which shares the integer', () => {
+    expect(detect(v2)).toBe('bun-text-v2')
+    expect(detect(v1)).toBe('bun-text')
+  })
+
+  it('round-trips a producer v2 lock byte-identically', () => {
+    expect(stringifyV2(parseV2(v2))).toBe(v2)
+  })
+
+  it('refuses the other generation by name rather than mis-parsing it', () => {
+    expect(() => parseV2(v1)).toThrowError(/expected lockfileVersion 2/)
+    expect(() => parse(v2)).toThrowError(/expected lockfileVersion 1/)
+  })
+
+  it('the target id decides the emitted generation, so a graph can be moved between them', () => {
+    // This is the flow the split exists for: a graph with no bun provenance — or one
+    // read from the other generation — can still be emitted as either.
+    expect(stringifyV2(parse(v1))).toContain('"lockfileVersion": 2')
+    expect(stringify(parseV2(v2))).toContain('"lockfileVersion": 1')
+  })
+
+  it('does not claim an npm-2 lock whose root entry declares object workspaces', () => {
+    // npm carries the same `workspaces` key NESTED inside packages[""], as the
+    // yarn-style object form. Once bun took the integer 2, a whole-file regex read
+    // six real npm locks in the corpus as bun; only the TOP-LEVEL position separates
+    // them, which is why the check parses rather than scanning.
+    const npm2 = JSON.stringify({
+      name: 'npm-prune',
+      version: '0.0.0',
+      lockfileVersion: 2,
+      requires: true,
+      packages: {
+        '': { name: 'npm-prune', version: '0.0.0', workspaces: { packages: ['apps/*'] } },
+      },
+      dependencies: {},
+    }, null, 2)
+
+    expect(check(npm2)).toBe(false)
+    expect(checkV2(npm2)).toBe(false)
+    expect(detect(npm2)).toBe('npm-2')
   })
 })
