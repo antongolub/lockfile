@@ -138,6 +138,14 @@ definitively, even when that answer is 'required'):
 3. **Cache / registry (rungs 3–4).** Strictly opt-in — see the posture note
    under [Degradation rules](#degradation-rules).
 
+The opposite direction is not symmetric with this ladder. Converting **out of**
+yarn-berry needs no reconstruction: berry parse captures `peerDependencies` and the
+modelled `peerDependenciesMeta.*.optional` booleans onto the payload, which is the
+last rung every non-berry emitter reads
+([`_common.md` §1.4](./_common.md#14-entry-internal-field-schedule)). The verbatim
+berry sidecar keeps precedence for berry → berry, so same-format replay is
+byte-unchanged.
+
 ## Quirks
 
 - Brand-new (released 2026-04-16) — most of the ecosystem still writes

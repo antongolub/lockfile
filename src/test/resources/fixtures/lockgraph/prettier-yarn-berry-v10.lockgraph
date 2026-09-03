@@ -2826,27 +2826,78 @@ E 1788
 1016	1015	dep	^21.1.1
 1024	564	dep	^3.1.11
 1024	565	dep	^1.1.0
-F 55
+F 115
 0	bin.prettier=./bin/prettier.cjs
+12	peerDependencies.@babel/core=^7.0.0
 21	bin.parser=./bin/babel-parser.js
 22	bin.parser=./bin/babel-parser.js
-268	bin.prettier-next=dist/bin.js
-272	bin.browsers=lib/main-cli.js
+23	peerDependencies.@babel/core=^7.0.0-0
+24	peerDependencies.@babel/core=^7.0.0-0
+25	peerDependencies.@babel/core=^7.0.0-0
+26	peerDependencies.@babel/core=^7.0.0-0
+27	peerDependencies.@babel/core=^7.0.0-0
+28	peerDependencies.@babel/core=^7.0.0-0
+29	peerDependencies.@babel/core=^7.0.0-0
+30	peerDependencies.@babel/core=^7.0.0-0
+31	peerDependencies.@babel/core=^7.0.0-0
+32	peerDependencies.@babel/core=^7.0.0-0
+33	peerDependencies.@babel/core=^7.0.0-0
+34	peerDependencies.@babel/core=^7.0.0-0
+35	peerDependencies.@babel/core=^7.0.0-0
+36	peerDependencies.@babel/core=^7.0.0-0
+37	peerDependencies.@babel/core=^7.0.0-0
+38	peerDependencies.@babel/core=^7.0.0-0
+39	peerDependencies.@babel/core=^7.0.0-0
+95	peerDependencies.@cspell/dict-css=^4.1.1	peerDependencies.@cspell/dict-html=^4.0.15	peerDependencies.@cspell/dict-html-symbol-entities=^4.0.5	peerDependencies.@cspell/dict-typescript=^3.2.3
+151	peerDependencies.eslint=^6.0.0 || ^7.0.0 || >=8.0.0
+156	peerDependencies.eslint=^10.0.0	peerDependenciesMeta.eslint.optional=true
+174	peerDependencies.node-notifier=^8.0.1 || ^9.0.0 || ^10.0.0	peerDependenciesMeta.node-notifier.optional=true
+183	peerDependencies.node-notifier=^8.0.1 || ^9.0.0 || ^10.0.0	peerDependenciesMeta.node-notifier.optional=true
+196	peerDependencies.keyv=^5.6.0
+200	peerDependencies.@emnapi/core=^1.7.1	peerDependencies.@emnapi/runtime=^1.7.1
+268	peerDependencies.prettier=^3.1.0 || ^4.0.0-alpha	bin.prettier-next=dist/bin.js
+272	peerDependencies.proxy-agent=>=8.0.1	peerDependenciesMeta.proxy-agent.optional=true	bin.browsers=lib/main-cli.js
+279	peerDependencies.eslint=^9.0.0 || ^10.0.0
+304	peerDependencies.@typescript-eslint/parser=^8.60.0	peerDependencies.eslint=^8.57.0 || ^9.0.0 || ^10.0.0	peerDependencies.typescript=>=4.8.4 <6.1.0
+305	peerDependencies.eslint=^8.57.0 || ^9.0.0 || ^10.0.0	peerDependencies.typescript=>=4.8.4 <6.1.0
+306	peerDependencies.typescript=>=4.8.4 <6.1.0
+308	peerDependencies.typescript=>=4.8.4 <6.1.0
+309	peerDependencies.eslint=^8.57.0 || ^9.0.0 || ^10.0.0	peerDependencies.typescript=>=4.8.4 <6.1.0
+311	peerDependencies.typescript=>=4.8.4 <6.1.0
+312	peerDependencies.eslint=^8.57.0 || ^9.0.0 || ^10.0.0	peerDependencies.typescript=>=4.8.4 <6.1.0
+338	peerDependencies.acorn=^6.0.0 || ^7.0.0 || ^8.0.0
 339	bin.acorn=bin/acorn
+341	peerDependencies.@angular/compiler=>=21.0.7 || >= 21.2.0-0
+362	peerDependencies.@babel/core=^7.11.0 || ^8.0.0-0
+365	peerDependencies.@babel/core=^7.0.0 || ^8.0.0-0
+366	peerDependencies.@babel/core=^7.11.0 || ^8.0.0-beta.1
 372	bin.baseline-browser-mapping=dist/cli.cjs
-378	bin.browserslist-to-esbuild=cli/index.js
+378	peerDependencies.browserslist=*	bin.browserslist-to-esbuild=cli/index.js
 379	bin.browserslist=cli.js
-385	bin.c8=bin/c8.js
+385	peerDependencies.monocart-coverage-reports=^2	peerDependenciesMeta.monocart-coverage-reports.optional=true	bin.c8=bin/c8.js
+405	peerDependencies.devtools-protocol=*
 428	bin.cross-env=dist/bin/cross-env.js	bin.cross-env-shell=dist/bin/cross-env-shell.js
 433	bin.cspell-gitignore=bin.mjs
 435	bin.cspell-grammar=bin.mjs
+438	peerDependencies.@cspell/cspell-types=10.0.0
 439	bin.cspell=bin.mjs	bin.cspell-esm=bin.mjs
+442	peerDependenciesMeta.supports-color.optional=true
+444	peerDependencies.babel-plugin-macros=^3.1.0	peerDependenciesMeta.babel-plugin-macros.optional=true
 459	bin.editorconfig=bin/editorconfig
 472	bin.esbuild-visualizer=dist/bin/cli.js
 473	bin.esbuild=bin/esbuild
-480	bin.eslint-config-prettier=bin/cli.js
-493	bin.eslint=bin/eslint.js
+479	peerDependencies.eslint=>=6.0.0
+480	peerDependencies.eslint=>=7.0.0	bin.eslint-config-prettier=bin/cli.js
+482	peerDependencies.eslint=^9.0.0 || ^10.0.0
+483	peerDependencies.eslint=>=8
+484	peerDependencies.@typescript-eslint/eslint-plugin=^8.0.0	peerDependencies.eslint=^8.57.0 || ^9.0.0 || ^10.0.0	peerDependencies.jest=*	peerDependencies.typescript=>=4.8.4 <7.0.0	peerDependenciesMeta.@typescript-eslint/eslint-plugin.optional=true	peerDependenciesMeta.jest.optional=true	peerDependenciesMeta.typescript.optional=true
+485	peerDependencies.eslint=>=8.57.1	peerDependencies.ts-declaration-location=^1.0.6	peerDependencies.typescript=>=5.0.0	peerDependenciesMeta.ts-declaration-location.optional=true	peerDependenciesMeta.typescript.optional=true
+486	peerDependencies.eslint=>=9.38.0
+487	peerDependencies.eslint=>=5.0.0
+488	peerDependencies.eslint=>=9.38.0
+493	peerDependencies.jiti=*	peerDependenciesMeta.jiti.optional=true	bin.eslint=bin/eslint.js
 497	bin.esparse=./bin/esparse.js	bin.esvalidate=./bin/esvalidate.js
+519	peerDependencies.picomatch=^3 || ^4	peerDependenciesMeta.picomatch.optional=true
 537	bin.formatly=bin/index.mjs
 540	resolution.raw=fsevents@patch:fsevents@npm%3A2.3.3#optional!builtin<compat/fsevents>::version=2.3.3&hash=df0bf1	resolution.type=unknown	nativeResolution=fsevents@patch:fsevents@npm%3A2.3.3#optional!builtin<compat/fsevents>::version=2.3.3&hash=df0bf1
 556	bin.glob=dist/esm/bin.mjs
@@ -2854,8 +2905,12 @@ F 55
 603	bin.is-docker=cli.js
 604	bin.is-docker=cli.js
 612	bin.is-inside-container=cli.js
-638	bin.jest=./bin/jest.js
-664	bin.jest=./bin/jest.js
+638	peerDependencies.node-notifier=^8.0.1 || ^9.0.0 || ^10.0.0	peerDependenciesMeta.node-notifier.optional=true	bin.jest=./bin/jest.js
+639	peerDependencies.@types/node=*	peerDependencies.esbuild-register=>=3.4.0	peerDependencies.ts-node=>=9.0.0	peerDependenciesMeta.@types/node.optional=true	peerDependenciesMeta.esbuild-register.optional=true	peerDependenciesMeta.ts-node.optional=true
+646	peerDependencies.jest=^27.5.0 || ^28.0.0 || ^29.0.0|| ^30.0.0
+650	peerDependencies.jest-resolve=*	peerDependenciesMeta.jest-resolve.optional=true
+661	peerDependencies.jest=^30.0.0
+664	peerDependencies.node-notifier=^8.0.1 || ^9.0.0 || ^10.0.0	peerDependenciesMeta.node-notifier.optional=true	bin.jest=./bin/jest.js
 665	bin.jiti=lib/jiti-cli.mjs
 668	bin.js-yaml=bin/js-yaml.js
 669	bin.js-yaml=bin/js-yaml.js
@@ -2869,16 +2924,21 @@ F 55
 780	bin.nopt=bin/nopt.js
 783	bin.npm-run-all=bin/npm-run-all/index.js	bin.npm-run-all2=bin/npm-run-all/index.js	bin.run-p=bin/run-p/index.js	bin.run-s=bin/run-s/index.js
 817	bin.pidtree=bin/pidtree.js
+824	peerDependencies.postcss=^8.3.5
+826	peerDependencies.postcss=^8.4.29
 832	bin.prettier=bin/prettier.cjs
 842	bin.puppeteer=lib/puppeteer/node/cli.js
 851	bin.regexp-tree=bin/regexp-tree
 853	bin.regjsparser=bin/parser
+863	peerDependencies.rollup=^1.0.0 || ^2.0.0 || ^3.0.0 || ^4.0.0
 870	bin.semver=bin/semver.js
 871	bin.semver=bin/semver.js
+946	peerDependencies.typescript=>=4.8.4
 956	bin.tsc=bin/tsc	bin.tsserver=bin/tsserver
 957	bin.tsc=bin/tsc	bin.tsserver=bin/tsserver	resolution.raw=typescript@patch:typescript@npm%3A6.0.3#optional!builtin<compat/typescript>::version=6.0.3&hash=5786d5	resolution.type=unknown	nativeResolution=typescript@patch:typescript@npm%3A6.0.3#optional!builtin<compat/typescript>::version=6.0.3&hash=5786d5
-979	bin.update-browserslist-db=cli.js
+979	peerDependencies.browserslist=>= 4.21.0	bin.update-browserslist-db=cli.js
 995	bin.node-which=./bin/node-which
 996	bin.node-which=bin/which.js
 997	bin.node-which=bin/which.js
+1004	peerDependencies.bufferutil=^4.0.1	peerDependencies.utf-8-validate=>=5.0.2	peerDependenciesMeta.bufferutil.optional=true	peerDependenciesMeta.utf-8-validate.optional=true
 1014	bin.yaml=bin.mjs

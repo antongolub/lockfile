@@ -96,7 +96,8 @@ export interface TarballPayload {
   // `peer` EDGE for an unresolved/optional peer (there is no target node in the
   // graph), and a minted node has no parse sidecar, so without this the berry emit
   // drops both blocks and `yarn install --immutable` re-adds them (YN0028). Parsed
-  // berry nodes round-trip via the berry sidecar instead; non-yarn emitters ignore these.
+  // berry nodes also populate these canonical facts for strict output-graph comparison,
+  // while their sidecar remains the verbatim same-format replay authority.
   peerDependencies?:     Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
   // ADR-0014 §4.F3 — typed canonical resolution. Distinct from

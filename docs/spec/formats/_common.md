@@ -219,6 +219,24 @@ than replayed:
 Parsed entries always re-emit their verbatim sidecar; these composers fire ONLY when
 it is absent, so a same-format round-trip is byte-unchanged.
 
+**Parsed entries ALSO carry the canonical peer declarations on the payload — not
+only minted ones.** The npm reader (`tarballPayloadOf`) and the pnpm reader
+(`pnpmPackagePayload`) stamp `peerDependencies` / `peerDependenciesMeta.optional`
+onto the payload while parsing. yarn-berry did not, which made berry the one source
+family whose peer declarations were reachable only through its own verbatim
+sidecar — and a sidecar is same-format-only, so every conversion OUT of berry
+dropped both blocks.
+
+The payload is the last rung of each emitter's declaration ladder (npm: composed
+manifest blocks → npm node sidecar → payload), so capturing it on berry parse is
+what makes `yarn-berry → npm-* / pnpm-* / lockgraph` carry the blocks those formats
+record natively. The verbatim sidecar keeps precedence, so a berry → berry
+round-trip stays byte-unchanged.
+
+Peer declarations are DECLARATIONS, not layout. The blocks are additive to entry
+bodies and move neither npm's `node_modules/…` key set nor pnpm's `snapshots:`
+section, so frozen-install acceptance is unaffected by their presence.
+
 ### 1.5 Quoting — the SYML quoting predicate
 
 A SYML key or value scalar is emitted **unquoted iff it matches the single

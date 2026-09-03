@@ -6,7 +6,8 @@
 // only completion's carried the peer blocks before this fix, so the bumped node lost them.
 
 import { describe, expect, it } from 'vitest'
-import { stringify } from '../../main/ts/index.ts'
+import { parse, stringify } from '../../main/ts/index.ts'
+import { canonicalProjectionGraphSnapshot } from '../../main/ts/api/format-api.ts'
 import { replaceVersion } from '../../main/ts/modify/replace-version.ts'
 import { addDependency } from '../../main/ts/modify/add-dependency.ts'
 import type { Packument, RegistryAdapter } from '../../main/ts/registry/types.ts'
@@ -19,7 +20,13 @@ const registry: RegistryAdapter = {
       name, distTags: { latest: '2.0.9' },
       versions: {
         '2.0.6': { name, version: '2.0.6' },
-        '2.0.9': { name, version: '2.0.9', peerDependencies: { '@types/express': '^4.17.13' }, peerDependenciesMeta: { '@types/express': { optional: true } } },
+        '2.0.9': {
+          name,
+          version: '2.0.9',
+          tarball: 'https://registry.npmjs.org/hpm/-/hpm-2.0.9.tgz',
+          peerDependencies: { '@types/express': '^4.17.13' },
+          peerDependenciesMeta: { '@types/express': { optional: true } },
+        },
       },
     }
     return undefined
@@ -34,7 +41,7 @@ const registry: RegistryAdapter = {
 describe('modify mint paths preserve peer blocks (yaf hpm bump → berry frozen-clean)', () => {
   it('replaceVersion: the bumped node keeps peerDependencies / peerDependenciesMeta on its payload AND in emit', async () => {
     const graph = graphOf(b => {
-      const ws = addPackage(b, { name: 'app', version: '0.0.0', workspacePath: '.' })
+      const ws = addPackage(b, { name: 'app', version: '0.0.0', workspacePath: '' })
       const old = addPackage(b, { name: 'hpm', version: '2.0.6' })
       addEdge(b, ws, old, 'dep', '^2.0.0')
     })
@@ -49,6 +56,19 @@ describe('modify mint paths preserve peer blocks (yaf hpm bump → berry frozen-
     expect(out).toContain('peerDependencies:')
     expect(out).toContain('"@types/express": ^4.17.13')
     expect(out).toMatch(/peerDependenciesMeta:\n\s+"@types\/express":\n\s+optional: true/)
+
+    // The emitted declarations are canonical payload facts, not only a berry
+    // sidecar replay hint. A strict output probe reparses the lock and compares
+    // payloads, so both blocks must survive that boundary too.
+    const reparsed = parse('yarn-berry-v8', out)
+    expect(reparsed.tarballOf('hpm@2.0.9')?.peerDependencies).toEqual({
+      '@types/express': '^4.17.13',
+    })
+    expect(reparsed.tarballOf('hpm@2.0.9')?.peerDependenciesMeta).toEqual({
+      '@types/express': { optional: true },
+    })
+    expect(canonicalProjectionGraphSnapshot(reparsed, 'yarn-berry-v8', 'snapshot'))
+      .toBe(canonicalProjectionGraphSnapshot(bumped, 'yarn-berry-v8', 'snapshot'))
   })
 
   it('addDependency: the added node keeps its peer blocks', async () => {
