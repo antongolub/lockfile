@@ -142,6 +142,7 @@ export {
   type LiveRegistryConfigOptions,
   type LiveRegistryDirectOptions,
   type LiveRegistryDiscoveryOptions,
+  type Ecosystem,
   type LiveRegistryOptions,
   type Packument,
   type PackumentVersion,

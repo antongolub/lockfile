@@ -23,6 +23,7 @@ export type FormatId =
   | 'pnpm-v6'
   | 'pnpm-v9'
   | 'bun-text'
+  | 'bun-text-v2'
   | 'deno-v2'
   | 'deno-v3'
   | 'deno-v4'
@@ -31,6 +32,13 @@ export type FormatId =
 
 export type DenoFormatId = Extract<FormatId, `deno-v${string}`>
 export type YarnBerryFormatId = Extract<FormatId, `yarn-berry-v${string}`>
+/** Both bun lockfile generations. `bun-text` is generation 1 — it keeps its
+ *  published name rather than being renamed to `bun-text-v1`. */
+export type BunTextFormatId = Extract<FormatId, 'bun-text' | 'bun-text-v2'>
+
+export function isBunTextFormat(format: string): format is BunTextFormatId {
+  return format === 'bun-text' || format === 'bun-text-v2'
+}
 
 export function isDenoFormat(format: string): format is DenoFormatId {
   return format === 'deno-v2'

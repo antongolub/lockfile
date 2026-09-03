@@ -36,6 +36,11 @@ const declarationFiles = files.filter(rel => rel.endsWith('.d.ts'))
 // deprecations that are part of public compatibility contracts.
 const publicDeprecations = [
   {
+    path: 'api/public/registry.d.ts',
+    anchor: 'export type Ecosystem = RegistryConfigDialect;',
+    marker: '/** @deprecated Use RegistryConfigDialect. The type is unchanged. */',
+  },
+  {
     path: 'enrich/refurbish.d.ts',
     anchor: 'export interface TarballSource extends NpmTarballSource {',
     marker: '/** @deprecated Pass RefurbishSources so npm tarballs and Yarn cache checksum evidence cannot be conflated. */',

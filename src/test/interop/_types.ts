@@ -19,6 +19,7 @@ export type FormatId =
   | 'pnpm-v6'
   | 'pnpm-v9'
   | 'bun-text'
+  | 'bun-text-v2'
   | 'deno-v2'
   | 'deno-v3'
   | 'deno-v4'

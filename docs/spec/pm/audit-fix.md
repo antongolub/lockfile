@@ -1,7 +1,7 @@
 # `audit-fix` — vulnerability remediation across package managers
 
 > Status: **preview** (source-derived) — grounded in the real npm (6 / 10 / 11), pnpm (6 / 9 / 10), and `yarn-audit-fix` source read on 2026-07-06, not only docs.
-> Updated: 2026-07-06.
+> Updated: 2026-09-03.
 > Provenance: **Source-derived** — the fix ALGORITHM and the `--force` semantics below are read out of each PM's shipped source (`@npmcli/arborist`, npm's `lib/`, the pnpm bundle) and cross-checked against `yarn-audit-fix`. File references are the ground truth; the running CLIs confirm the surface.
 > Family: cross-cutting — this is the **driver feature** of the whole library ([`00-overview`](../00-overview.md)); the advisory transport it consumes lives in [`spec/registry/_common.md §8`](../registry/_common.md#8-advisories--audit-api).
 
@@ -58,7 +58,7 @@ Bun's endpoint is unconfirmed (open question in [`registry/bun.md`](../registry/
 
 | | **Range-bump** | **Override-pin** |
 |---|---|---|
-| PMs | npm, yarn-classic / berry (via `yarn-audit-fix`) | pnpm; bun's manual channel |
+| PMs | npm, bun (>=1.4), yarn-classic / berry (via `yarn-audit-fix`) | pnpm; bun's manual `overrides` channel |
 | edits | the **declared range** of the dependency that pulls the vuln, in the manifest, + the lockfile | an **`overrides` entry** keyed by the vulnerable package, in the manifest only |
 | fixes at | the **consumer** (whoever declared the range) | the **source** (the vulnerable node itself, anywhere in the tree) |
 | transitive vulns | reached indirectly — re-resolve the declaring edge to a version whose closure is clean | reached directly — the override pins the vulnerable package everywhere |
@@ -148,12 +148,32 @@ declared range from the **manifest** directly. Without that, a yarn-classic defa
 would silently apply out-of-range direct-dep bumps that npm's edge-aware default
 withholds. (berry locks embed the workspace deps, so they are not blind this way.)
 
-### 4.5 bun — scan only
+### 4.5 bun — range-bump, shipped in 1.4.0
 
-`bun audit` (bun ≥ 1.2.15) queries the npm advisory API and reports; there is **no
-`bun audit fix`**. The manual channel is bun's honouring of BOTH npm `overrides` and
-yarn `resolutions`, which surface as a top-level `overrides` block in `bun.lock` — an
-override-pin done by hand. Bun's blunt automatic option is `bun update`.
+`bun audit` (bun >= 1.2.15) queries the npm advisory API and reports. **`bun audit fix`
+ships from bun 1.4.0** (merged to `main` 2026-08-14 as `src/install/audit_fix.rs`); on
+1.3.14 and earlier the subcommand word was discarded and the command behaved as a plain
+scan.
+
+Measured on `bun 1.4.0`, a project pinning `minimist@1.2.0` and `lodash@4.17.4`:
+`bun audit fix` reports `Fixed 12 vulnerabilities in 2 packages`, moves the lock to
+`1.2.6` / `4.18.0`, and rewrites both entries in `package.json`. So bun is a
+**range-bump** PM, not scan-only — but with a divergence worth pinning:
+
+- **It rewrites an exact pin without `--latest`.** A declared exact `"1.2.0"` becomes a
+  declared exact `"1.2.6"` under the plain command. npm treats an exact pin as the
+  boundary `--force` exists to cross, and widens to `^`; bun crosses it unasked and
+  writes another exact pin.
+- A declaration that is already a range admitting a safe version (`^1.2.0`, `~1.2.0`)
+  resolves there at install time, so the fix has nothing to do and the manifest is
+  untouched.
+- `-L, --latest` is documented as "Also apply fixes your declared ranges exclude,
+  rewriting package.json". **Quoted from its help text, not separately measured** — the
+  exact-pin case above reaches the same version with or without it.
+
+The manual channel remains available and is unchanged: bun honours BOTH npm `overrides`
+and yarn `resolutions`, which surface as a top-level `overrides` block in `bun.lock`.
+Bun's blunt automatic option is still `bun update`.
 
 ### 4.6 deno — scan only; the documented fixer does not apply a fix
 
@@ -195,12 +215,35 @@ crosses the contract by design and has no such flag.
 | **yarn (yaf)** | in-range only; flags a fix that needs a major bump or that breaks a consumer's declared range | applies SemVer-major upgrades and rewrites the declaring `package.json` range |
 | **pnpm** | — (no flag) — an override applies the patched range whether or not it is a major bump | — |
 | **deno** | — (no flag) — `deno audit fix` stays inside the declared constraints (nearest patched satisfying version) | — (no breaking-bump escape hatch documented) |
-| **bun** | — (no fix command) | — |
+| **bun** | — (no flag) — plain `bun audit fix` already crosses an exact pin and rewrites it to another exact pin | `-L, --latest` — "also apply fixes your declared ranges exclude" (help text; not separately measured) |
 
 Invariant across the range-bump PMs: **`--force` does NOT rewrite an existing
 `overrides` / `resolutions` pin** — a user-declared override is authority the fixer
 respects, not a range to widen. `--force` also never touches a git/file/url spec (there
 is no registry version to move to).
+
+### The exact-pin conflict — decide it, do not inherit it
+
+**bun is the outlier and the two models cannot both be right.** Every other row treats a
+declared exact pin as the user's boundary: the default withholds a fix that would cross
+it, reports it, and `--force` is the deliberate act of crossing — widening the
+declaration to a range. bun 1.4 crosses it in the DEFAULT command, unasked, and writes
+another exact pin rather than a range (measured: `"1.2.0"` → `"1.2.6"`).
+
+`yarn-audit-fix` has already chosen the first model explicitly — an exact pin the fix
+cannot satisfy is left alone and reported, and only `--force` rewrites it, widening
+rather than re-pinning — which is npm parity and is enforced across the rest of that
+tool. So **a future bun lane inherits a contradiction if it copies bun's behaviour**:
+the same flag would mean "the pin is yours" for npm and yarn and "the pin is mine" for
+bun, inside one program.
+
+The rule for this library: **the declared pin is the user's boundary on every PM**, and
+crossing it stays behind `--force`. Where that diverges from a native PM, the divergence
+is reported rather than silently matched — the same posture as everywhere else here,
+since the alternative is one flag with two meanings depending on which lockfile it was
+pointed at. Matching bun exactly is a defensible choice too, but it is a choice, and it
+has to be made once and written here rather than settled per-adapter by whoever
+implements first.
 
 ---
 
@@ -244,6 +287,7 @@ re-reads it as already-satisfied."
 - pnpm: bundled `dist/pnpm.cjs` `audit/lib/fix.js` + `audit/lib/audit.js` (`pm-pnpm-6` / `-9` / `-10`).
 - yarn: no native fix; yaf implements the range-bump model for `yarn.lock` (classic + berry) only — implemented in `antongolub/yarn-audit-fix`, a separate project, in its
   `lockfile.ts` / `stages.ts` / `cli.ts`.
-- bun: `bun audit` surface — [`docs/spec/pm/bun.md`](./bun.md); no fix command.
+- bun: `bun audit` / `bun audit fix` surface — [`docs/spec/pm/bun.md`](./bun.md); fix
+  command measured on 1.4.0, absent up to 1.3.14.
 - **Advisory endpoints (§2), verified first-hand from installed source:** npm-10 `advisories/bulk` + `/audits/quick` fallback, npm-11 `advisories/bulk` only (arborist / npm-audit-report); pnpm `${registry}-/npm/v1/security/audits` (`pnpm.cjs`, pnpm 6.35 / 9.15 / 10.0); yarn-classic `${registry}/-/npm/v1/security/audits` (`pm-yarn-1` 1.22.22 `lib/cli.js`); yarn-berry `/-/npm/v1/security/audits/quick` (`pm-yarn-2` 2.4.3 `bin/yarn.js`).
 - Advisory transport (registry side): [`spec/registry/_common.md §8`](../registry/_common.md#8-advisories--audit-api).

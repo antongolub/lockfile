@@ -275,6 +275,12 @@ const SOURCE_ADAPTER_REGISTRY: Readonly<Record<FormatId, SourceAdapterContract>>
       return bunText.enrich(graph, manifestOptions)
     },
   },
+  'bun-text-v2': {
+    enrich(graph, { manifests }) {
+      const manifestOptions = manifests === undefined ? {} : { manifests }
+      return bunText.enrich(graph, manifestOptions)
+    },
+  },
   'deno-v2': { enrich: graph => ({ graph, diagnostics: [] }) },
   'deno-v3': { enrich: graph => ({ graph, diagnostics: [] }) },
   'deno-v4': { enrich: graph => ({ graph, diagnostics: [] }) },

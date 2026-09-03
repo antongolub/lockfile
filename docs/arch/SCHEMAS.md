@@ -72,9 +72,16 @@ the resulting `bun.lock` via the `bun-text` adapter. bun's own
 binary reader stays in bun for back-compat — that is bun's
 responsibility, not ours.
 
-`bun-text` currently accepts only `lockfileVersion: 1`. Released early v0 text
-locks fail closed; an unreleased Rust-rewrite v2 is queued as a distinct future
-schema and is not detected as v1.
+`bun-text` is generation **1**; generation **2** is the separate `bun-text-v2` id, so
+the format id selects the integer rather than the source remembering it.
+Released early v0 text locks fail closed. Version 2 shipped in bun 1.4.0 and is
+the same schema — measured on a project exercising workspaces, an alias,
+`overrides`, optional/peer deps and `trustedDependencies`, the two generations
+are byte-identical apart from that integer. They coexist: bun 1.4 accepts a v1
+lock and leaves it at 1, while bun 1.3 refuses a v2 and rewrites it down, so a
+v1 lock stays v1 and only a NEW lock is a 2. Note that the integer collides with
+npm-2's; detection separates them by the TOP-LEVEL `workspaces` object, which npm
+also carries but only nested inside `packages[""]`.
 
 ## deno
 

@@ -48,16 +48,16 @@ const NON_BERRY_FORMATS: FormatId[] = [
 ]
 
 describe('interop: yarn-berry-v10 incident-pair coverage', () => {
-  it('registers all 38 ordered incident pairs exactly once', () => {
-    expect(incidentContracts).toHaveLength(38)
+  it('registers all 40 ordered incident pairs exactly once', () => {
+    expect(incidentContracts).toHaveLength(40)
     expect(new Set(incidentContracts.map(contract =>
-      `${contract.from} -> ${contract.to}`))).toHaveLength(38)
+      `${contract.from} -> ${contract.to}`))).toHaveLength(40)
   })
 
-  it('remains part of the complete 380/380 ordered-pair matrix without duplicates', () => {
-    expect(CONTRACTS).toHaveLength(380)
+  it('remains part of the complete 420/420 ordered-pair matrix without duplicates', () => {
+    expect(CONTRACTS).toHaveLength(420)
     expect(new Set(CONTRACTS.map(contract =>
-      `${contract.from} -> ${contract.to}`))).toHaveLength(380)
+      `${contract.from} -> ${contract.to}`))).toHaveLength(420)
   })
 
   it('covers both directions for every other supported format', () => {

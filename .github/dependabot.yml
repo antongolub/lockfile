@@ -55,6 +55,7 @@ updates:
           - "pm-pnpm-*"
           - "pm-yarn-*"
           - "bun"
+          - "pm-bun-*"
           - "@yarnpkg/cli-dist"
         update-types:
           - "minor"
@@ -74,6 +75,11 @@ updates:
           - "version-update:semver-minor"
           - "version-update:semver-patch"
       - dependency-name: "pm-yarn-*"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+      - dependency-name: "pm-bun-*"
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"

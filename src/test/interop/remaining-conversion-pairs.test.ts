@@ -21,6 +21,7 @@ const FORMAT_IDS: FormatId[] = [
   'pnpm-v6',
   'pnpm-v9',
   'bun-text',
+  'bun-text-v2',
   'deno-v2',
   'deno-v3',
   'deno-v4',
@@ -81,16 +82,16 @@ describe('interop: complete conversion-matrix coverage', () => {
       `${contract.from} -> ${contract.to}`))).toEqual(EXPECTED_REMAINING_PAIRS)
   })
 
-  it('covers every ordered pair among all 20 public formats exactly once', () => {
+  it('covers every ordered pair among all 21 public formats exactly once', () => {
     const registered = new Set(CONTRACTS.map(contract =>
       `${contract.from} -> ${contract.to}`))
 
-    expect(CONTRACTS).toHaveLength(380)
-    expect(registered).toHaveLength(380)
+    expect(CONTRACTS).toHaveLength(420)
+    expect(registered).toHaveLength(420)
     expect(CONTRACTS.filter(contract =>
-      contract.unsupportedReason === undefined)).toHaveLength(313)
+      contract.unsupportedReason === undefined)).toHaveLength(349)
     expect(CONTRACTS.filter(contract =>
-      contract.unsupportedReason !== undefined)).toHaveLength(67)
+      contract.unsupportedReason !== undefined)).toHaveLength(71)
     for (const from of FORMAT_IDS) {
       for (const to of FORMAT_IDS) {
         if (from !== to) expect(registered).toContain(`${from} -> ${to}`)
@@ -98,10 +99,10 @@ describe('interop: complete conversion-matrix coverage', () => {
     }
   })
 
-  it('registers 64 manifest-backed Deno outputs and 64 fail-closed Deno inputs', () => {
+  it('registers 68 manifest-backed Deno outputs and 68 fail-closed Deno inputs', () => {
     const forward = CONTRACTS.filter(contract =>
       DENO_FORWARD_PAIRS.has(`${contract.from} -> ${contract.to}`))
-    expect(forward).toHaveLength(64)
+    expect(forward).toHaveLength(68)
     expect(forward.every(contract =>
       contract.unsupportedReason === undefined
       && contract.enrichRequired?.includes('manifests') === true,
@@ -109,7 +110,7 @@ describe('interop: complete conversion-matrix coverage', () => {
 
     const reverse = CONTRACTS.filter(contract =>
       DENO_REVERSE_PAIRS.has(`${contract.from} -> ${contract.to}`))
-    expect(reverse).toHaveLength(64)
+    expect(reverse).toHaveLength(68)
     expect(new Set(reverse.map(contract =>
       `${contract.from} -> ${contract.to}`))).toEqual(DENO_REVERSE_PAIRS)
 

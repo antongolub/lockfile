@@ -34,7 +34,8 @@ export interface FrozenOracleAdapter {
   readonly nativeLockfileVersion?: 1 | 2 | 3 | 4
   readonly nativeYarnLockfileVersion?: 1 | 4 | 5 | 6 | 7 | 8 | 9 | 10
   readonly nativePnpmLockfileVersion?: '5.3' | '5.4' | '6.0' | '9.0'
-  readonly nativeBunLockfileVersion?: 1
+  /** The `lockfileVersion` this bun binary WRITES: 1 up to 1.3.x, 2 from 1.4. */
+  readonly nativeBunLockfileVersion?: 1 | 2
   readonly nodeRange?: string
   readonly nodeBinaryEnv?: 'LOCKGRAPH_PNPM6_NODE'
 }
@@ -155,9 +156,17 @@ export const FROZEN_ORACLE_MATRIX: readonly FrozenOracleAdapter[] = Object.freez
     family: 'bun', format: 'bun-text', version: '1.3.14', alias: 'bun', binName: 'bun',
     runtime: 'native', nativeBunLockfileVersion: 1,
   },
+  {
+    // bun 1.4 writes `lockfileVersion: 2` for a NEW lock while still accepting a
+    // 1 and leaving it alone, so both generations are live and both are pinned —
+    // 1.3.14 is kept as the v1 WRITER (and as the binary that refuses a v2).
+    family: 'bun', format: 'bun-text-v2', version: '1.4.0', alias: 'pm-bun-v2', binName: 'bun',
+    runtime: 'native', nativeBunLockfileVersion: 2,
+  },
 ])
 
 const LOCK_PATH: Readonly<Partial<Record<FormatId, string>>> = Object.freeze({
+  'bun-text-v2': 'bun.lock',
   'npm-1': 'package-lock.json',
   'npm-2': 'package-lock.json',
   'npm-3': 'package-lock.json',

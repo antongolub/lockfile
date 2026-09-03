@@ -80,6 +80,12 @@ export type RegistryConfigDialect =
   | 'yarn-classic'
   | 'yarn-berry'
 
+/**
+ * @deprecated Use RegistryConfigDialect. Kept so code written against the
+ * pre-`lockgraph` package name keeps compiling; the type is unchanged.
+ */
+export type Ecosystem = RegistryConfigDialect
+
 export interface RegistryConfig {
   registryFor(packageName: string): string
   authHeaderFor(registryUrl: string): string | undefined

@@ -71,6 +71,25 @@ const INDENT = '  '
 
 // === TYPES ==================================================================
 
+/**
+ * Which bun lockfile generation an adapter entry speaks.
+ *
+ * bun 1.4 writes `2` where 1.2-1.3 wrote `1`, and the schema is otherwise identical —
+ * a project exercising workspaces, an alias, `overrides`, optional and peer deps and
+ * `trustedDependencies` emits byte-identical locks under both apart from this integer.
+ * They are nonetheless separate FORMAT IDENTITIES rather than one id with a remembered
+ * integer, because a caller has to be able to ASK for a generation: converting into bun
+ * from another family has no bun source to inherit from, and a bun-1.4 user is entitled
+ * to the lock their own bun would write. That is the same reason npm-1..4, pnpm-v5/v6/v9
+ * and deno-v2..v5 are each their own id.
+ */
+export interface BunTextGeneration {
+  readonly lockfileVersion: 1 | 2
+}
+
+export const BUN_TEXT_V1: BunTextGeneration = { lockfileVersion: 1 }
+export const BUN_TEXT_V2: BunTextGeneration = { lockfileVersion: 2 }
+
 export interface BunTextParseOptions {}
 
 export interface BunTextStringifyOptions {
@@ -273,19 +292,40 @@ export function getBunOverridesCanonical(graph: Graph): OverrideConstraint[] | u
 
 // === API ====================================================================
 
-export function check(input: string): boolean {
-  // bun-text discriminant: `lockfileVersion: 1` numeric literal AND both
-  // `workspaces` + `packages` blocks present. Distinguishes from npm-1 (which
-  // carries `dependencies` instead and has no `workspaces` block) and from
-  // npm-2/npm-3 (whose `lockfileVersion` is 2 or 3).
-  if (!/"lockfileVersion"\s*:\s*1\b/.test(input)) return false
+export function check(input: string, generation: BunTextGeneration = BUN_TEXT_V1): boolean {
+  // bun-text discriminant. The two regexes are a cheap pre-filter; the structural
+  // test below is what actually decides.
+  const versionRe = new RegExp(`"lockfileVersion"\\s*:\\s*${generation.lockfileVersion}\\b`)
+  if (!versionRe.test(input)) return false
   if (!/"workspaces"\s*:\s*\{/.test(input)) return false
   if (!/"packages"\s*:\s*\{/.test(input)) return false
-  return true
+  // bun 1.4 emits `lockfileVersion: 2`, the integer npm-2 has always used, so
+  // the number no longer separates the families and `workspaces` has to. It
+  // cannot be tested by scanning the text: npm carries the SAME key nested in
+  // `packages[""]` as an object (`{"packages": ["apps/*"]}`, the yarn-style
+  // declaration), which six real npm locks in the corpus do — a whole-file
+  // regex reads those as bun. Only the TOP-LEVEL position distinguishes them,
+  // so parse and look there. npm-2's own `check` already falls back to a parse
+  // for the same reason.
+  let parsed: { workspaces?: unknown }
+  try {
+    parsed = parseJsonc(normalizeLineEndings(input)) as { workspaces?: unknown }
+  } catch {
+    // Unparseable but carrying all three bun markers: keep the claim. `parse`
+    // then reports a bun error naming the real problem, which beats `detect`
+    // returning undefined and the caller guessing.
+    return true
+  }
+  const workspaces = parsed?.workspaces
+  return workspaces !== null && typeof workspaces === 'object' && !Array.isArray(workspaces)
 }
 
-export function parse(input: string, _options: BunTextParseOptions = {}): Graph {
-  const lf = parseBunLockfile(input)
+export function parse(
+  input: string,
+  _options: BunTextParseOptions = {},
+  generation: BunTextGeneration = BUN_TEXT_V1,
+): Graph {
+  const lf = parseBunLockfile(input, generation)
   const context = createBunParseContext(lf)
 
   // --- Pass 1: register all packages entries as graph nodes ----------------
@@ -334,12 +374,17 @@ export function parse(input: string, _options: BunTextParseOptions = {}): Graph 
   return sealBunGraph(context, fidelity)
 }
 
-function parseBunLockfile(input: string): BunTextLockfile {
+function parseBunLockfile(input: string, generation: BunTextGeneration): BunTextLockfile {
   const lf = parseJsonc(normalizeLineEndings(input))
-  if (lf.lockfileVersion !== 1) {
+  // Each generation is its own format id, so each parses only its own integer —
+  // the id IS the answer to "which bun wrote this". bun 1.4 emits 2 for a NEW lock
+  // and leaves an existing 1 at 1 (measured: `--frozen-lockfile` accepts a v1 and a
+  // write-enabled install does not rewrite it), so both remain live inputs.
+  if (lf.lockfileVersion !== generation.lockfileVersion) {
     throw new LockfileError({
       code: 'FORMAT_MISMATCH',
-      message: `bun-text adapter: expected lockfileVersion 1, got ${JSON.stringify(lf.lockfileVersion)}`,
+      message: `bun-text adapter: expected lockfileVersion ${generation.lockfileVersion}, `
+        + `got ${JSON.stringify(lf.lockfileVersion)}`,
     })
   }
   if (lf.workspaces === undefined || lf.workspaces === null || typeof lf.workspaces !== 'object') {
@@ -689,7 +734,11 @@ function setBunTarball(
   }
 }
 
-export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): string {
+export function stringify(
+  graph: Graph,
+  options: BunTextStringifyOptions = {},
+  generation: BunTextGeneration = BUN_TEXT_V1,
+): string {
   const sidecar = sidecarByGraph.get(graph)
   const emitDiagnostic = (diagnostic: Diagnostic): void => options.onDiagnostic?.(diagnostic)
 
@@ -778,7 +827,9 @@ export function stringify(graph: Graph, options: BunTextStringifyOptions = {}): 
   const overridesBlock = resolveOverridesBlock(options.overrides, sidecar, emitDiagnostic)
 
   const out: Record<string, unknown> = {
-    lockfileVersion: 1,
+    // The TARGET generation, not the source's: with one id per generation the caller
+    // has already said which bun this lock is for.
+    lockfileVersion: generation.lockfileVersion,
   }
   // Top-level schedule, measured across the corpus: `packages` is LAST in every
   // one of the 173 real locks, and the reproducibility blocks sit between

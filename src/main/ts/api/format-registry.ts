@@ -26,6 +26,7 @@ import {
 } from '../formats/_yarn-berry-core.ts'
 
 import * as bunText from '../formats/bun-text.ts'
+import * as bunTextV2 from '../formats/bun-text-v2.ts'
 import {
   adapterStateSubjects as denoAdapterStateSubjects,
   hasAdapterState as hasDenoAdapterState,
@@ -193,6 +194,9 @@ const FORMAT_STATE_REGISTRY = {
   'pnpm-v6': pnpmFlatStateAdapter,
   'pnpm-v9': pnpmFlatStateAdapter,
   'bun-text': bunText,
+  // Both generations share one adapter module, so one sidecar WeakMap and one
+  // state contract — the generation is the format id, not adapter state.
+  'bun-text-v2': bunText,
   'deno-v2': denoStateAdapter,
   'deno-v3': denoStateAdapter,
   'deno-v4': denoStateAdapter,
@@ -251,6 +255,15 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
       overrides: context.overrides,
     }),
   },
+  'bun-text-v2': {
+    check: bunTextV2.check,
+    parse: input => bunTextV2.parse(input),
+    stringify: (graph, context) => bunTextV2.stringify(graph, {
+      lineEnding: context.lineEnding,
+      onDiagnostic: context.onDiagnostic,
+      overrides: context.overrides,
+    }),
+  },
   'deno-v2': denoAdapter(denoV2),
   'deno-v3': denoAdapter(denoV3),
   'deno-v4': denoAdapter(denoV4),
@@ -268,6 +281,10 @@ export const FORMAT_REGISTRY: Readonly<Record<FormatId, FormatAdapter>> = {
 // First-match order is observable behavior. Registry property order is not.
 export const DETECTION_ORDER = [
   'lockgraph',
+  // Both bun generations precede the npm family: bun's `2` and npm-2's `2` are the
+  // same integer, and only bun's TOP-LEVEL `workspaces` object separates them. Its
+  // check parses to confirm that, so leading here costs npm nothing.
+  'bun-text-v2',
   'bun-text',
   'deno-v5',
   'deno-v4',

@@ -15,6 +15,10 @@ import { parse as parsePnpmV5, stringify as stringifyPnpmV5 } from '../../main/t
 import { parse as parsePnpmV6, stringify as stringifyPnpmV6 } from '../../main/ts/formats/pnpm-v6.ts'
 import { parse as parsePnpmV9, stringify as stringifyPnpmV9 } from '../../main/ts/formats/pnpm-v9.ts'
 import { parse as parseBunText, stringify as stringifyBunText } from '../../main/ts/formats/bun-text.ts'
+import {
+  parse as parseBunTextV2,
+  stringify as stringifyBunTextV2,
+} from '../../main/ts/formats/bun-text-v2.ts'
 import { parse as parseDenoV2, stringify as stringifyDenoV2 } from '../../main/ts/formats/deno-v2.ts'
 import { parse as parseDenoV3, stringify as stringifyDenoV3 } from '../../main/ts/formats/deno-v3.ts'
 import { parse as parseDenoV4, stringify as stringifyDenoV4 } from '../../main/ts/formats/deno-v4.ts'
@@ -61,6 +65,7 @@ const PARSERS: Record<FormatId, ((lockfile: string) => Graph) | undefined> = {
   'pnpm-v6': parsePnpmV6,
   'pnpm-v9': parsePnpmV9,
   'bun-text': parseBunText,
+  'bun-text-v2': parseBunTextV2,
   'deno-v2': undefined,
   'deno-v3': undefined,
   'deno-v4': undefined,
@@ -84,6 +89,7 @@ const STRINGIFIERS: Record<FormatId, Stringifier | undefined> = {
   'pnpm-v6': { kind: 'classic', emit: stringifyPnpmV6 },
   'pnpm-v9': { kind: 'classic', emit: stringifyPnpmV9 },
   'bun-text': { kind: 'classic', emit: stringifyBunText },
+  'bun-text-v2': { kind: 'classic', emit: stringifyBunTextV2 },
   'deno-v2': { kind: 'classic', emit: stringifyDenoV2 },
   'deno-v3': { kind: 'classic', emit: stringifyDenoV3 },
   'deno-v4': { kind: 'classic', emit: stringifyDenoV4 },

@@ -24,6 +24,7 @@ const fixture = (file: string): string => readFileSync(
 
 const EXPECTED_FORMATS = [
   'bun-text',
+  'bun-text-v2',
   'deno-v2',
   'deno-v3',
   'deno-v4',
@@ -48,6 +49,7 @@ const EXPECTED_FORMATS = [
 
 const EXPECTED_DETECTION_ORDER = [
   'lockgraph',
+  'bun-text-v2',
   'bun-text',
   'deno-v5',
   'deno-v4',

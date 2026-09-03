@@ -6,7 +6,9 @@ import {
   type ProjectionLoss,
   type ProjectionRemedy,
 } from '../api/errors.ts'
-import { isDenoFormat, type FormatId } from '../api/format-contract.ts'
+import { isDenoFormat, type FormatId,
+  isBunTextFormat,
+} from '../api/format-contract.ts'
 import type { FileSource } from '../api/operation.ts'
 import {
   assessedDiagnostic,
@@ -583,7 +585,7 @@ function targetLockPath(format: FormatId): string {
   if (format.startsWith('npm-')) return 'package-lock.json'
   if (format.startsWith('yarn-')) return 'yarn.lock'
   if (format.startsWith('pnpm-')) return 'pnpm-lock.yaml'
-  if (format === 'bun-text') return 'bun.lock'
+  if (isBunTextFormat(format)) return 'bun.lock'
   if (isDenoFormat(format)) return 'deno.lock'
   return 'lockgraph.lockgraph'
 }
@@ -610,7 +612,7 @@ function frozenProjectionDigest(
 }
 
 function overrideSetKey(overrides: readonly OverrideConstraint[], target: FormatId): string {
-  const manager = target === 'bun-text' ? 'bun' : target.startsWith('pnpm-') ? 'pnpm' : 'npm'
+  const manager = isBunTextFormat(target) ? 'bun' : target.startsWith('pnpm-') ? 'pnpm' : 'npm'
   const origin = manager === 'bun' ? 'npm' : manager
   const entries = overrides.map((override, index) => ({
     key: JSON.stringify([
@@ -742,7 +744,7 @@ function outputProbe(
     } else {
       const targetState = internalEvidenceOf(evidenceOf(reparsed))
       const targetCarrier = targetState.observedPolicyCarrier
-      const expectsCarrierAttribution = target.startsWith('pnpm-') || target === 'bun-text'
+      const expectsCarrierAttribution = target.startsWith('pnpm-') || isBunTextFormat(target)
       if (expectsCarrierAttribution && targetCarrier === undefined) {
         diagnostics.push(assessedDiagnostic(
           'COMPLETENESS_OUTPUT_POLICY_ATTRIBUTION_MISSING',
